@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     GMAIL_SCOPES: List[str] = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify"]
     GMAIL_POLL_INTERVAL_SECONDS: int = 60
 
+    # ── Voice (STT / TTS) ────────────────────────────────
+    WHISPER_MODEL: str = "tiny"  # tiny | base | small | medium | large
+    TTS_VOICE: str = "en-GB-RyanNeural"  # edge-tts voice name
+    TTS_RATE: str = "+10%"  # speech rate adjustment
+    TTS_PITCH: str = "-0Hz"  # pitch adjustment
+    UPLOADS_DIR: str = "uploads"  # directory for temp audio files
+    AUDIO_CLEANUP_DELAY_SECONDS: int = 300  # delete audio files after N seconds
+
     # ── Logging ──────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 

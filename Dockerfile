@@ -8,12 +8,12 @@ WORKDIR /app
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev \
+    build-essential libpq-dev ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
 # App code
