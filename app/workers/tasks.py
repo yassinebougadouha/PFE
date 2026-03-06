@@ -223,3 +223,85 @@ def sync_all_gmail_accounts():
             db.rollback()
             logger.exception("Periodic Gmail sync failed")
             return {"status": "error"}
+
+
+# ── WhatsApp tasks ────────────────────────────────────────
+
+@celery_app.task(name="app.workers.tasks.process_whatsapp_incoming_task", bind=True, max_retries=3)
+def process_whatsapp_incoming_task(
+    self,
+    from_number: str,
+    body: str,
+    sender_name: str = "Unknown",
+    message_id: str | None = None,
+):
+    """
+    Process an incoming WhatsApp message: find-or-create User + Conversation,
+    then add a Message — just like chat.
+    Fired by the webhook endpoints.
+    """
+    from app.services.whatsapp_service import WhatsAppSyncService
+
+    logger.info(f"Processing incoming WhatsApp message from {from_number}")
+    with SyncSession() as db:
+        try:
+            svc = WhatsAppSyncService(db)
+            conv, msg = svc.create_conversation_from_message(
+                from_number=from_number,
+                body=body,
+                sender_name=sender_name,
+                message_id=message_id,
+            )
+            db.commit()
+
+            logger.info(
+                f"WhatsApp message processed: {from_number} → "
+                f"conversation={conv.id}, message={msg.id}"
+            )
+            return {
+                "status": "processed",
+                "conversation_id": str(conv.id),
+                "message_id": str(msg.id),
+            }
+
+        except Exception as exc:
+            db.rollback()
+            logger.exception(f"Failed to process WhatsApp message from {from_number}")
+            raise self.retry(exc=exc, countdown=30)
+
+
+@celery_app.task(name="app.workers.tasks.record_whatsapp_outbound_task")
+def record_whatsapp_outbound_task(
+    to_number: str,
+    body: str,
+    wa_message_id: str | None = None,
+    user_id: str | None = None,
+    conversation_id: str | None = None,
+):
+    """
+    Record an outbound WhatsApp message as a Message in the conversation.
+    Fired after a successful send_message().
+    """
+    from app.services.whatsapp_service import WhatsAppSyncService
+
+    logger.info(f"Recording outbound WhatsApp message to {to_number}")
+    with SyncSession() as db:
+        try:
+            svc = WhatsAppSyncService(db)
+            msg = svc.record_outbound_message(
+                to_number=to_number,
+                body=body,
+                wa_message_id=wa_message_id,
+                user_id=uuid.UUID(user_id) if user_id else None,
+                conversation_id=uuid.UUID(conversation_id) if conversation_id else None,
+            )
+            db.commit()
+            if msg:
+                logger.info(f"Outbound recorded: msg={msg.id} → {to_number}")
+                return {"status": "recorded", "message_id": str(msg.id)}
+            return {"status": "no_conversation_found"}
+
+        except Exception:
+            db.rollback()
+            logger.exception(f"Failed to record outbound to {to_number}")
+            return {"status": "error"}

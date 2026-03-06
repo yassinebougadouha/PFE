@@ -26,11 +26,18 @@ class UserService:
         if existing:
             raise ValueError("A user with this email already exists.")
 
+        # Check phone uniqueness if provided
+        if payload.phone_number:
+            phone_exists = await self.get_by_phone(payload.phone_number)
+            if phone_exists:
+                raise ValueError("A user with this phone number already exists.")
+
         user = User(
             email=payload.email,
             hashed_password=hash_password(payload.password),
             full_name=payload.full_name,
             role=payload.role,
+            phone_number=payload.phone_number,
         )
         self.db.add(user)
         await self.db.flush()
@@ -46,6 +53,16 @@ class UserService:
     async def get_by_email(self, email: str) -> Optional[User]:
         result = await self.db.execute(
             select(User).where(User.email == email, User.is_deleted == False)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_phone(self, phone_number: str) -> Optional[User]:
+        """Look up a user by phone number."""
+        result = await self.db.execute(
+            select(User).where(
+                User.phone_number == phone_number,
+                User.is_deleted == False,
+            )
         )
         return result.scalar_one_or_none()
 

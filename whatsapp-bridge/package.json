@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-web-bridge",
+  "version": "2.0.0",
+  "description": "WhatsApp bridge — wraps @whiskeysockets/baileys behind a REST API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "express": "^4.18.2",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "axios": "^1.7.2"
+  }
+}

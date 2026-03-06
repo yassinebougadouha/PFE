@@ -29,6 +29,9 @@ celery_app.conf.update(
         "app.workers.tasks.log_action_task": {"queue": "logging"},
         "app.workers.tasks.sync_gmail_for_user_task": {"queue": "gmail"},
         "app.workers.tasks.sync_all_gmail_accounts": {"queue": "gmail"},
+        "app.workers.tasks.process_whatsapp_incoming_task": {"queue": "whatsapp"},
+        "app.workers.tasks.record_whatsapp_outbound_task": {"queue": "whatsapp"},
+        "app.decision_engine.tasks.analyze_ticket_task": {"queue": "decision"},
     },
     # Celery Beat schedule — periodic tasks
     beat_schedule={
@@ -39,4 +42,4 @@ celery_app.conf.update(
     },
 )
 
-celery_app.autodiscover_tasks(["app.workers"])
+celery_app.autodiscover_tasks(["app.workers", "app.decision_engine"])

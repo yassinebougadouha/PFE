@@ -75,7 +75,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q emails,logging,gmail,celery
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q emails,logging,gmail,whatsapp,decision,celery
 
   # ── Celery Beat (periodic scheduler) ─────────
   celery_beat:
@@ -115,6 +115,26 @@ services:
         condition: service_healthy
     command: celery -A app.workers.celery_app flower --port=5555
 
+  # ── WhatsApp Web Bridge (unofficial) ───────────
+  whatsapp_bridge:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: Dockerfile
+    container_name: support_whatsapp_bridge
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      WEBHOOK_URL: http://api:8000/api/v1/whatsapp/bridge/webhook
+      API_KEY: ${WHATSAPP_BRIDGE_API_KEY:-}
+    volumes:
+      - wa_bridge_data:/data
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
+  wa_bridge_data:

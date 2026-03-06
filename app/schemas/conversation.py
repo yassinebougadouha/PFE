@@ -48,6 +48,7 @@ class MessageResponse(BaseModel):
     sender_id: uuid.UUID
     content: str
     is_internal: bool
+    is_read: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}

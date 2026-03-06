@@ -18,10 +18,18 @@ from app.db.models.ticket import Ticket
 from app.db.models.email import Email
 from app.db.models.audit_log import AuditLog
 from app.db.models.gmail_credential import GmailCredential
+from app.decision_engine.enums import (
+    IntentCategory,
+    DecisionOutcome,
+    RiskLevel,
+    ConfidenceLevel,
+)
+from app.decision_engine.models import DecisionLog, AgentSkill
 
 __all__ = [
     "UserRole", "UserStatus", "ChannelType", "ConversationStatus",
     "TicketStatus", "TicketPriority", "EmailStatus", "AuditAction",
+    "IntentCategory", "DecisionOutcome", "RiskLevel", "ConfidenceLevel",
     "User", "Conversation", "Message", "Ticket", "Email", "AuditLog",
-    "GmailCredential",
+    "GmailCredential", "DecisionLog", "AgentSkill",
 ]

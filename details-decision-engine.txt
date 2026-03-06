@@ -1,0 +1,1868 @@
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                ║
+║            AI DECISION ENGINE — COMPLETE TECHNICAL DOCUMENTATION               ║
+║                                                                                ║
+║            Sprint 2: Adaptive Decision Engine for Support Tickets              ║
+║            Version: 1.0  |  Date: March 2026                                  ║
+║                                                                                ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TABLE OF CONTENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1.  Overview & Purpose
+  2.  Architecture Overview
+  3.  File Structure & Module Map
+  4.  Pipeline Flow Diagram
+  5.  Module 1: Intent Classifier (classifier.py)
+  6.  Module 2: Risk & Confidence Scorer (scorer.py)
+  7.  Module 3: Rule-Based Decision Logic (rules.py)
+  8.  Module 4: Decision Engine Orchestrator (decision_engine.py)
+  9.  Module 5: Smart Routing Engine (router_engine.py)
+  10. Module 6: Response Suggester (response_suggester.py)
+  11. Module 7: Escalation Handler (escalation.py)
+  12. Module 8: Service Layer (service.py)
+  13. Module 9: Celery Async Tasks (tasks.py)
+  14. Database Models & Schema
+  15. API Endpoints Reference
+  16. Enumerations & Constants
+  17. Decision Matrix (Full Table)
+  18. Scoring Algorithms (Detailed)
+  19. Routing Algorithm (Detailed)
+  20. Diagrams & Flow Examples
+  21. Example Walkthrough: End-to-End
+  22. Configuration & Deployment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+================================================================================
+ 1. OVERVIEW & PURPOSE
+================================================================================
+
+The AI Decision Engine is the intelligent core of the support ticket management
+system. It automatically analyzes incoming customer support tickets and makes
+decisions about how each ticket should be handled — whether it can be
+auto-resolved, needs a suggested response for an agent, requires clarification
+from the customer, should be escalated to a human specialist, or should be
+routed to a specific skilled agent.
+
+KEY GOALS:
+  • Reduce agent workload by auto-resolving simple, high-confidence tickets
+  • Accelerate response times with AI-generated response suggestions
+  • Ensure high-risk or security-sensitive tickets are escalated immediately
+  • Route tickets to the best-suited agent based on skills and current workload
+  • Provide full traceability of every AI decision for audit and improvement
+  • Support bilingual detection (French & English keywords)
+
+DESIGN PHILOSOPHY:
+  • Deterministic & Interpretable — No black-box ML models. Every decision 
+    can be traced back to matched keywords, risk factors, and applied rules.
+  • Rule-Based with Keyword Matching — Uses weighted keyword dictionaries and
+    regex patterns instead of LLMs for classification. LLMs are reserved for
+    future response reformulation only.
+  • Configurable — All rules, keywords, thresholds, and weights are defined as
+    data structures that can be modified without code changes.
+  • Fully Auditable — Every decision is persisted to the database with full
+    reasoning, matched rules, and scores.
+
+
+================================================================================
+ 2. ARCHITECTURE OVERVIEW
+================================================================================
+
+The decision engine follows a linear pipeline architecture where each stage
+feeds into the next. Here is the high-level component diagram:
+
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                      DECISION ENGINE SYSTEM                      │
+    │                                                                  │
+    │  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐    │
+    │  │  FastAPI  │   │  Celery   │   │PostgreSQL│   │  Redis   │    │
+    │  │  Routes   │──▶│  Worker   │──▶│  (Data)  │◀──│ (Broker) │    │
+    │  └────┬─────┘   └────┬─────┘   └──────────┘   └──────────┘    │
+    │       │              │                                          │
+    │       ▼              ▼                                          │
+    │  ┌─────────────────────────────────────────────┐               │
+    │  │          DECISION ENGINE PIPELINE            │               │
+    │  │                                              │               │
+    │  │  ┌────────────┐  ┌─────────────┐            │               │
+    │  │  │ Classifier │─▶│   Scorer    │            │               │
+    │  │  └────────────┘  └──────┬──────┘            │               │
+    │  │                         │                    │               │
+    │  │                         ▼                    │               │
+    │  │  ┌────────────┐  ┌─────────────┐            │               │
+    │  │  │  Suggester │◀─│   Rules     │            │               │
+    │  │  └────────────┘  └──────┬──────┘            │               │
+    │  │                         │                    │               │
+    │  │                         ▼                    │               │
+    │  │  ┌────────────┐  ┌─────────────┐            │               │
+    │  │  │ Escalation │◀─│   Router    │            │               │
+    │  │  └────────────┘  └─────────────┘            │               │
+    │  └─────────────────────────────────────────────┘               │
+    └──────────────────────────────────────────────────────────────────┘
+
+INTEGRATION POINTS:
+  • FastAPI Routes — Synchronous HTTP endpoints for real-time analysis
+  • Celery Worker — Asynchronous background processing for fire-and-forget analysis
+  • PostgreSQL — Stores decision logs, agent skills, ticket data
+  • Redis — Celery message broker for async task queuing
+
+
+================================================================================
+ 3. FILE STRUCTURE & MODULE MAP
+================================================================================
+
+    app/decision_engine/
+    │
+    ├── __init__.py              Module docstring
+    │
+    ├── enums.py                 Enumerations: IntentCategory, DecisionOutcome,
+    │                            RiskLevel, ConfidenceLevel
+    │
+    ├── schemas.py               Pydantic request/response models
+    │                            (ClassificationResult, RiskAssessment,
+    │                            DecisionResult, RoutingResult, etc.)
+    │
+    ├── models.py                SQLAlchemy DB models: DecisionLog, AgentSkill
+    │
+    ├── classifier.py            Intent classification (keyword + regex)
+    │
+    ├── scorer.py                Risk assessment & confidence scoring
+    │
+    ├── rules.py                 Decision rule matrix (confidence × risk → outcome)
+    │
+    ├── decision_engine.py       Main orchestrator — runs the full pipeline
+    │
+    ├── router_engine.py         Smart agent routing (skill + workload)
+    │
+    ├── response_suggester.py    Template-based response suggestions
+    │
+    ├── escalation.py            HITL escalation package builder
+    │
+    ├── service.py               DB operations (CRUD for decisions & skills)
+    │
+    ├── routes.py                FastAPI router with 10 API endpoints
+    │
+    └── tasks.py                 Celery async task for background processing
+
+DEPENDENCY FLOW BETWEEN MODULES:
+
+    routes.py ──────────▶ decision_engine.py ──▶ classifier.py
+        │                         │                    │
+        │                         ├──────────────▶ scorer.py
+        │                         │                    │
+        │                         ├──────────────▶ rules.py
+        │                         │
+        │                         ├──────────────▶ router_engine.py
+        │                         │
+        │                         ├──────────────▶ response_suggester.py
+        │                         │
+        │                         └──────────────▶ escalation.py
+        │
+        ├──────────────▶ service.py
+        │
+        └──────────────▶ tasks.py
+
+
+================================================================================
+ 4. PIPELINE FLOW DIAGRAM
+================================================================================
+
+The full decision engine pipeline processes a ticket through 9 sequential steps:
+
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                     FULL DECISION ENGINE PIPELINE                       │
+    └─────────────────────────────────────────────────────────────────────────┘
+
+    TICKET INPUT
+        │
+        │  subject: "Cannot login to dashboard"
+        │  description: "Error when trying to login. Reset password twice..."
+        │
+        ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 1: INTENT CLASSIFICATION  (classifier.py)         │
+    │                                                         │
+    │  • Combines subject + description text                  │
+    │  • Matches against keyword dictionaries for each        │
+    │    category (BILLING, TECHNICAL, ACCOUNT, etc.)         │
+    │  • Applies regex patterns for stronger signals          │
+    │  • Calculates weighted scores per category              │
+    │  • Selects highest-scoring category                     │
+    │  • Computes confidence score (0.0–1.0)                  │
+    │                                                         │
+    │  OUTPUT:                                                │
+    │    intent = ACCOUNT                                     │
+    │    confidence = 0.709                                   │
+    │    confidence_level = HIGH                              │
+    │    matched_keywords = [login, password, reset, locked]  │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 2: RISK ASSESSMENT  (scorer.py)                   │
+    │                                                         │
+    │  Analyzes 9 risk factors:                               │
+    │    1. Category base risk (ACCOUNT = 0.2)                │
+    │    2. Negative sentiment words                          │
+    │    3. Urgency markers                                   │
+    │    4. Escalation triggers                               │
+    │    5. Security risk words                               │
+    │    6. Text length extremes                              │
+    │    7. Existing ticket priority                          │
+    │    8. Escalation flag                                   │
+    │    9. Low confidence amplifier                          │
+    │                                                         │
+    │  OUTPUT:                                                │
+    │    risk_score = 0.16                                    │
+    │    risk_level = LOW                                     │
+    │    risk_factors = ["Urgency detected (1 marker)"]       │
+    │    suggested_priority = LOW                             │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 3: DECISION RULES  (rules.py)                     │
+    │                                                         │
+    │  Input: confidence_level=HIGH, risk_level=LOW,          │
+    │         category=ACCOUNT                                │
+    │                                                         │
+    │  Rule evaluation (priority order):                      │
+    │    ✗ critical_risk_always_escalate  (risk ≠ CRITICAL)   │
+    │    ✗ security_always_escalate      (cat ≠ SECURITY)     │
+    │    ✗ low_confidence_escalate       (conf ≠ LOW)         │
+    │    ✗ high_risk_escalate            (risk ≠ HIGH)        │
+    │    ✓ high_confidence_low_risk_auto_resolve  ← MATCH!    │
+    │                                                         │
+    │  OUTPUT:                                                │
+    │    outcome = AUTO_RESOLVE                               │
+    │    matched_rules = ["high_confidence_low_risk_auto_resolve"] │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 4: RESPONSE SUGGESTIONS  (response_suggester.py)  │
+    │                                                         │
+    │  • Selects templates based on category (ACCOUNT)        │
+    │  • Outcome = AUTO_RESOLVE → use standard templates      │
+    │  • Returns up to 3 suggested responses                  │
+    │                                                         │
+    │  OUTPUT: 3 suggested response templates                 │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 5: AGENT ROUTING  (router_engine.py)              │
+    │                                                         │
+    │  • Triggered for ROUTE_AGENT, SUGGEST_RESPONSE,         │
+    │    or ESCALATE_HUMAN outcomes                           │
+    │  • Queries agents with matching skill category          │
+    │  • Scores: proficiency × (1 - workload_ratio)           │
+    │  • Falls back to least-loaded agent if no skill match   │
+    │                                                         │
+    │  OUTPUT: suggested_agent_id, suggested_agent_name       │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 6: ESCALATION PACKAGE  (escalation.py)            │
+    │                                                         │
+    │  • Only triggered when outcome = ESCALATE_HUMAN         │
+    │  • Builds structured HITL handoff package               │
+    │  • Includes: conversation history, previous AI          │
+    │    decisions, risk factors, recommended actions          │
+    │                                                         │
+    │  OUTPUT: escalation_summary (if applicable)             │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 7: BUILD REASONING  (decision_engine.py)          │
+    │                                                         │
+    │  • Generates human-readable explanation                 │
+    │  • Includes: intent, confidence, keywords, risk,        │
+    │    risk factors, decision outcome, matched rules         │
+    │                                                         │
+    │  OUTPUT: "Intent classified as ACCOUNT with 70.9%       │
+    │    confidence (HIGH). Matched keywords: login,          │
+    │    password, reset, locked out. Risk assessed at         │
+    │    16.0% (LOW). Decision: AUTO_RESOLVE (rules:          │
+    │    high_confidence_low_risk_auto_resolve)."              │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 8: PERSIST DECISION LOG  (models.py → DB)         │
+    │                                                         │
+    │  • Creates DecisionLog record in database               │
+    │  • Stores all classification, scoring, and decision     │
+    │    data for full audit trail                             │
+    │  • Links to ticket via ticket_id FK                     │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 9: AUTO-ACTIONS  (decision_engine.py)             │
+    │                                                         │
+    │  Optional automated side effects:                       │
+    │  • auto_update_priority: Change ticket priority         │
+    │    based on risk assessment                             │
+    │  • auto_assign: Assign ticket to suggested agent        │
+    │  • auto_escalate: Set ticket status to ESCALATED        │
+    │    and escalation_flag=True if outcome is               │
+    │    ESCALATE_HUMAN                                       │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  FINAL OUTPUT: DecisionResult                           │
+    │                                                         │
+    │  {                                                      │
+    │    ticket_id, intent_category, confidence_score,        │
+    │    confidence_level, risk_score, risk_level,            │
+    │    decision_outcome, suggested_agent_id,                │
+    │    suggested_agent_name, response_suggestions,          │
+    │    reasoning, matched_rules, escalation_summary,        │
+    │    suggested_priority                                   │
+    │  }                                                      │
+    └─────────────────────────────────────────────────────────┘
+
+
+================================================================================
+ 5. MODULE 1: INTENT CLASSIFIER (classifier.py)
+================================================================================
+
+PURPOSE:
+  Determines what a customer's support ticket is about by matching the text
+  against predefined keyword dictionaries and regex patterns for 8 categories.
+
+ALGORITHM:
+
+  1. COMBINE text: subject + description → one string
+  2. NORMALIZE: lowercase, collapse whitespace
+  3. For EACH category rule:
+     a. Match keywords: +1.0 per keyword hit (multi-word keywords get +0.5 bonus)
+     b. Match regex patterns: +2.0 per pattern hit (patterns are more specific)
+     c. Apply category weight multiplier
+  4. RANK categories by score (descending)
+  5. COMPUTE confidence:
+     • dominance_ratio = best_score / total_score (how dominant is the winner)
+     • absolute_factor = min(best_score / 10, 1.0) (absolute strength)
+     • confidence = 0.6 × dominance_ratio + 0.4 × absolute_factor
+  6. MAP confidence to level:
+     • >= 0.70 → HIGH
+     • >= 0.40 → MEDIUM
+     • < 0.40  → LOW
+
+CATEGORY KEYWORD COUNTS:
+  ┌──────────────────┬──────────┬──────────┬────────┐
+  │ Category         │ Keywords │ Patterns │ Weight │
+  ├──────────────────┼──────────┼──────────┼────────┤
+  │ BILLING          │ 25       │ 4        │ 1.0    │
+  │ TECHNICAL        │ 30       │ 3        │ 1.0    │
+  │ ACCOUNT          │ 22       │ 2        │ 1.0    │
+  │ COMPLAINT        │ 19       │ 2        │ 1.2    │
+  │ FEATURE_REQUEST  │ 16       │ 2        │ 0.8    │
+  │ SECURITY         │ 18       │ 2        │ 1.3    │
+  │ URGENT           │ 15       │ 2        │ 1.5    │
+  │ GENERAL          │ (none)   │ (none)   │ —      │
+  └──────────────────┴──────────┴──────────┴────────┘
+
+  NOTE: GENERAL is the fallback when no keywords match. It is not a scored
+  category — it triggers only when all other categories score zero.
+
+WEIGHT RATIONALE:
+  • URGENT (1.5×) — Highest weight because urgency affects all categories.
+    Even a few urgency keywords should override other signals.
+  • SECURITY (1.3×) — Security is high-stakes; even minimal security keywords
+    should strongly influence classification.
+  • COMPLAINT (1.2×) — Complaints can escalate quickly; boosted slightly.
+  • FEATURE_REQUEST (0.8×) — Lower weight because feature request keywords 
+    are sometimes used colloquially. Reduces false positives.
+  • All others (1.0×) — Standard weight.
+
+BILINGUAL SUPPORT:
+  Each category includes French keywords alongside English. Examples:
+    BILLING:    "facture", "paiement", "remboursement", "abonnement", "tarif"
+    TECHNICAL:  "erreur", "problème", "ne fonctionne pas", "lent", "bloqué"
+    ACCOUNT:    "compte", "mot de passe", "connexion", "inscription"
+    COMPLAINT:  "plainte", "mécontent", "insatisfait", "déçu", "inacceptable"
+    SECURITY:   "sécurité", "piratage", "piraté", "suspect", "vol"
+    URGENT:     "urgente", "critique", "immédiatement"
+
+CONFIDENCE CALCULATION DIAGRAM:
+
+    Example: Text matches BILLING (score=5.0) and TECHNICAL (score=2.0)
+
+    Total Score    = 5.0 + 2.0 = 7.0
+    Dominance      = 5.0 / 7.0 = 0.714
+    Absolute       = min(5.0 / 10.0, 1.0) = 0.5
+    Confidence     = 0.6 × 0.714 + 0.4 × 0.5 = 0.429 + 0.200 = 0.629
+
+    Result: BILLING with 62.9% confidence → MEDIUM level
+
+
+================================================================================
+ 6. MODULE 2: RISK & CONFIDENCE SCORER (scorer.py)
+================================================================================
+
+PURPOSE:
+  Computes a risk score (0.0–1.0) by analyzing the text for negative sentiment,
+  urgency markers, escalation language, security indicators, and contextual
+  factors like existing ticket priority and escalation history.
+
+NINE RISK FACTORS:
+
+  ┌────┬──────────────────────────────┬────────────────┬──────────────────────┐
+  │ #  │ Factor                       │ Max Impact     │ How It Works         │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 1  │ Category base risk           │ 0.0 – 0.21    │ Each category has an │
+  │    │                              │ (0.7 × 0.3)   │ inherent risk level  │
+  │    │                              │                │ (SECURITY=0.7,       │
+  │    │                              │                │  URGENT=0.6, etc.)   │
+  │    │                              │                │ Multiplied by 0.3    │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 2  │ Negative sentiment           │ 0.0 – 0.20    │ Count of negative    │
+  │    │                              │                │ words × 0.05, max    │
+  │    │                              │                │ 0.20. Words like:    │
+  │    │                              │                │ angry, furious, hate,│
+  │    │                              │                │ scam, lawsuit, etc.  │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 3  │ Urgency markers              │ 0.0 – 0.15    │ Count × 0.05,        │
+  │    │                              │                │ max 0.15. Words:     │
+  │    │                              │                │ urgent, ASAP,        │
+  │    │                              │                │ emergency, critical  │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 4  │ Escalation triggers          │ 0.0 – 0.15    │ Count × 0.05,        │
+  │    │                              │                │ max 0.15. Words:     │
+  │    │                              │                │ manager, supervisor, │
+  │    │                              │                │ escalate, not        │
+  │    │                              │                │ resolved             │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 5  │ Security risk words          │ 0.0 – 0.15    │ Count × 0.05,        │
+  │    │                              │                │ max 0.15. Words:     │
+  │    │                              │                │ breach, hacked,      │
+  │    │                              │                │ unauthorized, data   │
+  │    │                              │                │ leak                 │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 6  │ Text length extremes         │ 0.0 – 0.05    │ <5 words: +0.05      │
+  │    │                              │                │ >500 words: +0.03    │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 7  │ Existing priority level      │ -0.03 – +0.10 │ CRITICAL: +0.10      │
+  │    │                              │                │ HIGH: +0.05          │
+  │    │                              │                │ MEDIUM: 0.0          │
+  │    │                              │                │ LOW: -0.03           │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 8  │ Escalation flag              │ +0.10          │ If ticket was        │
+  │    │                              │                │ previously flagged   │
+  │    │                              │                │ for escalation       │
+  ├────┼──────────────────────────────┼────────────────┼──────────────────────┤
+  │ 9  │ Low confidence amplifier     │ 0.0 – 0.08    │ LOW conf: +0.08      │
+  │    │                              │                │ MEDIUM conf: +0.03   │
+  │    │                              │                │ HIGH conf: +0.0      │
+  └────┴──────────────────────────────┴────────────────┴──────────────────────┘
+
+  THEORETICAL MAX RISK = 0.21 + 0.20 + 0.15 + 0.15 + 0.15 + 0.05 + 0.10 
+                         + 0.10 + 0.08 = 1.19 → clamped to 1.0
+
+CATEGORY BASE RISK VALUES:
+  ┌──────────────────┬────────────────┐
+  │ Category         │ Base Risk      │
+  ├──────────────────┼────────────────┤
+  │ SECURITY         │ 0.70           │
+  │ URGENT           │ 0.60           │
+  │ COMPLAINT        │ 0.50           │
+  │ BILLING          │ 0.30           │
+  │ TECHNICAL        │ 0.25           │
+  │ ACCOUNT          │ 0.20           │
+  │ FEATURE_REQUEST  │ 0.10           │
+  │ GENERAL          │ 0.10           │
+  └──────────────────┴────────────────┘
+  Note: Base risk is multiplied by 0.3, so max category contribution is 0.21.
+
+RISK LEVEL THRESHOLDS:
+  ┌────────────────┬───────────────┬──────────────────────┐
+  │ Risk Level     │ Score Range   │ Suggested Priority   │
+  ├────────────────┼───────────────┼──────────────────────┤
+  │ CRITICAL       │ >= 0.70       │ CRITICAL             │
+  │ HIGH           │ >= 0.50       │ HIGH                 │
+  │ MEDIUM         │ >= 0.30       │ MEDIUM               │
+  │ LOW            │ < 0.30        │ LOW                  │
+  └────────────────┴───────────────┴──────────────────────┘
+
+
+================================================================================
+ 7. MODULE 3: RULE-BASED DECISION LOGIC (rules.py)
+================================================================================
+
+PURPOSE:
+  Maps the combination of (confidence_level, risk_level, category) to a
+  DecisionOutcome using a priority-ordered rule set. The first matching rule
+  wins — earlier rules have higher priority.
+
+RULE EVALUATION ORDER (highest priority first):
+
+  ┌─────┬────────────────────────────────────────┬────────────┬────────────┬───────────────────┐
+  │ Pri │ Rule Name                              │ Confidence │ Risk       │ Outcome           │
+  ├─────┼────────────────────────────────────────┼────────────┼────────────┼───────────────────┤
+  │ 100 │ critical_risk_always_escalate          │ ANY        │ CRITICAL   │ ESCALATE_HUMAN    │
+  │  95 │ security_always_escalate (SECURITY)    │ ANY        │ ANY        │ ESCALATE_HUMAN    │
+  │  90 │ low_confidence_escalate                │ LOW        │ ANY        │ ESCALATE_HUMAN    │
+  │  85 │ high_risk_escalate                     │ HIGH/MED   │ HIGH       │ ESCALATE_HUMAN    │
+  │  70 │ high_confidence_low_risk_auto_resolve  │ HIGH       │ LOW        │ AUTO_RESOLVE      │
+  │  60 │ high_confidence_medium_risk_suggest    │ HIGH       │ MEDIUM     │ SUGGEST_RESPONSE  │
+  │  50 │ medium_confidence_low_risk_suggest     │ MEDIUM     │ LOW        │ SUGGEST_RESPONSE  │
+  │  40 │ medium_confidence_medium_risk_clarify  │ MEDIUM     │ MEDIUM     │ CLARIFY           │
+  │  — │ fallback_route_agent                   │ (no match) │ (no match) │ ROUTE_AGENT       │
+  └─────┴────────────────────────────────────────┴────────────┴────────────┴───────────────────┘
+
+SPECIAL CATEGORY RULE:
+  • The "security_always_escalate" rule has category=SECURITY constraint.
+    It fires ONLY for SECURITY tickets, but at ALL confidence and risk levels.
+    This means: any ticket classified as SECURITY is ALWAYS escalated to a 
+    human, regardless of confidence or risk score.
+
+RULE EVALUATION FLOW:
+
+    Input: confidence=HIGH, risk=LOW, category=ACCOUNT
+           │
+           ▼
+    ┌─ Rule: critical_risk_always_escalate ──┐
+    │  risk=CRITICAL? NO → skip              │
+    └────────────────────────────────────────┘
+           │
+           ▼
+    ┌─ Rule: security_always_escalate ───────┐
+    │  category=SECURITY? NO → skip          │
+    └────────────────────────────────────────┘
+           │
+           ▼
+    ┌─ Rule: low_confidence_escalate ────────┐
+    │  confidence=LOW? NO → skip             │
+    └────────────────────────────────────────┘
+           │
+           ▼
+    ┌─ Rule: high_risk_escalate ─────────────┐
+    │  risk=HIGH? NO → skip                  │
+    └────────────────────────────────────────┘
+           │
+           ▼
+    ┌─ Rule: high_confidence_low_risk ───────┐
+    │  confidence=HIGH? YES                  │
+    │  risk=LOW? YES                         │
+    │  → MATCH! outcome = AUTO_RESOLVE       │  ← FIRST MATCH WINS
+    └────────────────────────────────────────┘
+
+
+================================================================================
+ 8. MODULE 4: DECISION ENGINE ORCHESTRATOR (decision_engine.py)
+================================================================================
+
+PURPOSE:
+  The central orchestrator that chains all modules together into a single
+  coherent pipeline. It coordinates the 9-step process detailed in Section 4.
+
+TWO ENTRY POINTS:
+
+  1. analyze_ticket(db, ticket, auto_assign, auto_update_priority)
+     → Full pipeline with DB persistence and auto-actions
+     → Requires a Ticket ORM object and DB session
+     → Persists DecisionLog to database
+     → Can auto-assign agent and auto-update priority
+
+  2. analyze_text_only(text, subject)
+     → Lightweight preview pipeline — NO database operations
+     → Runs steps 1-4 only (classify, score, decide, suggest)
+     → Uses a zero UUID as placeholder ticket_id
+     → Useful for previewing classification before ticket creation
+
+REASONING BUILDER FORMAT:
+  The _build_reasoning() function generates a human-readable explanation:
+
+  "Intent classified as ACCOUNT with 70.9% confidence (HIGH). Matched keywords:
+  login, password, reset, locked out, locked. Risk assessed at 16.0% (LOW).
+  Risk factors: Urgency detected (1 markers). Decision: AUTO_RESOLVE (rules:
+  high_confidence_low_risk_auto_resolve)."
+
+AUTO-ACTIONS (Step 9):
+  These are optional side effects that modify the ticket:
+
+  ┌───────────────────────┬───────────────────────────────────────────────┐
+  │ Action                │ What Happens                                  │
+  ├───────────────────────┼───────────────────────────────────────────────┤
+  │ auto_update_priority  │ If risk.suggested_priority ≠ ticket.priority, │
+  │                       │ update the ticket's priority in the DB        │
+  ├───────────────────────┼───────────────────────────────────────────────┤
+  │ auto_assign           │ If a suggested_agent was found and the ticket │
+  │                       │ isn't already assigned, assign the agent and  │
+  │                       │ set status to IN_PROGRESS                     │
+  ├───────────────────────┼───────────────────────────────────────────────┤
+  │ auto_escalate         │ If outcome=ESCALATE_HUMAN, set ticket status  │
+  │ (always on)           │ to ESCALATED and escalation_flag=True         │
+  └───────────────────────┴───────────────────────────────────────────────┘
+
+
+================================================================================
+ 9. MODULE 5: SMART ROUTING ENGINE (router_engine.py)
+================================================================================
+
+PURPOSE:
+  Finds the best-suited agent to handle a ticket based on the classified intent
+  category, agent skill proficiency, and current workload.
+
+ROUTING ALGORITHM:
+
+    ┌───────────────────────────────────────────────────────────┐
+    │              SMART ROUTING ALGORITHM                      │
+    └───────────────────────────────────────────────────────────┘
+
+    Start: category = ACCOUNT, ticket_id = abc-123
+           │
+           ▼
+    ┌── STEP 1: Skill-Based Matching ────────────────────────┐
+    │                                                         │
+    │  Query: Find all AgentSkill records where:              │
+    │    • skill_category = ACCOUNT                           │
+    │    • agent.role IN (AGENT, ADMIN)                       │
+    │    • agent.status = ACTIVE                              │
+    │    • agent.is_deleted = False                           │
+    │                                                         │
+    │  For each matched agent:                                │
+    │    • Count open/in-progress tickets (workload)          │
+    │    • Skip if workload >= max_concurrent_tickets         │
+    │    • Score = proficiency × (1 - workload_ratio)         │
+    │                                                         │
+    │  Example:                                               │
+    │    Agent A: proficiency=0.85, workload=3/15             │
+    │      score = 0.85 × (1 - 3/15) = 0.85 × 0.8 = 0.68   │
+    │    Agent B: proficiency=0.70, workload=1/10             │
+    │      score = 0.70 × (1 - 1/10) = 0.70 × 0.9 = 0.63   │
+    │                                                         │
+    │  Sort by score (descending) → Select Agent A            │
+    └────────────────────┬────────────────────────────────────┘
+                         │
+              ┌──────────┴──────────┐
+              │ Skill match found?  │
+              ├─── YES ─────────────┼─── NO ────────────┐
+              │                     │                    │
+              ▼                     │                    ▼
+    ┌── Return best match ──┐      │    ┌── STEP 2: Fallback ──────────────┐
+    │  with all candidates  │      │    │                                   │
+    │  ranked by score      │      │    │  Query: ALL active agents         │
+    └───────────────────────┘      │    │  (AGENT or ADMIN role)            │
+                                   │    │                                   │
+                                   │    │  For each: count current workload │
+                                   │    │  Score = 0.0 (no skill match)     │
+                                   │    │  Sort by workload ASC             │
+                                   │    │  → Select LEAST loaded agent      │
+                                   │    │                                   │
+                                   │    │  Reasoning: "Fallback routing     │
+                                   │    │  (no skill match for ACCOUNT)"    │
+                                   │    └───────────────────────────────────┘
+
+SCORING FORMULA:
+
+    Score = Proficiency × (1 - Current_Workload / Max_Concurrent_Tickets)
+
+    Where:
+      • Proficiency: 0.0–1.0 (from AgentSkill record)
+      • Current_Workload: count of OPEN + IN_PROGRESS tickets assigned
+      • Max_Concurrent_Tickets: from AgentSkill record (default 10)
+
+    This ensures:
+      • Higher-skilled agents are preferred
+      • Agents with more available capacity are preferred
+      • An agent at full capacity (workload = max) gets score = 0
+      • An idle skilled agent (workload = 0) gets score = proficiency
+
+
+================================================================================
+ 10. MODULE 6: RESPONSE SUGGESTER (response_suggester.py)
+================================================================================
+
+PURPOSE:
+  Generates pre-written response suggestions that agents can use or adapt.
+  Template-based approach — no LLM generation (by design, per spec).
+
+TEMPLATE CATEGORIES:
+
+  Standard Templates (8 categories × 3 templates each = 24 templates):
+    BILLING, TECHNICAL, ACCOUNT, COMPLAINT, FEATURE_REQUEST,
+    SECURITY, URGENT, GENERAL
+
+  Clarification Templates (4 categories × 2 templates each = 8 templates):
+    BILLING, TECHNICAL, ACCOUNT, GENERAL
+    + Default clarification (2 templates) for other categories
+
+SELECTION LOGIC:
+
+    ┌─────────────────────────────────────────────────────────┐
+    │              RESPONSE SUGGESTION SELECTION               │
+    └─────────────────────────────────────────────────────────┘
+
+    Input: category=BILLING, confidence=MEDIUM, outcome=CLARIFY
+           │
+           ▼
+    ┌── Is outcome CLARIFY? ──────────────────────────────────┐
+    │         │                                                │
+    │    YES  │                                                │
+    │         ▼                                                │
+    │  Use CLARIFICATION templates for the category            │
+    │  "Could you please clarify: is this about a specific     │
+    │  charge, a subscription renewal, or a refund request?"   │
+    │                                                          │
+    │    NO   │                                                │
+    │         ▼                                                │
+    │  Use STANDARD response templates for the category        │
+    │  "Thank you for reaching out about your billing          │
+    │  concern. Let me review your account details..."         │
+    └──────────────────────────────────────────────────────────┘
+           │
+           ▼
+    ┌── Is confidence LOW? ───────────────────────────────────┐
+    │         │                                                │
+    │    YES → Prepend a clarification question from the       │
+    │         category's clarification templates               │
+    │    NO  → Return templates as-is                          │
+    └──────────────────────────────────────────────────────────┘
+           │
+           ▼
+    Return first max_suggestions (default 3)
+
+
+================================================================================
+ 11. MODULE 7: ESCALATION HANDLER (escalation.py)
+================================================================================
+
+PURPOSE:
+  Creates comprehensive Human-In-The-Loop (HITL) escalation packages when a
+  ticket needs manual review. Designed so a human agent can quickly understand
+  the context and take action without re-reading the entire ticket history.
+
+ESCALATION PACKAGE COMPONENTS:
+
+    ┌─────────────────────────────────────────────────────────┐
+    │              ESCALATION PACKAGE STRUCTURE                │
+    ├─────────────────────────────────────────────────────────┤
+    │                                                         │
+    │  1. TICKET INFO                                         │
+    │     • ticket_id, subject, description                   │
+    │     • status, priority, channel                         │
+    │                                                         │
+    │  2. AI ANALYSIS                                         │
+    │     • intent_category, confidence_score, risk_score     │
+    │     • risk_level, risk_factors list                     │
+    │                                                         │
+    │  3. CONVERSATION HISTORY (if exists)                    │
+    │     • Up to 50 most recent messages                     │
+    │     • sender_id, content (truncated 500 chars),         │
+    │       is_internal, timestamp                            │
+    │                                                         │
+    │  4. PREVIOUS AI DECISIONS                               │
+    │     • Up to 10 most recent DecisionLog entries          │
+    │     • Shows how the AI previously classified and        │
+    │       decided on this ticket                            │
+    │                                                         │
+    │  5. STRUCTURED SUMMARY                                  │
+    │     • Plain text with ticket info, AI analysis,         │
+    │       risk factors, and the description                 │
+    │                                                         │
+    │  6. RECOMMENDED ACTIONS                                 │
+    │     • Category-specific action items                    │
+    │     • Risk-level-specific urgency directives            │
+    │     • Confidence-level adjustment notes                 │
+    │                                                         │
+    └─────────────────────────────────────────────────────────┘
+
+RECOMMENDED ACTIONS PER CATEGORY:
+
+  ┌──────────────────┬───────────────────────────────────────────────────┐
+  │ Category         │ Recommended Actions                               │
+  ├──────────────────┼───────────────────────────────────────────────────┤
+  │ SECURITY         │ • Check account for unauthorized access           │
+  │                  │ • Verify identity through secondary channel       │
+  │                  │ • Review recent login activity                    │
+  ├──────────────────┼───────────────────────────────────────────────────┤
+  │ BILLING          │ • Review transaction history                      │
+  │                  │ • Check for duplicate charges                     │
+  │                  │ • Verify subscription status                      │
+  ├──────────────────┼───────────────────────────────────────────────────┤
+  │ TECHNICAL        │ • Check system status and known issues            │
+  │                  │ • Review error logs for customer account          │
+  │                  │ • Consider escalating to engineering              │
+  ├──────────────────┼───────────────────────────────────────────────────┤
+  │ COMPLAINT        │ • Review full interaction history                 │
+  │                  │ • Consider goodwill gesture or compensation       │
+  │                  │ • Document for quality improvement                │
+  ├──────────────────┼───────────────────────────────────────────────────┤
+  │ URGENT           │ • Prioritize immediate response                   │
+  │                  │ • Check for system-wide outage                    │
+  │                  │ • Notify engineering if infrastructure-related    │
+  ├──────────────────┼───────────────────────────────────────────────────┤
+  │ Default          │ • Review the ticket details carefully             │
+  │ (other)          │ • Contact the customer for clarification          │
+  └──────────────────┴───────────────────────────────────────────────────┘
+
+
+================================================================================
+ 12. MODULE 8: SERVICE LAYER (service.py)
+================================================================================
+
+PURPOSE:
+  Encapsulates all database operations related to the decision engine.
+  Provides a clean API that routes.py uses for CRUD operations.
+
+CLASS: DecisionService(db: AsyncSession)
+
+METHODS:
+
+  ┌─────────────────────────┬───────────────────────────────────────────────┐
+  │ Method                  │ Description                                   │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ get_decision_history()  │ Returns paginated list of DecisionLog records │
+  │                         │ for a specific ticket, ordered by created_at  │
+  │                         │ DESC. Returns DecisionHistoryResponse with    │
+  │                         │ total count.                                  │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ get_latest_decision()   │ Returns the single most recent DecisionLog   │
+  │                         │ for a ticket, or None.                        │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ create_agent_skill()    │ Creates or updates an agent's skill record.   │
+  │                         │ If agent+category already exists, updates     │
+  │                         │ proficiency & max_concurrent_tickets.         │
+  │                         │ Validates that the agent exists and has       │
+  │                         │ AGENT or ADMIN role.                          │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ list_agent_skills()     │ Lists skills with optional agent_id and       │
+  │                         │ category filters. Returns                     │
+  │                         │ AgentSkillListResponse with total count.      │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ delete_agent_skill()    │ Deletes a skill by ID. Returns True if        │
+  │                         │ deleted, False if not found.                  │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ get_stats()             │ Computes dashboard statistics:                │
+  │                         │ • Total decisions count                       │
+  │                         │ • Count by outcome (auto/escalated/routed)    │
+  │                         │ • Average confidence & risk scores            │
+  │                         │ • Breakdown by category and outcome           │
+  │                         │ • Escalation rate percentage                  │
+  └─────────────────────────┴───────────────────────────────────────────────┘
+
+
+================================================================================
+ 13. MODULE 9: CELERY ASYNC TASKS (tasks.py)
+================================================================================
+
+PURPOSE:
+  Provides fire-and-forget asynchronous ticket analysis via Celery workers.
+  Allows the API to immediately return a response after ticket creation while
+  the decision engine runs in the background.
+
+TASK: analyze_ticket_task(ticket_id, auto_assign, auto_update_priority)
+
+  • Queue: "decision" (dedicated queue for decision engine tasks)
+  • Max retries: 3 (with 30-second delay between retries)
+  • Uses synchronous DB session (Celery runs in sync context)
+  • Converts asyncpg URL to psycopg2 URL for sync operations
+
+TASK FLOW:
+
+    API Request (create ticket)
+         │
+         ▼
+    ┌────────────────────────────────┐
+    │  Return 201 Created to client  │──── Immediate response
+    │  Queue analyze_ticket_task     │
+    └────────────┬───────────────────┘
+                 │
+                 ▼ (via Redis)
+    ┌────────────────────────────────┐
+    │  Celery Worker picks up task   │──── Background processing
+    │                                │
+    │  1. Create sync DB session     │
+    │  2. Fetch ticket from DB       │
+    │  3. Run classify_text()        │
+    │  4. Run assess_risk()          │
+    │  5. Run apply_rules()          │
+    │  6. Get suggestions            │
+    │  7. Create DecisionLog record  │
+    │  8. Auto-update priority       │
+    │  9. Auto-escalate if needed    │
+    │  10. Commit                    │
+    └────────────────────────────────┘
+
+ERROR HANDLING:
+  • If ticket not found: return error, no retry
+  • If any exception: rollback DB, retry up to 3 times with 60-second backoff
+
+
+================================================================================
+ 14. DATABASE MODELS & SCHEMA
+================================================================================
+
+TABLE: decision_logs
+
+    ┌─────────────────────┬───────────────────────┬────────────────────────────┐
+    │ Column              │ Type                  │ Description                │
+    ├─────────────────────┼───────────────────────┼────────────────────────────┤
+    │ id                  │ UUID (PK)             │ Primary key                │
+    │ ticket_id           │ UUID (FK → tickets)   │ Link to analyzed ticket    │
+    │ intent_category     │ ENUM intent_category  │ Classified intent          │
+    │ confidence_score    │ FLOAT                 │ 0.0–1.0 confidence         │
+    │ confidence_level    │ ENUM confidence_level │ HIGH / MEDIUM / LOW        │
+    │ risk_score          │ FLOAT                 │ 0.0–1.0 risk score         │
+    │ risk_level          │ ENUM risk_level       │ LOW / MEDIUM / HIGH / CRIT │
+    │ decision_outcome    │ ENUM decision_outcome │ The decision made          │
+    │ suggested_agent_id  │ UUID (FK → users)     │ Suggested agent (nullable) │
+    │ response_suggestions│ JSON                  │ List of suggested responses│
+    │ reasoning           │ TEXT                  │ Human-readable explanation │
+    │ matched_rules       │ JSON                  │ Rules that fired           │
+    │ escalation_summary  │ TEXT                  │ Escalation data (nullable) │
+    │ created_at          │ TIMESTAMP             │ When decision was made     │
+    │ updated_at          │ TIMESTAMP             │ Last update time           │
+    └─────────────────────┴───────────────────────┴────────────────────────────┘
+
+    INDEXES:
+      • ix_decision_logs_ticket_created (ticket_id, created_at) — fast history lookup
+      • ix_decision_logs_outcome (decision_outcome) — dashboard stats queries
+      • ix_decision_logs_ticket_id — ticket FK index
+
+TABLE: agent_skills
+
+    ┌────────────────────────┬───────────────────────┬─────────────────────────┐
+    │ Column                 │ Type                  │ Description             │
+    ├────────────────────────┼───────────────────────┼─────────────────────────┤
+    │ id                     │ UUID (PK)             │ Primary key             │
+    │ agent_id               │ UUID (FK → users)     │ The agent               │
+    │ skill_category         │ ENUM intent_category  │ Category expertise      │
+    │ proficiency            │ FLOAT                 │ 0.0–1.0 skill level     │
+    │ max_concurrent_tickets │ INT                   │ Max parallel tickets     │
+    │ created_at             │ TIMESTAMP             │ Record creation time    │
+    │ updated_at             │ TIMESTAMP             │ Last update time        │
+    └────────────────────────┴───────────────────────┴─────────────────────────┘
+
+    INDEXES:
+      • ix_agent_skills_agent_category (agent_id, skill_category) — UNIQUE
+        (one skill record per agent per category)
+      • ix_agent_skills_agent_id — agent FK index
+
+POSTGRESQL ENUM TYPES (4 custom types):
+    • intent_category:  BILLING, TECHNICAL, ACCOUNT, GENERAL, COMPLAINT,
+                        FEATURE_REQUEST, SECURITY, URGENT
+    • confidence_level: HIGH, MEDIUM, LOW
+    • risk_level:       LOW, MEDIUM, HIGH, CRITICAL
+    • decision_outcome: AUTO_RESOLVE, SUGGEST_RESPONSE, CLARIFY,
+                        ESCALATE_HUMAN, ROUTE_AGENT
+
+ENTITY RELATIONSHIP DIAGRAM:
+
+    ┌──────────┐       ┌───────────────┐       ┌──────────────┐
+    │  users   │       │   tickets     │       │decision_logs │
+    │──────────│       │───────────────│       │──────────────│
+    │ id (PK)  │◄──┐   │ id (PK)       │◄──────│ ticket_id(FK)│
+    │ email    │   │   │ subject       │       │ intent_cat   │
+    │ role     │   │   │ description   │       │ confidence   │
+    │ status   │   │   │ priority      │       │ risk_score   │
+    └──────────┘   │   │ status        │       │ outcome      │
+         ▲         │   │ channel       │       │ reasoning    │
+         │         │   │ assigned_id   │       │ suggestions  │
+         │         │   │ escalation_fl │       │created_at    │
+         │         │   └───────────────┘       └──────┬───────┘
+         │         │                                   │
+         │         └───────────────────────────────────┘
+         │                        suggested_agent_id(FK)
+         │
+    ┌────┴─────────┐
+    │ agent_skills │
+    │──────────────│
+    │ id (PK)      │
+    │ agent_id(FK) │
+    │ skill_cat    │
+    │ proficiency  │
+    │ max_tickets  │
+    └──────────────┘
+
+
+================================================================================
+ 15. API ENDPOINTS REFERENCE
+================================================================================
+
+All endpoints are prefixed with: /api/v1/decision-engine/
+
+  ┌─────────┬──────────────────────────────┬─────────────────┬─────────────────┐
+  │ Method  │ Path                         │ Auth Required   │ Description     │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ POST    │ /analyze                     │ Agent or Admin  │ Full ticket     │
+  │         │                              │                 │ analysis with   │
+  │         │                              │                 │ DB persistence  │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ POST    │ /analyze-text                │ Agent or Admin  │ Analyze free    │
+  │         │                              │                 │ text (preview,  │
+  │         │                              │                 │ no DB ops)      │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ GET     │ /decisions/{ticket_id}       │ Agent or Admin  │ Decision        │
+  │         │                              │                 │ history for a   │
+  │         │                              │                 │ ticket          │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ POST    │ /route/{ticket_id}           │ Agent or Admin  │ Route ticket    │
+  │         │                              │                 │ to best agent   │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ GET     │ /suggestions/{ticket_id}     │ Agent or Admin  │ Get response    │
+  │         │                              │                 │ suggestions     │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ POST    │ /escalate/{ticket_id}        │ Agent or Admin  │ Generate        │
+  │         │                              │                 │ escalation      │
+  │         │                              │                 │ package         │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ POST    │ /agent-skills                │ Admin only      │ Create/update   │
+  │         │                              │                 │ agent skill     │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ GET     │ /agent-skills                │ Agent or Admin  │ List agent      │
+  │         │                              │                 │ skills          │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ DELETE  │ /agent-skills/{skill_id}     │ Admin only      │ Delete agent    │
+  │         │                              │                 │ skill           │
+  ├─────────┼──────────────────────────────┼─────────────────┼─────────────────┤
+  │ GET     │ /stats                       │ Agent or Admin  │ Dashboard       │
+  │         │                              │                 │ statistics      │
+  └─────────┴──────────────────────────────┴─────────────────┴─────────────────┘
+
+DETAILED ENDPOINT SPECIFICATIONS:
+
+  ── POST /analyze ──────────────────────────────────────────────
+
+    Request Body:
+      {
+        "ticket_id": "uuid",
+        "auto_assign": false,          // optional, default false
+        "auto_update_priority": false   // optional, default false
+      }
+
+    Response (200):
+      {
+        "ticket_id": "uuid",
+        "intent_category": "ACCOUNT",
+        "confidence_score": 0.709,
+        "confidence_level": "HIGH",
+        "risk_score": 0.16,
+        "risk_level": "LOW",
+        "decision_outcome": "AUTO_RESOLVE",
+        "suggested_agent_id": "uuid or null",
+        "suggested_agent_name": "string or null",
+        "response_suggestions": ["...", "...", "..."],
+        "reasoning": "Intent classified as ACCOUNT with 70.9% confidence...",
+        "matched_rules": ["high_confidence_low_risk_auto_resolve"],
+        "escalation_summary": null,
+        "suggested_priority": "LOW"
+      }
+
+  ── POST /analyze-text ─────────────────────────────────────────
+
+    Request Body:
+      {
+        "text": "My internet keeps dropping...",
+        "subject": "Internet issues"           // optional
+      }
+
+    Response (200): Same structure as /analyze but with zeroed ticket_id
+                    and no suggested_agent
+
+  ── GET /decisions/{ticket_id} ─────────────────────────────────
+
+    Query Parameters:
+      skip: int (default 0)
+      limit: int (default 20, max 100)
+
+    Response (200):
+      {
+        "ticket_id": "uuid",
+        "decisions": [
+          {
+            "id": "uuid",
+            "ticket_id": "uuid",
+            "intent_category": "ACCOUNT",
+            "confidence_score": 0.709,
+            "confidence_level": "HIGH",
+            "risk_score": 0.16,
+            "risk_level": "LOW",
+            "decision_outcome": "AUTO_RESOLVE",
+            "suggested_agent_id": null,
+            "response_suggestions": {"suggestions": [...]},
+            "reasoning": "...",
+            "matched_rules": {"rules": [...]},
+            "escalation_summary": null,
+            "created_at": "2026-03-05T12:00:00Z"
+          }
+        ],
+        "total": 1
+      }
+
+  ── POST /route/{ticket_id} ───────────────────────────────────
+
+    Query Parameters:
+      auto_assign: bool (default false)
+
+    Response (200):
+      {
+        "ticket_id": "uuid",
+        "selected_agent": {
+          "agent_id": "uuid",
+          "agent_name": "John Doe",
+          "agent_email": "john@example.com",
+          "skill_match_score": 0.68,
+          "current_workload": 3,
+          "max_capacity": 15,
+          "reasoning": "Skill match: ACCOUNT (proficiency=0.85, workload=3/15)"
+        },
+        "candidates": [...],
+        "auto_assigned": false
+      }
+
+  ── GET /suggestions/{ticket_id} ──────────────────────────────
+
+    Response (200):
+      {
+        "ticket_id": "uuid",
+        "intent_category": "ACCOUNT",
+        "suggestions": [
+          "I can help you with your account...",
+          "I understand you're having trouble...",
+          "Your account details have been updated..."
+        ],
+        "confidence": 0.709
+      }
+
+  ── POST /escalate/{ticket_id} ────────────────────────────────
+
+    Response (200):
+      {
+        "ticket_id": "uuid",
+        "ticket_subject": "Cannot login",
+        "ticket_description": "...",
+        "intent_category": "ACCOUNT",
+        "confidence_score": 0.709,
+        "risk_score": 0.16,
+        "risk_level": "LOW",
+        "conversation_history": [...],
+        "previous_decisions": [...],
+        "summary": "=== ESCALATION SUMMARY ===\n...",
+        "recommended_actions": [
+          "Review the ticket details carefully",
+          "Contact the customer for clarification"
+        ]
+      }
+
+  ── POST /agent-skills ────────────────────────────────────────
+
+    Request Body:
+      {
+        "agent_id": "uuid",
+        "skill_category": "TECHNICAL",
+        "proficiency": 0.85,             // 0.0–1.0
+        "max_concurrent_tickets": 15     // 1–100
+      }
+
+    Response (201):
+      {
+        "id": "uuid",
+        "agent_id": "uuid",
+        "skill_category": "TECHNICAL",
+        "proficiency": 0.85,
+        "max_concurrent_tickets": 15,
+        "created_at": "2026-03-05T12:00:00Z"
+      }
+
+  ── GET /agent-skills ─────────────────────────────────────────
+
+    Query Parameters:
+      agent_id: uuid (optional filter)
+      category: IntentCategory (optional filter)
+
+    Response (200):
+      {
+        "skills": [...],
+        "total": 2
+      }
+
+  ── DELETE /agent-skills/{skill_id} ───────────────────────────
+
+    Response (200): { "message": "Agent skill deleted" }
+    Response (404): { "detail": "Agent skill not found" }
+
+  ── GET /stats ────────────────────────────────────────────────
+
+    Response (200):
+      {
+        "total_decisions": 10,
+        "auto_resolved": 5,
+        "escalated": 2,
+        "routed": 1,
+        "clarification_needed": 2,
+        "avg_confidence": 0.65,
+        "avg_risk": 0.28,
+        "decisions_by_category": {
+          "ACCOUNT": 3,
+          "BILLING": 4,
+          "TECHNICAL": 2,
+          "SECURITY": 1
+        },
+        "decisions_by_outcome": {
+          "AUTO_RESOLVE": 5,
+          "SUGGEST_RESPONSE": 2,
+          "ESCALATE_HUMAN": 2,
+          "CLARIFY": 1
+        },
+        "escalation_rate": 0.2
+      }
+
+
+================================================================================
+ 16. ENUMERATIONS & CONSTANTS
+================================================================================
+
+INTENT CATEGORIES (8):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ BILLING          │ Payment, invoicing, charges, refunds, subscriptions │
+  │ TECHNICAL        │ Bugs, errors, crashes, performance, configuration   │
+  │ ACCOUNT          │ Login, password, profile, access, permissions       │
+  │ GENERAL          │ Generic queries that don't match other categories   │
+  │ COMPLAINT        │ Negative experiences, dissatisfaction, demands      │
+  │ FEATURE_REQUEST  │ New features, improvements, suggestions             │
+  │ SECURITY         │ Breaches, hacking, unauthorized access, data leaks  │
+  │ URGENT           │ Critical issues, production down, immediate needs   │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+DECISION OUTCOMES (5):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ AUTO_RESOLVE     │ High confidence + low risk → system can handle      │
+  │ SUGGEST_RESPONSE │ Good confidence → suggest responses for agent       │
+  │ CLARIFY          │ Medium confidence → ask customer for more info      │
+  │ ESCALATE_HUMAN   │ Low confidence / high risk → send to human          │
+  │ ROUTE_AGENT      │ No rule matched → route to skilled agent            │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+RISK LEVELS (4):
+  LOW (< 0.30) | MEDIUM (0.30–0.49) | HIGH (0.50–0.69) | CRITICAL (>= 0.70)
+
+CONFIDENCE LEVELS (3):
+  LOW (< 0.40) | MEDIUM (0.40–0.69) | HIGH (>= 0.70)
+
+
+================================================================================
+ 17. DECISION MATRIX (FULL TABLE)
+================================================================================
+
+This is the complete decision matrix showing what outcome is produced for
+every possible combination of confidence level, risk level, and category.
+
+FOR NON-SECURITY CATEGORIES:
+
+    ┌──────────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
+    │                  │ Risk: LOW    │ Risk: MEDIUM │ Risk: HIGH   │Risk: CRITICAL│
+    ├──────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
+    │ Confidence: HIGH │ AUTO_RESOLVE │ SUGGEST_RESP │ESCALATE_HUMAN│ESCALATE_HUMAN│
+    ├──────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
+    │ Confidence: MED  │ SUGGEST_RESP │ CLARIFY      │ESCALATE_HUMAN│ESCALATE_HUMAN│
+    ├──────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
+    │ Confidence: LOW  │ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│
+    └──────────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
+
+FOR SECURITY CATEGORY ONLY:
+
+    ┌──────────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
+    │                  │ Risk: LOW    │ Risk: MEDIUM │ Risk: HIGH   │Risk: CRITICAL│
+    ├──────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
+    │ Confidence: HIGH │ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│
+    ├──────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
+    │ Confidence: MED  │ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│
+    ├──────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
+    │ Confidence: LOW  │ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│ESCALATE_HUMAN│
+    └──────────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
+
+    Key insight: SECURITY tickets are ALWAYS escalated to a human, regardless
+    of confidence or risk level. This is enforced by the security_always_escalate
+    rule at priority 95.
+
+
+================================================================================
+ 18. SCORING ALGORITHMS (DETAILED)
+================================================================================
+
+═══ A. CLASSIFICATION SCORING ═══
+
+For each category rule, the scoring function computes:
+
+    score = 0
+
+    FOR EACH keyword IN rule.keywords:
+      IF keyword IN text (case-insensitive):
+        word_count = number of words in keyword
+        score += 1.0 + 0.5 × (word_count - 1)
+        #  Single-word keyword = 1.0 points
+        #  "locked out" (2 words) = 1.5 points
+        #  "cancel subscription" (2 words) = 1.5 points
+
+    FOR EACH pattern IN rule.patterns:
+      IF regex(pattern) MATCHES text:
+        score += 2.0    # Patterns are more specific → higher reward
+
+    score *= rule.weight   # Category weight multiplier
+
+EXAMPLE - Text: "I was charged twice for my billing subscription"
+
+    BILLING keywords matched: "charge" (1.0), "billing" (1.0), "subscription" (1.0)
+    BILLING patterns matched: none
+    BILLING score = (1.0 + 1.0 + 1.0) × 1.0 = 3.0
+
+    TECHNICAL keywords matched: none
+    TECHNICAL score = 0.0
+
+    Only BILLING scored → dominance = 1.0, absolute = 0.3
+    Confidence = 0.6 × 1.0 + 0.4 × 0.3 = 0.72 → HIGH
+
+
+═══ B. RISK SCORING ═══
+
+The risk score is a sum of weighted factors:
+
+    risk = 0.0
+
+    # Factor 1: Category inherent risk
+    risk += CATEGORY_BASE_RISK[category] × 0.3
+
+    # Factor 2: Negative sentiment (max 0.20)
+    risk += min(count_negative_words × 0.05, 0.20)
+
+    # Factor 3: Urgency markers (max 0.15)
+    risk += min(count_urgency_words × 0.05, 0.15)
+
+    # Factor 4: Escalation triggers (max 0.15)
+    risk += min(count_escalation_words × 0.05, 0.15)
+
+    # Factor 5: Security words (max 0.15)
+    risk += min(count_security_words × 0.05, 0.15)
+
+    # Factor 6: Text length
+    IF word_count < 5:   risk += 0.05
+    ELIF word_count > 500: risk += 0.03
+
+    # Factor 7: Existing priority
+    IF priority = CRITICAL: risk += 0.10
+    IF priority = HIGH:     risk += 0.05
+    IF priority = LOW:      risk -= 0.03
+
+    # Factor 8: Escalation flag
+    IF has_escalation_flag: risk += 0.10
+
+    # Factor 9: Low confidence amplifier
+    IF confidence = LOW:    risk += 0.08
+    IF confidence = MEDIUM: risk += 0.03
+
+    risk = clamp(risk, 0.0, 1.0)
+
+EXAMPLE - Security breach text with urgency:
+
+    Category = SECURITY (base risk = 0.7)
+    risk = 0.7 × 0.3 = 0.21                     # Factor 1
+    risk += 0.05 (1 negative word)               # Factor 2: +0.05 → 0.26
+    risk += 0.10 (2 urgency markers)             # Factor 3: +0.10 → 0.36
+    risk += 0 (no escalation triggers)           # Factor 4: +0.00 → 0.36
+    risk += 0.15 (3+ security words, capped)     # Factor 5: +0.15 → 0.51
+    risk += 0 (normal text length)               # Factor 6: +0.00 → 0.51
+    risk += 0 (default MEDIUM priority)          # Factor 7: +0.00 → 0.51
+    risk += 0 (no escalation flag)               # Factor 8: +0.00 → 0.51
+    risk += 0.03 (MEDIUM confidence)             # Factor 9: +0.03 → 0.54
+
+    Final: risk = 0.54 → HIGH
+
+
+═══ C. ROUTING SCORING ═══
+
+    For each candidate agent with matching skill:
+
+      workload_ratio = current_tickets / max_concurrent_tickets
+      score = proficiency × (1 - workload_ratio)
+
+    EXAMPLE:
+      Agent Alice: proficiency=0.9, workload=2/10
+        score = 0.9 × (1 - 0.2) = 0.9 × 0.8 = 0.72
+
+      Agent Bob: proficiency=0.7, workload=0/10
+        score = 0.7 × (1 - 0.0) = 0.7 × 1.0 = 0.70
+
+      Agent Charlie: proficiency=0.95, workload=8/10
+        score = 0.95 × (1 - 0.8) = 0.95 × 0.2 = 0.19
+
+      Ranking: Alice (0.72) > Bob (0.70) > Charlie (0.19)
+      Selected: Alice (best balance of skill and availability)
+
+
+================================================================================
+ 19. ROUTING ALGORITHM (DETAILED)
+================================================================================
+
+ROUTING DECISION TREE:
+
+    Is outcome ROUTE_AGENT, SUGGEST_RESPONSE, or ESCALATE_HUMAN?
+         │
+    NO ──┤──── Skip routing (no agent needed)
+         │
+    YES──▼
+         │
+    Query agents with matching skill for the intent category
+         │
+    ┌────▼────────────────────────────────────────────────────┐
+    │  For each agent with matching skill:                    │
+    │    • Check: is agent ACTIVE? Has AGENT/ADMIN role?      │
+    │    • Count open + in-progress assigned tickets           │
+    │    • If at max capacity → SKIP                           │
+    │    • Score = proficiency × (1 - workload / max)          │
+    └────┬────────────────────────────────────────────────────┘
+         │
+    Any skilled candidates?
+         │
+    YES──┤──── Sort by score DESC → return best as selected_agent
+         │    + all candidates sorted
+         │
+    NO ──▼
+         │
+    ┌────▼────────────────────────────────────────────────────┐
+    │  FALLBACK: Query ALL active agents (any role/skill)     │
+    │    • Count each agent's current workload                │
+    │    • Set skill_match_score = 0.0 (no skill match)       │
+    │    • Sort by workload ASC (least loaded first)            │
+    │    • Return least loaded as selected_agent               │
+    └────┬────────────────────────────────────────────────────┘
+         │
+    Any agents at all?
+         │
+    YES──┤──── Return with reasoning "Fallback routing..."
+         │
+    NO ──▼──── Return empty (selected_agent = null, candidates = [])
+
+
+================================================================================
+ 20. DIAGRAMS & FLOW EXAMPLES
+================================================================================
+
+═══ DIAGRAM A: Complete System Integration ═══
+
+    ┌─────────┐     ┌─────────┐     ┌────────────────────┐
+    │ Customer │────▶│ FastAPI  │────▶│ Decision Engine    │
+    │ (Email,  │     │ Server   │     │                    │
+    │  WhatsApp│     │ :8000    │     │ 1. Classify        │
+    │  Voice)  │     │          │     │ 2. Score Risk      │
+    └─────────┘     └────┬─────┘     │ 3. Apply Rules     │
+                         │           │ 4. Get Suggestions  │
+                    ┌────▼─────┐     │ 5. Route Agent     │
+                    │ PostgreSQL│◀────│ 6. Escalate?       │
+                    │ Database  │     │ 7. Persist Log     │
+                    └────┬─────┘     │ 8. Auto-actions    │
+                         │           └────────────────────┘
+                    ┌────▼─────┐           │
+                    │  Redis    │           │
+                    │  Broker   │           │
+                    └────┬─────┘     ┌─────▼──────────┐
+                         │           │ Response to     │
+                    ┌────▼─────┐     │ Agent/Customer  │
+                    │  Celery   │     │                 │
+                    │  Worker   │     │ • Auto-resolve  │
+                    │ (async)   │     │ • Suggest reply │
+                    └──────────┘     │ • Escalate      │
+                                     │ • Route         │
+                                     └─────────────────┘
+
+
+═══ DIAGRAM B: Decision Matrix Visual ═══
+
+                          RISK LEVEL
+                    LOW      MEDIUM     HIGH     CRITICAL
+                 ┌────────┬──────────┬────────┬──────────┐
+          HIGH   │  AUTO   │ SUGGEST  │ESCALATE│ ESCALATE │
+    CONF         │RESOLVE  │ RESPONSE │ HUMAN  │  HUMAN   │
+    LEVEL ───────┼────────┼──────────┼────────┼──────────┤
+          MEDIUM │SUGGEST  │ CLARIFY  │ESCALATE│ ESCALATE │
+                 │RESPONSE │          │ HUMAN  │  HUMAN   │
+          ───────┼────────┼──────────┼────────┼──────────┤
+          LOW    │ESCALATE │ ESCALATE │ESCALATE│ ESCALATE │
+                 │ HUMAN   │  HUMAN   │ HUMAN  │  HUMAN   │
+                 └────────┴──────────┴────────┴──────────┘
+
+    EXCEPTION: Category = SECURITY → ALL cells become ESCALATE HUMAN
+
+
+═══ DIAGRAM C: Confidence Calculation Visualized ═══
+
+    Text: "Error when logging in, password reset failed, account locked"
+
+    Scoring:
+      ACCOUNT:   login(1.0) + password(1.0) + reset(1.0)
+                 + locked(1.0) + account(1.0)               = 5.0 × 1.0 = 5.0
+      TECHNICAL: error(1.0) + fail(1.0)                     = 2.0 × 1.0 = 2.0
+
+    Total = 7.0
+
+    Dominance = 5.0/7.0 = 0.714
+    Absolute  = 5.0/10  = 0.500
+
+         0.0                    0.5         0.714          1.0
+          ├────────────────────┤──────────┤───────────────┤
+          │                    │ ABSOLUTE │  DOMINANCE    │
+          │                    │  0.500   │    0.714      │
+          │                    │  (40%)   │    (60%)      │
+
+    Confidence = (0.6 × 0.714) + (0.4 × 0.500)
+               = 0.428 + 0.200
+               = 0.629 → MEDIUM
+
+    ┌─────────────────────────────────────────────────────┐
+    │         CONFIDENCE LEVEL SCALE                      │
+    │  0.0          0.40          0.70          1.0       │
+    │   ├───── LOW ───┤─── MEDIUM ──┤──── HIGH ───┤       │
+    │                         ▲                           │
+    │                       0.629                         │
+    └─────────────────────────────────────────────────────┘
+
+
+═══ DIAGRAM D: Routing Score Comparison ═══
+
+    Category: TECHNICAL  |  3 agents with TECHNICAL skill
+
+    Agent A: Sarah        Agent B: Mike         Agent C: Lisa
+    Prof: 0.90            Prof: 0.75            Prof: 0.95
+    Load: 5/15            Load: 1/10            Load: 9/10
+
+    ┌─A─── 0.90 × 0.67 ──── Score: 0.600 ──┐
+    │                                        │
+    │  [██████████████░░░░░] Prof: 0.90      │
+    │  [█████░░░░░░░░░░░░░] Load: 5/15      │
+    └────────────────────────────────────────┘
+
+    ┌─B─── 0.75 × 0.90 ──── Score: 0.675 ──┐  ← SELECTED (highest)
+    │                                        │
+    │  [████████████░░░░░░░] Prof: 0.75      │
+    │  [█░░░░░░░░░░░░░░░░░] Load: 1/10      │
+    └────────────────────────────────────────┘
+
+    ┌─C─── 0.95 × 0.10 ──── Score: 0.095 ──┐
+    │                                        │
+    │  [███████████████████] Prof: 0.95      │
+    │  [█████████████████░░] Load: 9/10      │
+    └────────────────────────────────────────┘
+
+    Ranking: Mike (0.675) > Sarah (0.600) > Lisa (0.095)
+
+    Key insight: Mike wins despite lower proficiency because he has much
+    more available capacity. Lisa, despite highest proficiency (0.95),
+    ranks last because she's nearly at capacity (9/10).
+
+
+═══ DIAGRAM E: Escalation Package Assembly ═══
+
+    Ticket: "Account hacked, unauthorized transactions"
+    Category: SECURITY | Risk: HIGH | Confidence: MEDIUM
+         │
+         ▼
+    ┌─────────────────────────────────────────────────────┐
+    │            ESCALATION PACKAGE                       │
+    │                                                     │
+    │  ┌─── TICKET INFO ──────────────────────────┐      │
+    │  │  Subject: "Account hacked..."            │      │
+    │  │  Description: (first 2000 chars)         │      │
+    │  │  Status: OPEN → ESCALATED                │      │
+    │  │  Priority: HIGH                          │      │
+    │  └──────────────────────────────────────────┘      │
+    │                                                     │
+    │  ┌─── AI ANALYSIS ──────────────────────────┐      │
+    │  │  Intent: SECURITY (78% confidence)       │      │
+    │  │  Risk: 0.54 (HIGH)                       │      │
+    │  │  Decision: ESCALATE_HUMAN                │      │
+    │  │  Rule: security_always_escalate          │      │
+    │  └──────────────────────────────────────────┘      │
+    │                                                     │
+    │  ┌─── RISK FACTORS ─────────────────────────┐      │
+    │  │  • High-risk category: SECURITY          │      │
+    │  │  • Urgency detected (2 markers)          │      │
+    │  │  • Security concerns (5 indicators)       │      │
+    │  └──────────────────────────────────────────┘      │
+    │                                                     │
+    │  ┌─── CONVERSATION HISTORY ─────────────────┐      │
+    │  │  (Up to 50 recent messages if linked)    │      │
+    │  │  Message 1: Customer: "Help..."          │      │
+    │  │  Message 2: Bot: "We received..."        │      │
+    │  └──────────────────────────────────────────┘      │
+    │                                                     │
+    │  ┌─── PREVIOUS AI DECISIONS ────────────────┐      │
+    │  │  (Up to 10 previous DecisionLog entries) │      │
+    │  │  Decision 1: AUTO_RESOLVE (overridden)   │      │
+    │  └──────────────────────────────────────────┘      │
+    │                                                     │
+    │  ┌─── RECOMMENDED ACTIONS ──────────────────┐      │
+    │  │  1. Check for unauthorized access        │      │
+    │  │  2. Verify identity via secondary channel│      │
+    │  │  3. Review recent login activity         │      │
+    │  └──────────────────────────────────────────┘      │
+    └─────────────────────────────────────────────────────┘
+
+
+═══ DIAGRAM F: Full End-to-End Flow for "Security Breach" Ticket ═══
+
+    Customer sends: "My account was hacked! Unauthorized transactions detected."
+         │
+         ▼
+    ┌── CLASSIFIER ──────────────────────────────────────────┐
+    │  Keywords: "hack"→SECURITY, "unauthorized"→SECURITY,   │
+    │           "account"→ACCOUNT, "transaction"→BILLING     │
+    │                                                        │
+    │  Scores:                                               │
+    │    SECURITY = (hack + hacked + unauthorized) × 1.3     │
+    │            = 3.0 × 1.3 = 3.9                           │
+    │    ACCOUNT  = (account) × 1.0 = 1.0                    │
+    │    BILLING  = (transaction) × 1.0 = 1.0                │
+    │                                                        │
+    │  Winner: SECURITY (3.9)                                │
+    │  Total = 5.9                                           │
+    │  Confidence = 0.6×(3.9/5.9) + 0.4×(3.9/10)            │
+    │            = 0.6×0.661 + 0.4×0.39 = 0.553              │
+    │  Level: MEDIUM                                         │
+    └───────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+    ┌── RISK SCORER ─────────────────────────────────────────┐
+    │  Category risk: SECURITY × 0.3     = +0.21             │
+    │  Negative sentiment: 0 words       = +0.00             │
+    │  Urgency: "hacked"                 = +0.05             │
+    │  Security words: hack, unauthorized = +0.10            │
+    │  Confidence amplifier (MEDIUM)     = +0.03             │
+    │                                                        │
+    │  Risk = 0.39 → MEDIUM                                  │
+    └───────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+    ┌── RULES ENGINE ────────────────────────────────────────┐
+    │  Rule 100 (critical risk): risk=MEDIUM, SKIP           │
+    │  Rule 95 (security always): category=SECURITY, MATCH!  │
+    │                                                        │
+    │  → ESCALATE_HUMAN via "security_always_escalate"       │
+    └───────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+    ┌── RESPONSE SUGGESTER ──────────────────────────────────┐
+    │  Category: SECURITY → SECURITY templates               │
+    │                                                        │
+    │  1. "I take your security concern very seriously..."   │
+    │  2. "For your safety, I'm going to secure your..."     │
+    │  3. "I've flagged this for our security team..."       │
+    └───────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+    ┌── ROUTER ──────────────────────────────────────────────┐
+    │  Outcome = ESCALATE_HUMAN → routing triggered          │
+    │  Look for agents with SECURITY skill                   │
+    │  Found: Agent X (proficiency=0.9, load=2/10)           │
+    │  Score = 0.9 × 0.8 = 0.72                              │
+    │  → Suggest Agent X                                     │
+    └───────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+    ┌── ESCALATION HANDLER ──────────────────────────────────┐
+    │  Build package: summary, conversation history,         │
+    │  previous decisions, recommended actions:              │
+    │    • Check account for unauthorized access             │
+    │    • Verify identity through secondary channel         │
+    │    • Review recent login activity                      │
+    └───────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+    ┌── PERSIST & AUTO-ACTIONS ──────────────────────────────┐
+    │  • Save DecisionLog to database                        │
+    │  • Set ticket.status = ESCALATED                       │
+    │  • Set ticket.escalation_flag = True                   │
+    │  • Return full DecisionResult to API caller            │
+    └────────────────────────────────────────────────────────┘
+
+
+================================================================================
+ 21. EXAMPLE WALKTHROUGH: END-TO-END
+================================================================================
+
+Below is a complete real example from the test suite showing actual API
+responses.
+
+═══ Example 1: Technical Issue (auto-resolve) ═══
+
+    INPUT:
+      text: "My internet connection keeps dropping every few minutes.
+             I've tried restarting the router."
+      subject: "Internet issues"
+
+    PIPELINE:
+      Step 1 — Classification:
+        Matched keywords: "issue" → TECHNICAL, "problem" → TECHNICAL
+        Score: TECHNICAL = 2.0 × 1.0 = 2.0
+        Confidence: 0.64 → MEDIUM
+
+      Step 2 — Risk Assessment:
+        Category risk: TECHNICAL × 0.3 = 0.075
+        Urgency: 0, Sentiment: 0
+        Risk: 0.155 → LOW
+
+      Step 3 — Rules:
+        MEDIUM confidence + LOW risk → Rule: medium_confidence_low_risk_suggest
+        Outcome: SUGGEST_RESPONSE
+
+      Step 4 — Suggestions:
+        3 TECHNICAL response templates returned
+
+    OUTPUT:
+      intent_category: TECHNICAL
+      confidence: 0.64 (MEDIUM)
+      risk: 0.155 (LOW)
+      decision: SUGGEST_RESPONSE
+      suggestions: 3 templates
+
+═══ Example 2: Security Breach (forced escalation) ═══
+
+    INPUT:
+      text: "Someone hacked my account, changed my password.
+             Unauthorized transactions detected. Data breach!"
+      subject: "URGENT: Account hacked"
+
+    PIPELINE:
+      Step 1 — Classification:
+        Matched: hack, hacked, compromised, unauthorized, breach → SECURITY
+        Score: SECURITY = 5+ × 1.3 = 6.5+
+        Confidence: 0.78 → HIGH
+
+      Step 2 — Risk:
+        Security base: 0.21, Security words: +0.15 (capped),
+        Urgency: +0.10
+        Risk: 0.46 → MEDIUM
+
+      Step 3 — Rules:
+        Category=SECURITY → Rule: security_always_escalate (priority 95)
+        Outcome: ESCALATE_HUMAN (overrides normal HIGH+MEDIUM→SUGGEST)
+
+    OUTPUT:
+      intent_category: SECURITY
+      confidence: 0.78 (HIGH)
+      risk: 0.46 (MEDIUM)
+      decision: ESCALATE_HUMAN
+      matched_rules: ["security_always_escalate"]
+
+═══ Example 3: Account Issue (full analysis on ticket) ═══
+
+    INPUT (ticket):
+      subject: "Cannot login to dashboard"
+      description: "I keep getting an error when trying to login.
+                    Reset password twice but still locked out."
+
+    PIPELINE:
+      Step 1 — Classification:
+        Matched: login, password, reset, locked out, locked → ACCOUNT
+        Also: error → TECHNICAL (but lower score)
+        Score: ACCOUNT = 5.5, TECHNICAL = 1.0
+        Confidence: 0.709 → HIGH
+
+      Step 2 — Risk:
+        Category risk: ACCOUNT × 0.3 = 0.06
+        Urgency: 1 marker ("locked out")
+        Risk: 0.16 → LOW
+
+      Step 3 — Rules:
+        HIGH confidence + LOW risk → high_confidence_low_risk_auto_resolve
+        Outcome: AUTO_RESOLVE
+
+      Step 8 — Persisted:
+        DecisionLog record created with all data
+
+    OUTPUT:
+      intent_category: ACCOUNT
+      confidence: 0.709 (HIGH)
+      risk: 0.16 (LOW)
+      decision: AUTO_RESOLVE
+      reasoning: "Intent classified as ACCOUNT with 70.9% confidence (HIGH).
+                  Matched keywords: login, password, reset, locked out, locked.
+                  Risk assessed at 16.0% (LOW). Decision: AUTO_RESOLVE
+                  (rules: high_confidence_low_risk_auto_resolve)."
+      suggested_priority: LOW
+
+
+================================================================================
+ 22. CONFIGURATION & DEPLOYMENT
+================================================================================
+
+DOCKER SERVICES INVOLVED:
+
+  ┌──────────────────────┬────────────────────────────────────────────────────┐
+  │ Service              │ Role in Decision Engine                            │
+  ├──────────────────────┼────────────────────────────────────────────────────┤
+  │ support_api (:8000)  │ Hosts all 10 decision engine API endpoints         │
+  ├──────────────────────┼────────────────────────────────────────────────────┤
+  │ support_postgres     │ Stores decision_logs, agent_skills tables +        │
+  │ (:5432)              │ 4 custom PostgreSQL ENUM types                     │
+  ├──────────────────────┼────────────────────────────────────────────────────┤
+  │ support_redis (:6379)│ Celery message broker for async task queuing       │
+  ├──────────────────────┼────────────────────────────────────────────────────┤
+  │ support_celery_worker│ Processes analyze_ticket_task from "decision"      │
+  │                      │ queue. Queues: emails,logging,gmail,whatsapp,      │
+  │                      │ decision,celery                                    │
+  ├──────────────────────┼────────────────────────────────────────────────────┤
+  │ support_flower       │ Celery monitoring dashboard (view task stats)      │
+  │ (:5555)              │                                                    │
+  └──────────────────────┴────────────────────────────────────────────────────┘
+
+DATABASE MIGRATION:
+  Alembic migration: d4e5f6a7b8c9_add_decision_engine_tables
+  Down revision: c3d4e5f6a7b8
+
+  The migration uses 100% raw SQL (op.execute()) to create:
+    1. Four PostgreSQL ENUM types (with IF NOT EXISTS guards)
+    2. decision_logs table
+    3. agent_skills table
+    4. All indexes
+
+  IMPORTANT: The SQLAlchemy models use sqlalchemy.dialects.postgresql.ENUM
+  with create_type=False. This prevents SQLAlchemy's metadata events from
+  trying to CREATE TYPE during migration — the migration's raw SQL handles
+  that with proper IF NOT EXISTS checks.
+
+CELERY CONFIGURATION:
+  • Task: app.decision_engine.tasks.analyze_ticket_task
+  • Queue: "decision"
+  • Autodiscover: app.decision_engine (registered in celery_app.py)
+  • Docker compose: "-Q emails,logging,gmail,whatsapp,decision,celery"
+
+MAIN.PY REGISTRATION:
+  from app.decision_engine.routes import router as decision_engine_router
+  app.include_router(decision_engine_router, prefix=settings.API_V1_PREFIX)
+
+MODEL REGISTRATION (app/db/models/__init__.py):
+  from app.decision_engine.models import DecisionLog, AgentSkill
+  from app.decision_engine.enums import (
+      IntentCategory, DecisionOutcome, RiskLevel, ConfidenceLevel
+  )
+
+
+================================================================================
+ END OF DOCUMENT
+================================================================================
+
+  Document:  details-decision-engine.txt
+  Modules:   14 files in app/decision_engine/
+  Endpoints: 10 API routes
+  Tables:    2 (decision_logs, agent_skills)
+  Enums:     4 PostgreSQL types
+  Total LOC: ~2,200 lines of Python
+
+  Author: AI Support Agent Backend — Sprint 2
+  Date:   March 2026
+
+================================================================================

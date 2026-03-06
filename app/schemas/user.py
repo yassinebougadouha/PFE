@@ -18,12 +18,14 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
     full_name: str = Field(..., min_length=1, max_length=255)
     role: UserRole = UserRole.CLIENT
+    phone_number: Optional[str] = Field(None, min_length=8, max_length=20)
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = Field(None, max_length=255)
     role: Optional[UserRole] = None
     status: Optional[UserStatus] = None
+    phone_number: Optional[str] = Field(None, min_length=8, max_length=20)
 
 
 class UserLogin(BaseModel):
@@ -37,6 +39,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str
+    phone_number: Optional[str] = None
     role: UserRole
     status: UserStatus
     created_at: datetime

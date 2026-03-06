@@ -53,6 +53,7 @@ class Message(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_internal: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_read: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
 
     # ── Relationships ──────────────────────────────
     conversation = relationship("Conversation", back_populates="messages")

@@ -21,6 +21,7 @@ class ChannelType(str, enum.Enum):
     EMAIL = "EMAIL"
     TICKET = "TICKET"
     CALL_TRANSCRIPT = "CALL_TRANSCRIPT"
+    WHATSAPP = "WHATSAPP"
 
 
 class ConversationStatus(str, enum.Enum):
@@ -63,3 +64,5 @@ class AuditAction(str, enum.Enum):
     ASSIGN = "ASSIGN"
     STATUS_CHANGE = "STATUS_CHANGE"
     REPLY = "REPLY"
+    WHATSAPP_IN = "WHATSAPP_IN"
+    WHATSAPP_OUT = "WHATSAPP_OUT"

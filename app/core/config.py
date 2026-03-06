@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     GMAIL_SCOPES: List[str] = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify"]
     GMAIL_POLL_INTERVAL_SECONDS: int = 60
 
+    # ── WhatsApp ────────────────────────────────────────
+    WHATSAPP_PROVIDER: str = "meta"  # "meta" (official Cloud API) | "bridge" (unofficial Web bridge)
+    # Meta Cloud API settings
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+    WHATSAPP_ACCESS_TOKEN: str = ""
+    WHATSAPP_VERIFY_TOKEN: str = "my-whatsapp-verify-token"
+    WHATSAPP_API_VERSION: str = "v21.0"
+    # Bridge settings (whatsapp-web.js via HTTP wrapper)
+    WHATSAPP_BRIDGE_URL: str = "http://localhost:3000"  # URL of the bridge server
+    WHATSAPP_BRIDGE_API_KEY: str = ""  # optional API key for bridge auth
+
     # ── Voice (STT / TTS) ────────────────────────────────
     WHISPER_MODEL: str = "tiny"  # tiny | base | small | medium | large
     TTS_VOICE: str = "en-GB-RyanNeural"  # edge-tts voice name
