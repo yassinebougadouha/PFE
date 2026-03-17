@@ -19,6 +19,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        protected_namespaces=(),
+        extra="ignore",
     )
 
     # ── App ───────────────────────────────────────────────
@@ -76,6 +78,49 @@ class Settings(BaseSettings):
     TTS_PITCH: str = "-0Hz"  # pitch adjustment
     UPLOADS_DIR: str = "uploads"  # directory for temp audio files
     AUDIO_CLEANUP_DELAY_SECONDS: int = 300  # delete audio files after N seconds
+
+    # ── RAG / Knowledge Base ─────────────────────────────
+    RAG_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    RAG_CHUNK_SIZE: int = 512
+    RAG_CHUNK_OVERLAP: int = 64
+    RAG_DEFAULT_TOP_K: int = 5
+    RAG_MIN_SIMILARITY: float = 0.3
+    RAG_DOCUMENTS_DIR: str = "app/rag/documents"
+
+    # ── AI Response Providers ────────────────────────────
+    OPENAI_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    AI_RESPONSE_PROVIDER: str = "openai"       # openai | claude | gemini | local
+    AI_RESPONSE_TEMPERATURE: float = 0.3
+    AI_RESPONSE_MAX_TOKENS: int = 1024
+
+    # ── Local LLM (Ollama / llama.cpp / vLLM / LM Studio) ─
+    LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"   # OpenAI-compat endpoint
+    LOCAL_LLM_MODEL: str = "llama3.2"                       # default model name
+    LOCAL_LLM_API_KEY: str = ""                             # optional API key
+    LOCAL_LLM_MODELS: str = ""                              # comma-separated available models
+
+    # ── Visual AI ────────────────────────────────────────
+    VISUAL_AI_PROVIDER: str = "local-basic"      # local-basic | local-advanced | google
+    VISUAL_CLIP_MODEL: str = "clip-ViT-B-32"     # sentence-transformers CLIP model
+    SCREENSHOT_DIR: str = "screenshots"           # directory for stored screenshots
+    MAX_SCREENSHOT_SIZE_MB: int = 10              # max upload size in MB
+    GAP_THRESHOLD_MINOR: float = 0.15
+    GAP_THRESHOLD_SIGNIFICANT: float = 0.40
+    GAP_THRESHOLD_CRITICAL: float = 0.70
+    VISUAL_GUIDANCE_USE_LLM: bool = False          # enable LLM-enhanced guidance
+    GOOGLE_CLOUD_PROJECT: str = ""                 # GCP project for Vertex AI
+
+    # ── Voice Agents (LiveKit) ───────────────────────────
+    LIVEKIT_API_KEY: str = "devkey"
+    LIVEKIT_API_SECRET: str = "secret"
+    LIVEKIT_URL: str = "ws://localhost:7880"
+    GOOGLE_API_KEY: str = ""
+    USE_REALTIME: bool = False
+
+    # ── Internal Service-to-Service Auth ─────────────────
+    INTERNAL_SERVICE_KEY: str = "change-me-internal-key"
 
     # ── Logging ──────────────────────────────────────────
     LOG_LEVEL: str = "INFO"

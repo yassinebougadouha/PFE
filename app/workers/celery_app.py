@@ -32,6 +32,10 @@ celery_app.conf.update(
         "app.workers.tasks.process_whatsapp_incoming_task": {"queue": "whatsapp"},
         "app.workers.tasks.record_whatsapp_outbound_task": {"queue": "whatsapp"},
         "app.decision_engine.tasks.analyze_ticket_task": {"queue": "decision"},
+        "app.rag.tasks.index_article_task": {"queue": "rag"},
+        "app.rag.tasks.reindex_all_articles_task": {"queue": "rag"},
+        "app.visual_ai.tasks.analyze_screenshot_task": {"queue": "visual"},
+        "app.visual_ai.tasks.batch_reanalyze_task": {"queue": "visual"},
     },
     # Celery Beat schedule — periodic tasks
     beat_schedule={
@@ -42,4 +46,4 @@ celery_app.conf.update(
     },
 )
 
-celery_app.autodiscover_tasks(["app.workers", "app.decision_engine"])
+celery_app.autodiscover_tasks(["app.workers", "app.decision_engine", "app.rag", "app.visual_ai"])

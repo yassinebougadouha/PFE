@@ -42,8 +42,11 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(TraceIDMiddleware)
 
 # ── Routes ──────────────────────────────────────────────
-from app.api.routes import health, auth, users, conversations, tickets, emails, audit, gmail, voice, whatsapp  # noqa: E402
+from app.api.routes import health, auth, users, conversations, tickets, emails, audit, gmail, voice, whatsapp, internal  # noqa: E402
 from app.decision_engine.routes import router as decision_engine_router  # noqa: E402
+from app.rag.routes import router as rag_router  # noqa: E402
+from app.rag.response_providers.routes import router as response_gen_router  # noqa: E402
+from app.visual_ai.routes import router as visual_ai_router  # noqa: E402
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
@@ -56,3 +59,7 @@ app.include_router(gmail.router, prefix=settings.API_V1_PREFIX)
 app.include_router(voice.router, prefix=settings.API_V1_PREFIX)
 app.include_router(whatsapp.router, prefix=settings.API_V1_PREFIX)
 app.include_router(decision_engine_router, prefix=settings.API_V1_PREFIX)
+app.include_router(rag_router, prefix=settings.API_V1_PREFIX)
+app.include_router(response_gen_router, prefix=settings.API_V1_PREFIX)
+app.include_router(visual_ai_router, prefix=settings.API_V1_PREFIX)
+app.include_router(internal.router, prefix=settings.API_V1_PREFIX)

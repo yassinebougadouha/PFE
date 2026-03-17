@@ -1,0 +1,2370 @@
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                ║
+║         AI SUPPORT AGENT BACKEND — COMPLETE PROJECT DOCUMENTATION              ║
+║                                                                                ║
+║         Full Architecture & Module Reference                                   ║
+║         Version: 0.1.0  |  Date: March 2026                                   ║
+║                                                                                ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TABLE OF CONTENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1.  Overview & Project Purpose
+  2.  Design Philosophy & Principles
+  3.  Technology Stack
+  4.  Architecture Overview
+  5.  File Structure & Module Map
+  6.  Infrastructure & Deployment (Docker Compose)
+  7.  Core Module: Configuration (app/core/)
+  8.  Core Module: Database Layer (app/db/)
+  9.  Core Module: Security & Authentication
+  10. Core Module: Middleware & Logging (app/utils/)
+  11. Database Models (app/db/models/)
+  12. Enumerations & Constants
+  13. Pydantic Schemas (app/schemas/)
+  14. API Endpoints Reference — Complete
+  15. Service Layer (app/services/)
+  16. Celery Workers & Async Tasks (app/workers/)
+  17. Multi-Channel Architecture
+  18. Module: Email Channel & Gmail Integration
+  19. Module: WhatsApp Integration (Dual Provider)
+  20. Module: Voice Channel (STT / TTS)
+  21. Module: Chat / Conversations
+  22. Module: Tickets & Support Workflow
+  23. Module: Audit Logging & Traceability
+  24. Module: RAG Knowledge Base (app/rag/)
+  25. Module: AI Response Generation (app/rag/response_providers/)
+  26. Module: Decision Engine (app/decision_engine/)
+  27. Module: Visual AI (app/visual_ai/)
+  28. Module: Voice Agents — LiveKit (voice_agents/)
+  29. Module: WhatsApp Web Bridge (whatsapp-bridge/)
+  30. Module: Internal Service-to-Service API
+  31. Entity Relationship Diagram
+  32. Data Flow Diagrams
+  33. Sprint Planning & Roadmap
+  34. Configuration Reference
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+================================================================================
+ 1. OVERVIEW & PROJECT PURPOSE
+================================================================================
+
+The AI Support Agent Backend is a decision-centric intelligent customer support
+platform. Unlike typical chatbot systems that rely solely on generative LLMs,
+this platform places an explicit, rule-based decision engine at its core, using
+LLMs only as linguistic interfaces for response formulation.
+
+PROJECT GOALS:
+  • Build a robust, modular, scalable backend for multi-channel customer support
+  • Implement an adaptive decision engine based on confidence and risk scoring
+  • Integrate Human-in-the-Loop (HITL) escalation for uncertain/high-risk cases
+  • Add Visual AI capabilities for screenshot analysis and UI gap detection
+  • Support RAG (Retrieval-Augmented Generation) for knowledge-grounded responses
+  • Provide real-time voice agent capabilities via LiveKit
+  • Ensure full traceability and auditability of every AI decision
+
+TARGET USERS:
+  1. End Customers (Clients) — Submit tickets, chat, email, WhatsApp, voice
+  2. Support Agents — Handle escalated/assigned tickets, respond to customers
+  3. Administrators — Configure rules, manage knowledge base, monitor metrics
+
+WHAT MAKES THIS DIFFERENT:
+  • Deterministic & Interpretable — No black-box ML for decisions.
+    Every decision is traceable to matched keywords, risk factors, and rules.
+  • Hybrid Architecture — Rule-based decision + LLM reformulation.
+    LLMs generate responses; deterministic logic makes decisions.
+  • Multi-Channel Unified — Email, Chat, WhatsApp, Voice, Tickets all feed
+    into the same pipeline with channel-specific formatting.
+  • Visual AI — Screenshot analysis with gap detection against reference
+    screens, adaptive guidance, and UI state timeline tracking.
+
+
+================================================================================
+ 2. DESIGN PHILOSOPHY & PRINCIPLES
+================================================================================
+
+SEPARATION OF CONCERNS:
+  • Understanding (classification, scoring) is separate from Generation (LLM)
+  • Decision logic is deterministic and rule-based — never delegated to LLMs
+  • LLMs are used only for response reformulation and knowledge synthesis
+
+ARCHITECTURE PRINCIPLES:
+  • Backend-Heavy — All intelligence lives in the backend
+  • Async-First — FastAPI async routes + Celery for background processing
+  • Service Pattern — Each domain has Routes → Service → Model layers
+  • Soft Deletes — Entities are never hard-deleted (is_deleted flag)
+  • UUID Primary Keys — All entities use UUID v4 for distributed safety
+  • Timestamp Tracking — All entities have created_at / updated_at
+  • Full Audit Trail — Every significant action is logged to audit_logs
+
+SECURITY PRINCIPLES:
+  • JWT-based authentication with access + refresh tokens
+  • Token blacklisting via Redis for secure logout
+  • Role-based access control (CLIENT, AGENT, ADMIN)
+  • Screenshot capture requires explicit user consent (opt-in)
+  • Internal service-to-service auth via shared API keys
+
+
+================================================================================
+ 3. TECHNOLOGY STACK
+================================================================================
+
+  ┌──────────────────────┬────────────────────────────────────────────────┐
+  │ Layer                │ Technology                                      │
+  ├──────────────────────┼────────────────────────────────────────────────┤
+  │ Web Framework        │ FastAPI 0.115, Pydantic 2.9, Uvicorn 0.30     │
+  │ Database             │ PostgreSQL 16 (pgvector 0.8.0 for embeddings)  │
+  │ ORM                  │ SQLAlchemy 2.0.35 (asyncpg for async I/O)      │
+  │ Migrations           │ Alembic 1.13.3                                 │
+  │ Cache / Broker       │ Redis 7 (hiredis), redis-py 5.1                │
+  │ Task Queue           │ Celery 5.4 (Redis broker), Flower 2.0          │
+  │ Auth                 │ python-jose (JWT), passlib/bcrypt               │
+  │ HTTP Client          │ httpx 0.27 (async)                              │
+  │ Email / Gmail        │ Google API Python Client 2.149, OAuth2          │
+  │ WhatsApp (Official)  │ Meta Cloud API via httpx                        │
+  │ WhatsApp (Bridge)    │ Baileys (Node.js, whatsapp-web.js protocol)     │
+  │ Speech-to-Text       │ faster-whisper 1.1.1 (CTranslate2, local)      │
+  │ Text-to-Speech       │ edge-tts 7.2.7 (Microsoft Edge neural voices)  │
+  │ RAG Embeddings       │ sentence-transformers 3.3.1 (all-MiniLM-L6-v2) │
+  │ Vector Store         │ pgvector 0.3.6 (PostgreSQL extension)           │
+  │ PDF Processing       │ PyMuPDF 1.24.14                                │
+  │ AI Providers         │ OpenAI, Anthropic Claude, Google Gemini, Local  │
+  │ Local LLM            │ Ollama / llama.cpp / vLLM / LM Studio          │
+  │ Visual AI (Basic)    │ Tesseract OCR + CLIP (sentence-transformers)    │
+  │ Visual AI (Advanced) │ Florence-2 (Microsoft) + CLIP                   │
+  │ Visual AI (Cloud)    │ Google Cloud Vision + Gemini Vision             │
+  │ CLIP Embeddings      │ clip-ViT-B-32 (512 dimensions)                 │
+  │ Voice Agents         │ LiveKit Agents 1.3, LiveKit Plugins             │
+  │ Voice LLM            │ Gemini 2.5 Flash Lite / OpenAI GPT-4o-mini     │
+  │ Containerization     │ Docker, Docker Compose                          │
+  │ PyTorch              │ 2.5.1+cpu (CPU-only build)                      │
+  └──────────────────────┴────────────────────────────────────────────────┘
+
+
+================================================================================
+ 4. ARCHITECTURE OVERVIEW
+================================================================================
+
+HIGH-LEVEL SYSTEM ARCHITECTURE:
+
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                        AI SUPPORT AGENT SYSTEM                          │
+    ├─────────────────────────────────────────────────────────────────────────┤
+    │                                                                         │
+    │   CLIENTS                              INFRASTRUCTURE                   │
+    │   ┌──────────┐  ┌──────────┐          ┌──────────┐  ┌──────────┐      │
+    │   │ React    │  │ WhatsApp │          │PostgreSQL│  │  Redis   │      │
+    │   │ Frontend │  │ Users    │          │ +pgvector│  │ (Cache)  │      │
+    │   └────┬─────┘  └────┬─────┘          └────┬─────┘  └────┬─────┘      │
+    │        │              │                     │              │             │
+    │        ▼              ▼                     │              │             │
+    │   ┌──────────────────────────────┐         │              │             │
+    │   │      FastAPI Backend         │◄────────┘              │             │
+    │   │      (port 8000)             │◄───────────────────────┘             │
+    │   ├──────────────────────────────┤                                      │
+    │   │  Routes Layer (API v1)       │                                      │
+    │   │  ┌─────────────────────────┐ │                                      │
+    │   │  │ Auth    │ Users         │ │                                      │
+    │   │  │ Tickets │ Conversations │ │                                      │
+    │   │  │ Emails  │ Gmail         │ │                                      │
+    │   │  │ WhatsApp│ Voice (STT)   │ │                                      │
+    │   │  │ Audit   │ Internal      │ │                                      │
+    │   │  └─────────────────────────┘ │                                      │
+    │   │  ┌─────────────────────────┐ │                                      │
+    │   │  │ Decision Engine         │ │                                      │
+    │   │  │ RAG Knowledge Base      │ │                                      │
+    │   │  │ AI Response Generation  │ │                                      │
+    │   │  │ Visual AI               │ │                                      │
+    │   │  └─────────────────────────┘ │                                      │
+    │   ├──────────────────────────────┤                                      │
+    │   │  Service Layer               │                                      │
+    │   │  (Business logic & DB ops)   │                                      │
+    │   ├──────────────────────────────┤                                      │
+    │   │  SQLAlchemy Models + enums   │                                      │
+    │   └──────────────────────────────┘                                      │
+    │        │                                                                │
+    │        ▼                                                                │
+    │   ┌──────────────────────────────┐                                      │
+    │   │      Celery Workers          │                                      │
+    │   │  ┌──────────────────────┐    │                                      │
+    │   │  │ emails   │ gmail     │    │                                      │
+    │   │  │ whatsapp │ logging   │    │                                      │
+    │   │  │ decision │ rag       │    │                                      │
+    │   │  │ visual   │ celery    │    │                                      │
+    │   │  └──────────────────────┘    │                                      │
+    │   └──────────────────────────────┘                                      │
+    │        │                                                                │
+    │   ┌──────────────────────────────┐                                      │
+    │   │  External Services           │                                      │
+    │   │  ┌──────────────────────┐    │                                      │
+    │   │  │ Meta WhatsApp API    │    │                                      │
+    │   │  │ WA Bridge (Baileys)  │    │                                      │
+    │   │  │ Gmail API (OAuth2)   │    │                                      │
+    │   │  │ OpenAI / Claude      │    │                                      │
+    │   │  │ Gemini / Local LLM   │    │                                      │
+    │   │  │ Google Cloud Vision  │    │                                      │
+    │   │  └──────────────────────┘    │                                      │
+    │   └──────────────────────────────┘                                      │
+    │                                                                         │
+    │   ┌──────────────────────────────┐                                      │
+    │   │  Voice Agents (LiveKit)      │                                      │
+    │   │  ┌──────────────────────┐    │                                      │
+    │   │  │ StarterAgent (Tom)   │    │                                      │
+    │   │  │ SupportAgent (Mike)  │    │                                      │
+    │   │  │ BookingAgent (Jess.) │    │                                      │
+    │   │  │ FAQAgent (Ameni)     │    │                                      │
+    │   │  └──────────────────────┘    │                                      │
+    │   └──────────────────────────────┘                                      │
+    └─────────────────────────────────────────────────────────────────────────┘
+
+
+DOCKER COMPOSE SERVICES (9 containers):
+
+    ┌───────────────────┬─────────┬────────────────────────────────────────┐
+    │ Service           │ Port    │ Purpose                                │
+    ├───────────────────┼─────────┼────────────────────────────────────────┤
+    │ postgres          │ 5432    │ PostgreSQL 16 + pgvector 0.8           │
+    │ redis             │ 6379    │ Cache, token blacklist, Celery broker  │
+    │ api               │ 8000    │ FastAPI application server             │
+    │ celery_worker     │ —       │ Background task processor              │
+    │ celery_beat       │ —       │ Periodic task scheduler                │
+    │ flower            │ 5555    │ Celery monitoring dashboard            │
+    │ whatsapp_bridge   │ 3000    │ WhatsApp Web protocol bridge           │
+    │ livekit           │ 7880    │ WebRTC media server (voice agents)     │
+    │ voice_agents      │ —       │ LiveKit agent workers                  │
+    └───────────────────┴─────────┴────────────────────────────────────────┘
+
+    Redis database mapping:
+      • DB 0 — Application cache (sessions, rate limiting)
+      • DB 1 — Token blacklist
+      • DB 2 — Celery broker (task queue)
+      • DB 3 — Celery result backend
+
+
+================================================================================
+ 5. FILE STRUCTURE & MODULE MAP
+================================================================================
+
+    ai-support-agent-backend/
+    │
+    ├── main.py                          Root entry point (re-exports app)
+    ├── run_voice_agents.py              Voice agents convenience runner
+    ├── requirements.txt                 Python dependencies (~50 packages)
+    ├── Dockerfile                       Python 3.12 slim container
+    ├── docker-compose.yml               9 service definitions
+    ├── alembic.ini                      Alembic configuration
+    ├── general-context.md               Project specification (French)
+    ├── details-decision-engine.txt      Decision engine documentation
+    │
+    ├── app/                             ═══ MAIN APPLICATION PACKAGE ═══
+    │   ├── __init__.py
+    │   ├── main.py                      FastAPI app assembly & route registration
+    │   │
+    │   ├── core/                        ─── CORE CONFIGURATION ───
+    │   │   ├── config.py                Settings from .env (pydantic-settings)
+    │   │   ├── security.py              Password hashing, JWT encode/decode
+    │   │   └── dependencies.py          Shared dependency factories
+    │   │
+    │   ├── db/                          ─── DATABASE LAYER ───
+    │   │   ├── base.py                  DeclarativeBase + mixins (UUID, Timestamp,
+    │   │   │                            SoftDelete)
+    │   │   ├── session.py               Async engine + session factory
+    │   │   └── models/                  ORM models
+    │   │       ├── __init__.py          Re-exports all models for Alembic
+    │   │       ├── enums.py             Shared enums (UserRole, TicketStatus, ...)
+    │   │       ├── user.py              User model (CLIENT/AGENT/ADMIN)
+    │   │       ├── ticket.py            Ticket model
+    │   │       ├── conversation.py      Conversation + Message models
+    │   │       ├── email.py             Email model (with Gmail threading)
+    │   │       ├── audit_log.py         AuditLog model
+    │   │       └── gmail_credential.py  GmailCredential model (OAuth2 tokens)
+    │   │
+    │   ├── schemas/                     ─── PYDANTIC SCHEMAS ───
+    │   │   ├── common.py               HealthResponse, MessageOut
+    │   │   ├── auth.py                 TokenPair, TokenRefreshRequest
+    │   │   ├── user.py                 UserCreate, UserResponse, UserUpdate
+    │   │   ├── ticket.py               TicketCreate, TicketResponse, TicketUpdate
+    │   │   ├── conversation.py         ConversationCreate, MessageCreate, etc.
+    │   │   ├── email.py                EmailIngest, EmailReplyRequest, etc.
+    │   │   ├── audit.py                AuditLogResponse, AuditLogListResponse
+    │   │   ├── gmail.py                GmailAuthURL, GmailStatusResponse, etc.
+    │   │   ├── voice.py                TranscriptionResult, TTSRequest, TTSResult
+    │   │   └── whatsapp.py             WhatsAppSendRequest, webhook schemas, etc.
+    │   │
+    │   ├── api/                         ─── API ROUTES ───
+    │   │   ├── deps.py                 Auth dependencies (get_current_user,
+    │   │   │                           RoleChecker, Redis)
+    │   │   └── routes/
+    │   │       ├── health.py           GET /health
+    │   │       ├── auth.py             POST /auth/register, login, refresh, logout
+    │   │       ├── users.py            CRUD /users
+    │   │       ├── tickets.py          CRUD /tickets
+    │   │       ├── conversations.py    CRUD /conversations + messages
+    │   │       ├── emails.py           /emails/ingest, reply, thread
+    │   │       ├── gmail.py            /gmail/authorize, callback, sync, status
+    │   │       ├── whatsapp.py         /whatsapp/webhook, send, reply, inbox
+    │   │       ├── voice.py            /voice/transcribe, message, synthesize
+    │   │       ├── audit.py            GET /audit
+    │   │       └── internal.py         /internal/rag/search, /internal/rag/generate
+    │   │
+    │   ├── services/                    ─── SERVICE LAYER ───
+    │   │   ├── auth_service.py         Login, token generation, blacklist
+    │   │   ├── user_service.py         User CRUD + phone lookup
+    │   │   ├── ticket_service.py       Ticket CRUD + agent assignment
+    │   │   ├── conversation_service.py Conversation + Message CRUD
+    │   │   ├── email_service.py        Email ingestion + status management
+    │   │   ├── gmail_service.py        OAuth2 flow + email sync + send
+    │   │   ├── whatsapp_service.py     Dual provider (Meta + Bridge)
+    │   │   ├── transcription_service.py Whisper STT (local, no API)
+    │   │   ├── tts_service.py          Edge-TTS synthesis (free, no API)
+    │   │   ├── audit_service.py        Write & query audit logs
+    │   │   └── redis_service.py        Token blacklist + cache + rate limiting
+    │   │
+    │   ├── utils/                       ─── UTILITIES ───
+    │   │   ├── middleware.py            TraceIDMiddleware, RequestLoggingMiddleware
+    │   │   └── logging.py              Structured logging setup
+    │   │
+    │   ├── workers/                     ─── CELERY WORKERS ───
+    │   │   ├── celery_app.py           Celery instance + routing + beat schedule
+    │   │   └── tasks.py                Email, Gmail, WhatsApp, audit tasks
+    │   │
+    │   ├── decision_engine/             ─── DECISION ENGINE (Sprint 2) ───
+    │   │   ├── enums.py                IntentCategory, DecisionOutcome, etc.
+    │   │   ├── schemas.py              Classification, Risk, Decision schemas
+    │   │   ├── models.py               DecisionLog, AgentSkill DB models
+    │   │   ├── classifier.py           Keyword-based intent classification
+    │   │   ├── scorer.py               Risk assessment (9 factors)
+    │   │   ├── rules.py                Decision rule matrix
+    │   │   ├── decision_engine.py      Pipeline orchestrator
+    │   │   ├── router_engine.py        Smart agent routing
+    │   │   ├── response_suggester.py   Template-based response suggestions
+    │   │   ├── escalation.py           HITL escalation package builder
+    │   │   ├── service.py              DB operations (CRUD)
+    │   │   ├── routes.py               10 API endpoints
+    │   │   └── tasks.py                Celery background analysis
+    │   │
+    │   ├── rag/                         ─── RAG KNOWLEDGE BASE ───
+    │   │   ├── enums.py                ArticleStatus, ArticleCategory, ChunkStatus
+    │   │   ├── schemas.py              Article, Search, Index schemas
+    │   │   ├── models.py               KnowledgeArticle, ArticleChunk models
+    │   │   ├── embeddings.py           Sentence-transformers embeddings
+    │   │   ├── chunker.py              Recursive text chunking with overlap
+    │   │   ├── retriever.py            Vector search (semantic + hybrid)
+    │   │   ├── service.py              Article CRUD + indexing + stats
+    │   │   ├── routes.py               16 API endpoints
+    │   │   ├── tasks.py                Celery indexing tasks
+    │   │   ├── pdf_loader.py           PyMuPDF PDF extraction
+    │   │   ├── pdf_schemas.py          PDF operation schemas
+    │   │   ├── pdf_service.py          PDF → Article ingestion
+    │   │   ├── documents/              PDF storage directory
+    │   │   └── response_providers/     ─── AI Response Generation ───
+    │   │       ├── enums.py            AIProvider, ResponseChannel, ResponseTone
+    │   │       ├── schemas.py          GenerateRequest, GenerateResponse, etc.
+    │   │       ├── base.py             Abstract provider + system prompt builder
+    │   │       ├── openai_provider.py  OpenAI ChatGPT (gpt-4o-mini)
+    │   │       ├── claude_provider.py  Anthropic Claude (claude-sonnet-4-20250514)
+    │   │       ├── gemini_provider.py  Google Gemini (gemini-2.0-flash)
+    │   │       ├── local_provider.py   Local LLM (Ollama/vLLM/LM Studio)
+    │   │       ├── channel_formatter.py Post-processing for 5 channels
+    │   │       ├── service.py          Orchestration: RAG → LLM → Format
+    │   │       └── routes.py           5 API endpoints
+    │   │
+    │   └── visual_ai/                   ─── VISUAL AI ───
+    │       ├── enums.py                VisualAIProvider, GapSeverity, UIElementType
+    │       ├── schemas.py              Screenshot, Analysis, Gap, Guidance schemas
+    │       ├── models.py               Screenshot, VisualAnalysis, UIState,
+    │       │                           ReferenceScreen DB models
+    │       ├── clip_encoder.py         CLIP image/text embeddings (512-dim)
+    │       ├── screenshot_store.py     Filesystem screenshot storage
+    │       ├── gap_detector.py         4-step gap detection pipeline
+    │       ├── guidance.py             Rule-based + AI adaptive guidance
+    │       ├── timeline.py             UI state timeline tracker
+    │       ├── service.py              Orchestration service
+    │       ├── routes.py               14 API endpoints
+    │       ├── tasks.py                Celery background analysis
+    │       └── providers/              Visual AI providers
+    │           ├── base.py             Abstract provider interface
+    │           ├── local_basic.py      Tesseract OCR + CLIP + regex rules
+    │           ├── local_advanced.py   Florence-2 + CLIP
+    │           └── google_cloud.py     Cloud Vision + Gemini Vision + CLIP
+    │
+    ├── voice_agents/                    ═══ LIVEKIT VOICE AGENTS ═══
+    │   ├── __init__.py
+    │   ├── __main__.py                 Convenience entry point
+    │   ├── config.py                   Voice agent settings
+    │   ├── server.py                   LiveKit server entry point
+    │   ├── agents.py                   4 specialized agents
+    │   ├── generic_agent.py            Base agent class with RAG tools
+    │   ├── llm_factory.py             Multi-provider LLM/TTS/STT factory
+    │   ├── rag_bridge.py              HTTP bridge to backend RAG API
+    │   ├── local_stt.py               Local Whisper STT plugin
+    │   ├── local_tts.py               Local Edge-TTS plugin
+    │   ├── requirements.txt           LiveKit-specific dependencies
+    │   └── README.md
+    │
+    ├── whatsapp-bridge/                 ═══ WHATSAPP WEB BRIDGE ═══
+    │   ├── server.js                   Baileys-based REST bridge
+    │   ├── package.json                Node.js dependencies
+    │   └── Dockerfile                  Node 20 container
+    │
+    ├── alembic/                         ═══ DATABASE MIGRATIONS ═══
+    │   ├── env.py                      Alembic environment
+    │   ├── script.py.mako              Migration template
+    │   └── versions/                   Migration scripts (10 revisions)
+    │       ├── 1b1eb6a15952_initial_schema.py
+    │       ├── 32cdb2e446fe_add_reply_enum_values.py
+    │       ├── 43637c752d26_add_email_reply_fields.py
+    │       ├── a1b2c3d4e5f6_add_whatsapp_enum_values.py
+    │       ├── ad32f906518c_add_gmail_credentials.py
+    │       ├── b2c3d4e5f6a7_add_phone_number_to_users.py
+    │       ├── c3d4e5f6a7b8_add_is_read_to_messages.py
+    │       ├── d4e5f6a7b8c9_add_decision_engine_tables.py
+    │       ├── e5f6a7b8c9d0_add_rag_knowledge_base_tables.py
+    │       └── f6a7b8c9d0e1_add_visual_ai_tables.py
+    │
+    ├── screenshots/                     Screenshot storage
+    │   ├── _references/                Reference screen images
+    │   └── _unlinked/                  Screenshots without conversation link
+    │
+    ├── uploads/                         Temporary audio file storage
+    │
+    └── tests/                           Test suite
+        ├── test_decision_engine.py
+        ├── test_rag.py
+        ├── test_rag_pdf.py
+        ├── test_response_providers.py
+        ├── test_visual_ai.py
+        ├── test_visual_ai_florence.py
+        ├── test_florence_load.py
+        └── generate_test_pdfs.py
+
+
+================================================================================
+ 6. INFRASTRUCTURE & DEPLOYMENT (Docker Compose)
+================================================================================
+
+The system is fully containerized using Docker Compose with 9 services.
+
+SERVICE DEPENDENCY GRAPH:
+
+    ┌────────────┐     ┌────────────┐
+    │ PostgreSQL │     │   Redis    │
+    │   :5432    │     │   :6379    │
+    └─────┬──────┘     └──┬────┬───┘
+          │               │    │
+          ▼               ▼    │
+    ┌─────────────────────────┐│
+    │    FastAPI API (:8000)  ││
+    └────────────┬────────────┘│
+                 │             │
+    ┌────────────┼─────────────┼────────────┐
+    │            ▼             ▼            │
+    │  ┌──────────────┐ ┌──────────────┐   │
+    │  │ Celery Worker │ │ Celery Beat  │   │
+    │  └──────────────┘ └──────────────┘   │
+    │                                       │
+    │  ┌──────────────┐ ┌──────────────┐   │
+    │  │   Flower     │ │ WA Bridge    │   │
+    │  │   :5555      │ │ :3000        │   │
+    │  └──────────────┘ └──────────────┘   │
+    └───────────────────────────────────────┘
+
+DOCKER IMAGES:
+  • PostgreSQL: pgvector/pgvector:0.8.0-pg16 (PostgreSQL 16 with pgvector)
+  • Redis: redis:7-alpine
+  • WhatsApp Bridge: node:20-slim + Baileys
+  • All Python services: python:3.12-slim + system deps (build-essential,
+    libpq-dev, ffmpeg)
+
+CELERY QUEUE ROUTING:
+  ┌──────────────────────────────┬────────────────┐
+  │ Task                         │ Queue           │
+  ├──────────────────────────────┼────────────────┤
+  │ process_email_task           │ emails          │
+  │ log_action_task              │ logging         │
+  │ sync_gmail_for_user_task     │ gmail           │
+  │ sync_all_gmail_accounts      │ gmail           │
+  │ send_email_reply_task        │ gmail           │
+  │ process_whatsapp_incoming    │ whatsapp        │
+  │ record_whatsapp_outbound     │ whatsapp        │
+  │ analyze_ticket_task          │ decision        │
+  │ index_article_task           │ rag             │
+  │ reindex_all_articles_task    │ rag             │
+  │ analyze_screenshot_task      │ visual          │
+  │ batch_reanalyze_task         │ visual          │
+  └──────────────────────────────┴────────────────┘
+
+CELERY BEAT SCHEDULE:
+  • sync-all-gmail-accounts — runs every GMAIL_POLL_INTERVAL_SECONDS (default 60)
+
+STARTUP SEQUENCE:
+  1. PostgreSQL starts and becomes healthy
+  2. Redis starts and becomes healthy
+  3. API container runs: alembic upgrade head → uvicorn --reload
+  4. Celery Worker + Beat + Flower start
+  5. WhatsApp Bridge starts (independent Node.js service)
+
+
+================================================================================
+ 7. CORE MODULE: CONFIGURATION (app/core/)
+================================================================================
+
+FILE: app/core/config.py
+
+The Settings class uses pydantic-settings to load all configuration from
+environment variables or a .env file. Cached as a singleton via @lru_cache.
+
+CONFIGURATION CATEGORIES:
+
+  ┌──────────────────────┬───────────────────────────┬────────────────────────┐
+  │ Category             │ Key Settings              │ Default                │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Application          │ APP_NAME                  │ AI Support Agent...    │
+  │                      │ APP_VERSION               │ 0.1.0                  │
+  │                      │ DEBUG                     │ True                   │
+  │                      │ ENVIRONMENT               │ development            │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ API                  │ API_V1_PREFIX              │ /api/v1                │
+  │                      │ CORS_ORIGINS              │ ["*"]                  │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Database             │ DATABASE_URL              │ postgresql+asyncpg://  │
+  │                      │ DB_POOL_SIZE              │ 20                     │
+  │                      │ DB_MAX_OVERFLOW           │ 10                     │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Redis                │ REDIS_URL                 │ redis://localhost/0    │
+  │                      │ REDIS_TOKEN_BLACKLIST_DB  │ 1                      │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ JWT                  │ JWT_SECRET_KEY            │ CHANGE-ME-IN-PROD...   │
+  │                      │ JWT_ALGORITHM             │ HS256                  │
+  │                      │ JWT_ACCESS_EXPIRE_MIN     │ 15                     │
+  │                      │ JWT_REFRESH_EXPIRE_DAYS   │ 7                      │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Celery               │ CELERY_BROKER_URL         │ redis://localhost/2    │
+  │                      │ CELERY_RESULT_BACKEND     │ redis://localhost/3    │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Gmail                │ GMAIL_CLIENT_ID/SECRET    │ ""                     │
+  │                      │ GMAIL_REDIRECT_URI        │ http://localhost:8000  │
+  │                      │ GMAIL_POLL_INTERVAL_SEC   │ 60                     │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ WhatsApp             │ WHATSAPP_PROVIDER         │ "meta"                 │
+  │                      │ WHATSAPP_PHONE_NUMBER_ID  │ ""                     │
+  │                      │ WHATSAPP_ACCESS_TOKEN     │ ""                     │
+  │                      │ WHATSAPP_BRIDGE_URL       │ http://localhost:3000  │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Voice (STT/TTS)      │ WHISPER_MODEL             │ "tiny"                 │
+  │                      │ TTS_VOICE                 │ en-GB-RyanNeural       │
+  │                      │ TTS_RATE / TTS_PITCH      │ +10% / -0Hz            │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ RAG                  │ RAG_EMBEDDING_MODEL       │ all-MiniLM-L6-v2       │
+  │                      │ RAG_CHUNK_SIZE            │ 512                    │
+  │                      │ RAG_CHUNK_OVERLAP         │ 64                     │
+  │                      │ RAG_DEFAULT_TOP_K         │ 5                      │
+  │                      │ RAG_MIN_SIMILARITY        │ 0.3                    │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ AI Response          │ AI_RESPONSE_PROVIDER      │ "openai"               │
+  │                      │ AI_RESPONSE_TEMPERATURE   │ 0.3                    │
+  │                      │ AI_RESPONSE_MAX_TOKENS    │ 1024                   │
+  │                      │ OPENAI_API_KEY            │ ""                     │
+  │                      │ ANTHROPIC_API_KEY         │ ""                     │
+  │                      │ GEMINI_API_KEY            │ ""                     │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Local LLM            │ LOCAL_LLM_BASE_URL        │ http://localhost:11434 │
+  │                      │ LOCAL_LLM_MODEL           │ llama3.2               │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Visual AI            │ VISUAL_AI_PROVIDER        │ "local-basic"          │
+  │                      │ VISUAL_CLIP_MODEL         │ clip-ViT-B-32          │
+  │                      │ SCREENSHOT_DIR            │ "screenshots"          │
+  │                      │ GAP_THRESHOLD_*           │ 0.15 / 0.40 / 0.70    │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Voice Agents         │ LIVEKIT_API_KEY/SECRET    │ devkey / secret         │
+  │                      │ LIVEKIT_URL               │ ws://localhost:7880    │
+  │                      │ USE_REALTIME              │ False                  │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Internal Auth        │ INTERNAL_SERVICE_KEY      │ change-me-internal-key │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Logging              │ LOG_LEVEL                 │ INFO                   │
+  └──────────────────────┴───────────────────────────┴────────────────────────┘
+
+FILE: app/core/security.py
+  • hash_password(password) → hashed string (bcrypt)
+  • verify_password(plain, hashed) → bool
+  • create_access_token(subject, extra_claims) → JWT string
+  • create_refresh_token(subject) → JWT string
+  • decode_token(token) → payload dict (raises JWTError)
+
+FILE: app/core/dependencies.py
+  • get_app_settings() → Settings (injectable FastAPI dependency)
+
+
+================================================================================
+ 8. CORE MODULE: DATABASE LAYER (app/db/)
+================================================================================
+
+FILE: app/db/base.py — Declarative Base & Mixins
+
+  class Base(DeclarativeBase):
+      """All models inherit from this."""
+
+  class UUIDPrimaryKeyMixin:
+      id: UUID v4 primary key (auto-generated)
+
+  class TimestampMixin:
+      created_at: DateTime (auto-set on create)
+      updated_at: DateTime (auto-set on create + update)
+
+  class SoftDeleteMixin:
+      is_deleted: Boolean (default False)
+      deleted_at: DateTime (nullable, set on soft-delete)
+
+FILE: app/db/session.py — Async Session Factory
+
+  • create_async_engine() with pool_size=20, max_overflow=10
+  • async_sessionmaker() with expire_on_commit=False
+  • get_db() — FastAPI dependency yielding AsyncSession with
+    auto-commit on success, auto-rollback on exception
+
+FILE: app/db/models/__init__.py — Central Model Registry
+
+  Re-exports ALL models and enums for Alembic auto-detection:
+  • User, Conversation, Message, Ticket, Email, AuditLog
+  • GmailCredential, DecisionLog, AgentSkill
+  • KnowledgeArticle, ArticleChunk
+  • All enums (UserRole, TicketStatus, IntentCategory, etc.)
+
+
+================================================================================
+ 9. CORE MODULE: SECURITY & AUTHENTICATION
+================================================================================
+
+AUTHENTICATION FLOW:
+
+    ┌────────────────────────────────────────────────────────────┐
+    │                    AUTH FLOW                                │
+    └────────────────────────────────────────────────────────────┘
+
+    1. REGISTER:
+       POST /api/v1/auth/register
+       → UserCreate { email, password, full_name, role }
+       → Creates User with hashed password
+       → Returns UserResponse
+
+    2. LOGIN:
+       POST /api/v1/auth/login
+       → UserLogin { email, password }
+       → Validates credentials
+       → Returns TokenPair { access_token, refresh_token }
+       → Access token: 15 min TTL, contains { sub: user_id, role }
+       → Refresh token: 7 day TTL
+
+    3. USE API:
+       Authorization: Bearer <access_token>
+       → Middleware extracts token
+       → Checks Redis blacklist
+       → Decodes JWT, validates type="access"
+       → Loads User from DB
+       → Checks user status == ACTIVE
+       → Returns User object for route handlers
+
+    4. REFRESH:
+       POST /api/v1/auth/refresh
+       → TokenRefreshRequest { refresh_token }
+       → Validates + checks blacklist
+       → Blacklists old refresh token
+       → Issues new token pair
+
+    5. LOGOUT:
+       POST /api/v1/auth/logout
+       → Blacklists current access token in Redis
+       → Token becomes invalid until natural expiry
+
+ROLE-BASED ACCESS CONTROL:
+
+  ┌──────────────────┬───────────────────────────────────────────────────────┐
+  │ Role             │ Permissions                                           │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ CLIENT           │ • Create tickets, conversations                      │
+  │                  │ • View own tickets/conversations only                 │
+  │                  │ • Upload voice messages, screenshots (with consent)   │
+  │                  │ • Use STT/TTS                                         │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ AGENT            │ • All CLIENT permissions                              │
+  │                  │ • View all tickets (assigned ones filtered by default)│
+  │                  │ • Reply to emails, WhatsApp messages                  │
+  │                  │ • Use decision engine, RAG, AI response generation    │
+  │                  │ • View knowledge base, search, analyze tickets        │
+  │                  │ • View agent skills                                   │
+  ├──────────────────┼───────────────────────────────────────────────────────┤
+  │ ADMIN            │ • All AGENT permissions                               │
+  │                  │ • CRUD users (create, update, soft-delete)            │
+  │                  │ • Assign tickets, manage agent skills                 │
+  │                  │ • Publish/archive knowledge articles                  │
+  │                  │ • Upload PDFs, manage knowledge base                  │
+  │                  │ • View audit logs                                     │
+  │                  │ • Create/delete reference screens                     │
+  │                  │ • Delete tickets, skills, articles                    │
+  └──────────────────┴───────────────────────────────────────────────────────┘
+
+DEPENDENCY HELPERS (app/api/deps.py):
+  • get_current_user — Extracts user from JWT (any role)
+  • require_agent_or_admin — RoleChecker([AGENT, ADMIN])
+  • require_admin — RoleChecker([ADMIN])
+  • get_redis — Returns async RedisService instance
+
+
+================================================================================
+ 10. CORE MODULE: MIDDLEWARE & LOGGING (app/utils/)
+================================================================================
+
+FILE: app/utils/middleware.py
+
+  TraceIDMiddleware:
+    • Injects X-Trace-ID header into every request
+    • Uses client-provided value or generates UUID
+    • Stores in request.state.trace_id
+    • Returns trace_id in response headers
+
+  RequestLoggingMiddleware:
+    • Logs every request: [trace_id] METHOD /path → status (duration_ms)
+    • Measures wall-clock request duration
+
+  Middleware order (outermost first):
+    1. CORS
+    2. RequestLogging
+    3. TraceID
+
+FILE: app/utils/logging.py
+
+  setup_logging():
+    • Format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+    • Outputs to stdout
+    • Log level from settings.LOG_LEVEL (default INFO)
+    • Quietens uvicorn.access and sqlalchemy.engine
+
+
+================================================================================
+ 11. DATABASE MODELS (app/db/models/)
+================================================================================
+
+COMPLETE MODEL CATALOG:
+
+  ┌─────────────────────┬────────────────────────────┬──────────────────────┐
+  │ Model               │ Table                      │ Module               │
+  ├─────────────────────┼────────────────────────────┼──────────────────────┤
+  │ User                │ users                      │ db/models/user.py    │
+  │ Conversation        │ conversations              │ db/models/convo.py   │
+  │ Message             │ messages                   │ db/models/convo.py   │
+  │ Ticket              │ tickets                    │ db/models/ticket.py  │
+  │ Email               │ emails                     │ db/models/email.py   │
+  │ AuditLog            │ audit_logs                 │ db/models/audit.py   │
+  │ GmailCredential     │ gmail_credentials          │ db/models/gmail.py   │
+  │ DecisionLog         │ decision_logs              │ decision_engine/     │
+  │ AgentSkill          │ agent_skills               │ decision_engine/     │
+  │ KnowledgeArticle    │ knowledge_articles         │ rag/models.py        │
+  │ ArticleChunk        │ article_chunks             │ rag/models.py        │
+  │ Screenshot          │ screenshots                │ visual_ai/models.py  │
+  │ VisualAnalysis      │ visual_analyses            │ visual_ai/models.py  │
+  │ UIState             │ ui_states                  │ visual_ai/models.py  │
+  │ ReferenceScreen     │ reference_screens          │ visual_ai/models.py  │
+  └─────────────────────┴────────────────────────────┴──────────────────────┘
+
+─── TABLE: users ───────────────────────────────────────────────────────────
+
+  ┌──────────────────┬──────────────────┬──────────────────────────────────┐
+  │ Column           │ Type             │ Notes                            │
+  ├──────────────────┼──────────────────┼──────────────────────────────────┤
+  │ id               │ UUID (PK)        │ v4, auto-generated               │
+  │ email            │ String(255)      │ Unique, indexed                  │
+  │ hashed_password  │ String(255)      │ bcrypt hash                      │
+  │ full_name        │ String(255)      │ Required                         │
+  │ phone_number     │ String(20)       │ Unique, nullable, indexed        │
+  │ role             │ ENUM user_role   │ CLIENT / AGENT / ADMIN           │
+  │ status           │ ENUM user_status │ ACTIVE / SUSPENDED               │
+  │ is_deleted       │ Boolean          │ Soft delete flag                 │
+  │ deleted_at       │ Timestamp        │ When soft-deleted                │
+  │ created_at       │ Timestamp        │ Auto-set                         │
+  │ updated_at       │ Timestamp        │ Auto-updated                     │
+  └──────────────────┴──────────────────┴──────────────────────────────────┘
+  Indexes: ix_users_email_active (email + is_deleted)
+  Relationships: conversations, messages, assigned_tickets, created_tickets
+
+─── TABLE: tickets ─────────────────────────────────────────────────────────
+
+  ┌──────────────────────┬────────────────────────┬────────────────────────┐
+  │ Column               │ Type                   │ Notes                  │
+  ├──────────────────────┼────────────────────────┼────────────────────────┤
+  │ id                   │ UUID (PK)              │ v4, auto-generated     │
+  │ subject              │ String(500)            │ Required               │
+  │ description          │ Text                   │ Required               │
+  │ status               │ ENUM ticket_status     │ 6 values (see below)   │
+  │ priority             │ ENUM ticket_priority   │ LOW/MED/HIGH/CRIT      │
+  │ channel_source       │ ENUM channel_type      │ How ticket was created │
+  │ escalation_flag      │ Boolean                │ Sprint 2 escalation    │
+  │ creator_id           │ UUID (FK → users)      │ Who created it         │
+  │ assigned_agent_id    │ UUID (FK → users)      │ Assigned agent         │
+  │ source_email_id      │ UUID (FK → emails)     │ If from email channel  │
+  │ conversation_id      │ UUID (FK → convos)     │ Linked conversation    │
+  │ is_deleted/deleted_at│ Soft delete             │                        │
+  │ created_at/updated_at│ Timestamps              │                        │
+  └──────────────────────┴────────────────────────┴────────────────────────┘
+  Indexes: ix_tickets_status_priority, ix_tickets_agent_status
+
+─── TABLE: conversations ───────────────────────────────────────────────────
+
+  ┌──────────────────┬────────────────────────┬────────────────────────────┐
+  │ Column           │ Type                   │ Notes                      │
+  ├──────────────────┼────────────────────────┼────────────────────────────┤
+  │ id               │ UUID (PK)              │ v4                         │
+  │ user_id          │ UUID (FK → users)      │ Owner                      │
+  │ channel          │ ENUM channel_type      │ CHAT/EMAIL/WHATSAPP/etc.   │
+  │ status           │ ENUM conv_status       │ OPEN/PENDING/CLOSED        │
+  │ subject          │ String(500)            │ Optional                   │
+  │ is_deleted/etc.  │ Soft delete + timestamps│                           │
+  └──────────────────┴────────────────────────┴────────────────────────────┘
+  Indexes: ix_conversations_user_status
+
+─── TABLE: messages ────────────────────────────────────────────────────────
+
+  ┌──────────────────┬────────────────────────┬────────────────────────────┐
+  │ Column           │ Type                   │ Notes                      │
+  ├──────────────────┼────────────────────────┼────────────────────────────┤
+  │ id               │ UUID (PK)              │ v4                         │
+  │ conversation_id  │ UUID (FK → convos)     │ Parent conversation        │
+  │ sender_id        │ UUID (FK → users)      │ Who sent it                │
+  │ content          │ Text                   │ Message body               │
+  │ is_internal      │ Boolean                │ Internal agent note        │
+  │ is_read          │ Boolean                │ Read status (for inbox)    │
+  │ created_at       │ Timestamp              │ Ordered by this            │
+  └──────────────────┴────────────────────────┴────────────────────────────┘
+  Indexes: ix_messages_conversation_created
+
+─── TABLE: emails ──────────────────────────────────────────────────────────
+
+  ┌──────────────────────┬────────────────────────┬────────────────────────┐
+  │ Column               │ Type                   │ Notes                  │
+  ├──────────────────────┼────────────────────────┼────────────────────────┤
+  │ id                   │ UUID (PK)              │ v4                     │
+  │ sender_address       │ String(320)            │ Indexed                │
+  │ recipient_address    │ String(320)            │                        │
+  │ subject              │ String(500)            │                        │
+  │ body                 │ Text                   │                        │
+  │ raw_headers          │ Text                   │ Nullable               │
+  │ status               │ ENUM email_status      │ 5 values               │
+  │ gmail_message_id     │ String(255)            │ Unique, for threading  │
+  │ gmail_thread_id      │ String(255)            │ Gmail thread grouping  │
+  │ is_outbound          │ Boolean                │ True = sent reply      │
+  │ in_reply_to_id       │ UUID (FK → emails)     │ Self-referential       │
+  │ replied_by_id        │ UUID (FK → users)      │ Who replied            │
+  │ created_at/updated_at│ Timestamps              │                        │
+  └──────────────────────┴────────────────────────┴────────────────────────┘
+  Indexes: ix_emails_sender_status, ix_emails_gmail_thread
+
+─── TABLE: audit_logs ──────────────────────────────────────────────────────
+
+  ┌──────────────────┬────────────────────────┬────────────────────────────┐
+  │ Column           │ Type                   │ Notes                      │
+  ├──────────────────┼────────────────────────┼────────────────────────────┤
+  │ id               │ UUID (PK)              │ v4                         │
+  │ user_id          │ UUID (FK → users)      │ Nullable (system actions)  │
+  │ action           │ ENUM audit_action      │ 11 values                  │
+  │ resource_type    │ String(100)            │ e.g. "user", "ticket"      │
+  │ resource_id      │ String(255)            │ Nullable                   │
+  │ description      │ Text                   │ Human-readable             │
+  │ meta             │ JSONB                  │ Arbitrary metadata         │
+  │ trace_id         │ String(64)             │ Request trace ID           │
+  │ ip_address       │ String(45)             │ Client IP                  │
+  │ created_at       │ Timestamp              │ When logged                │
+  └──────────────────┴────────────────────────┴────────────────────────────┘
+  Indexes: ix_audit_logs_action_resource, ix_audit_logs_created
+
+─── TABLE: gmail_credentials ───────────────────────────────────────────────
+
+  ┌──────────────────┬────────────────────────┬────────────────────────────┐
+  │ Column           │ Type                   │ Notes                      │
+  ├──────────────────┼────────────────────────┼────────────────────────────┤
+  │ id               │ UUID (PK)              │ v4                         │
+  │ user_id          │ UUID (FK → users)      │ Unique, one per user       │
+  │ gmail_address    │ String(320)            │ Connected Gmail            │
+  │ access_token     │ Text                   │ OAuth2 access token        │
+  │ refresh_token    │ Text                   │ OAuth2 refresh token       │
+  │ token_uri        │ String(500)            │ Google token endpoint      │
+  │ scopes           │ Text                   │ JSON-serialized scopes     │
+  │ is_active        │ Boolean                │ Disconnect = deactivate    │
+  │ last_history_id  │ String(50)             │ Gmail incremental sync     │
+  └──────────────────┴────────────────────────┴────────────────────────────┘
+
+
+================================================================================
+ 12. ENUMERATIONS & CONSTANTS
+================================================================================
+
+CORE ENUMS (app/db/models/enums.py):
+
+  UserRole:       CLIENT, AGENT, ADMIN
+  UserStatus:     ACTIVE, SUSPENDED
+  ChannelType:    CHAT, EMAIL, TICKET, CALL_TRANSCRIPT, WHATSAPP
+  ConversationStatus: OPEN, PENDING, CLOSED
+  TicketStatus:   OPEN, IN_PROGRESS, WAITING_ON_CUSTOMER, ESCALATED,
+                  RESOLVED, CLOSED
+  TicketPriority: LOW, MEDIUM, HIGH, CRITICAL
+  EmailStatus:    RECEIVED, PROCESSING, CONVERTED, REPLIED, FAILED
+  AuditAction:    CREATE, UPDATE, DELETE, LOGIN, LOGOUT, ESCALATE,
+                  ASSIGN, STATUS_CHANGE, REPLY, WHATSAPP_IN, WHATSAPP_OUT
+
+DECISION ENGINE ENUMS (app/decision_engine/enums.py):
+
+  IntentCategory:   BILLING, TECHNICAL, ACCOUNT, GENERAL, COMPLAINT,
+                    FEATURE_REQUEST, SECURITY, URGENT
+  DecisionOutcome:  AUTO_RESOLVE, SUGGEST_RESPONSE, CLARIFY,
+                    ESCALATE_HUMAN, ROUTE_AGENT
+  RiskLevel:        LOW, MEDIUM, HIGH, CRITICAL
+  ConfidenceLevel:  HIGH, MEDIUM, LOW
+
+RAG ENUMS (app/rag/enums.py):
+
+  ArticleStatus:    DRAFT, PUBLISHED, ARCHIVED
+  ArticleCategory:  TECHNICAL, BILLING, ACCOUNT, GENERAL, SECURITY,
+                    TROUBLESHOOTING, FAQ, POLICY, ONBOARDING, FEATURE_GUIDE
+  ChunkStatus:      PENDING, INDEXED, FAILED
+
+AI RESPONSE ENUMS (app/rag/response_providers/enums.py):
+
+  AIProvider:       OPENAI ("openai"), CLAUDE ("claude"),
+                    GEMINI ("gemini"), LOCAL ("local")
+  ResponseChannel:  CHAT, EMAIL, WHATSAPP, VOICE, TICKET
+  ResponseTone:     PROFESSIONAL, FRIENDLY, EMPATHETIC, CONCISE, TECHNICAL
+
+VISUAL AI ENUMS (app/visual_ai/enums.py):
+
+  VisualAIProvider: LOCAL_BASIC, LOCAL_ADVANCED, GOOGLE
+  GapSeverity:      NO_GAP, MINOR, SIGNIFICANT, CRITICAL
+  UIElementType:    BUTTON, INPUT_FIELD, ERROR_MESSAGE, SUCCESS_MESSAGE,
+                    LOADING_STATE, NAVIGATION, FORM, MODAL, TABLE, IMAGE,
+                    LINK, TEXT_BLOCK, HEADER, UNKNOWN
+
+
+================================================================================
+ 13. PYDANTIC SCHEMAS (app/schemas/)
+================================================================================
+
+ALL REQUEST/RESPONSE SCHEMAS:
+
+  ── common.py ────────────────────────────────────────────────────
+    HealthResponse:  status, version, environment
+    MessageOut:      message (generic success response)
+
+  ── auth.py ──────────────────────────────────────────────────────
+    TokenPair:           access_token, refresh_token, token_type
+    TokenRefreshRequest: refresh_token
+    TokenPayload:        sub, exp, type
+
+  ── user.py ──────────────────────────────────────────────────────
+    UserCreate:      email (EmailStr), password (8-128), full_name,
+                     role (default CLIENT), phone_number (optional)
+    UserUpdate:      full_name, role, status, phone_number (all optional)
+    UserLogin:       email, password
+    UserResponse:    id, email, full_name, phone_number, role, status,
+                     created_at, updated_at
+    UserListResponse: users (list), total
+
+  ── ticket.py ────────────────────────────────────────────────────
+    TicketCreate:    subject (1-500), description, priority (default MEDIUM),
+                     channel_source (default TICKET)
+    TicketUpdate:    subject, description, status, priority,
+                     assigned_agent_id, escalation_flag (all optional)
+    TicketResponse:  id, subject, description, status, priority,
+                     channel_source, escalation_flag, creator_id,
+                     assigned_agent_id, source_email_id, conversation_id,
+                     created_at, updated_at
+    TicketListResponse: tickets (list), total
+
+  ── conversation.py ──────────────────────────────────────────────
+    ConversationCreate:   channel (default CHAT), subject (optional)
+    ConversationUpdate:   status, subject (optional)
+    ConversationResponse: id, user_id, channel, status, subject,
+                          created_at, updated_at
+    MessageCreate:        content (min 1), is_internal (default False)
+    MessageResponse:      id, conversation_id, sender_id, content,
+                          is_internal, is_read, created_at
+
+  ── email.py ─────────────────────────────────────────────────────
+    EmailIngest:      sender_address, recipient_address, subject, body,
+                      raw_headers (optional)
+    EmailResponse:    id, sender_address, recipient_address, subject, body,
+                      status, gmail_message_id, gmail_thread_id, is_outbound,
+                      in_reply_to_id, replied_by_id, created_at
+    EmailReplyRequest:  body (1-50000)
+    EmailReplyResponse: id, original_email_id, recipient, subject, body,
+                        gmail_message_id, gmail_thread_id, sent_at
+
+  ── gmail.py ─────────────────────────────────────────────────────
+    GmailAuthURL:          authorization_url
+    GmailStatusResponse:   connected, gmail_address, is_active, last_synced
+    GmailSyncResult:       emails_fetched, emails_ingested, errors
+
+  ── voice.py ─────────────────────────────────────────────────────
+    TranscriptionSegment:  start, end, text
+    TranscriptionResult:   text, language, segments
+    VoiceMessageResult:    transcription, language, ticket_id, email_id
+    TTSRequest:            text (1-10000), voice, rate, pitch
+    TTSResult:             audio_url, filename, duration_estimate, text_length
+    VoiceInfo:             name, gender, language
+
+  ── whatsapp.py ──────────────────────────────────────────────────
+    WhatsAppSendRequest:   to_number (8-20 chars), message (1-4096)
+    WhatsAppReplyRequest:  message (1-4096)
+    WhatsAppSendResult:    success, message_id, provider, error
+    WhatsAppStatusResponse: provider, configured, details
+    WhatsAppInboxResponse: conversations (list), total
+    WhatsAppConversationDetail: id, contact_name, phone, messages, total
+    MarkReadRequest:       message_ids (optional list)
+
+  ── audit.py ─────────────────────────────────────────────────────
+    AuditLogResponse:     id, user_id, action, resource_type, resource_id,
+                          description, meta, trace_id, ip_address, created_at
+    AuditLogListResponse: logs (list), total
+
+
+================================================================================
+ 14. API ENDPOINTS REFERENCE — COMPLETE
+================================================================================
+
+All endpoints are prefixed with: /api/v1 (except /health)
+
+═══ SYSTEM ═════════════════════════════════════════════════════════════════
+
+  GET  /health                           No auth — system health check
+
+═══ AUTHENTICATION (prefix: /auth) ═════════════════════════════════════════
+
+  POST /auth/register                    No auth — create account
+  POST /auth/login                       No auth — get JWT tokens
+  POST /auth/refresh                     No auth — refresh token pair
+  POST /auth/logout                      Authenticated — blacklist tokens
+
+═══ USERS (prefix: /users) ═════════════════════════════════════════════════
+
+  GET  /users/me                         Any user — own profile
+  GET  /users                            Agent/Admin — list users
+  GET  /users/{user_id}                  Agent/Admin — get user
+  PATCH /users/{user_id}                 Admin — update user
+  DELETE /users/{user_id}                Admin — soft-delete user
+
+═══ TICKETS (prefix: /tickets) ═════════════════════════════════════════════
+
+  POST  /tickets                         Any user — create ticket
+  GET   /tickets                         Any user — list (role-filtered)
+  GET   /tickets/{ticket_id}             Any user — get ticket (access ctrl)
+  PATCH /tickets/{ticket_id}             Agent/Admin — update ticket
+  POST  /tickets/{id}/assign/{agent_id}  Admin — assign to agent
+  DELETE /tickets/{ticket_id}            Admin — soft-delete ticket
+
+═══ CONVERSATIONS (prefix: /conversations) ═════════════════════════════════
+
+  POST  /conversations                   Any user — start conversation
+  GET   /conversations                   Any user — list (role-filtered)
+  GET   /conversations/{id}              Any user — get conversation
+  PATCH /conversations/{id}              Agent/Admin — update status
+  POST  /conversations/{id}/messages     Any user — send message
+  GET   /conversations/{id}/messages     Any user — get messages
+
+═══ EMAILS (prefix: /emails) ═══════════════════════════════════════════════
+
+  POST /emails/ingest                    Agent/Admin — ingest incoming email
+  GET  /emails/{email_id}                Agent/Admin — get email
+  POST /emails/{email_id}/reply          Agent/Admin — reply via Gmail
+  GET  /emails/{email_id}/thread         Agent/Admin — get Gmail thread
+
+═══ GMAIL (prefix: /gmail) ═════════════════════════════════════════════════
+
+  GET    /gmail/authorize                Any user — get OAuth2 URL
+  GET    /gmail/callback                 No auth — OAuth2 callback
+  GET    /gmail/status                   Any user — connection status
+  POST   /gmail/sync                     Any user — trigger manual sync
+  DELETE /gmail/disconnect               Any user — disconnect Gmail
+
+═══ WHATSAPP (prefix: /whatsapp) ═══════════════════════════════════════════
+
+  GET    /whatsapp/webhook               No auth — Meta webhook verification
+  POST   /whatsapp/webhook               No auth — Meta incoming messages
+  POST   /whatsapp/bridge/webhook        No auth — Bridge incoming messages
+  POST   /whatsapp/send                  Agent/Admin — send message
+  POST   /whatsapp/reply/{conv_id}       Agent/Admin — reply in conversation
+  GET    /whatsapp/status                Agent/Admin — provider status
+  GET    /whatsapp/inbox                 Agent/Admin — list WA conversations
+  GET    /whatsapp/inbox/{conv_id}       Agent/Admin — get WA messages
+  POST   /whatsapp/inbox/{id}/read       Agent/Admin — mark messages read
+
+═══ VOICE (prefix: /voice) ═════════════════════════════════════════════════
+
+  POST /voice/transcribe                 Any user — audio → text (preview)
+  POST /voice/message                    Any user — audio → ticket
+  POST /voice/synthesize                 Any user — text → audio (MP3)
+  GET  /voice/download/{filename}        Any user — download audio file
+  GET  /voice/voices                     Any user — list available voices
+
+═══ AUDIT (prefix: /audit) ═════════════════════════════════════════════════
+
+  GET  /audit                            Admin — list audit logs
+
+═══ DECISION ENGINE (prefix: /decision-engine) ═════════════════════════════
+
+  POST /decision-engine/analyze          Agent/Admin — full ticket analysis
+  POST /decision-engine/analyze-text     Agent/Admin — text-only preview
+  GET  /decision-engine/decisions/{id}   Agent/Admin — decision history
+  POST /decision-engine/route/{id}       Agent/Admin — route to agent
+  GET  /decision-engine/suggestions/{id} Agent/Admin — response suggestions
+  POST /decision-engine/escalate/{id}    Agent/Admin — escalation package
+  POST /decision-engine/agent-skills     Admin — create/update skill
+  GET  /decision-engine/agent-skills     Agent/Admin — list skills
+  DELETE /decision-engine/agent-skills/{id} Admin — delete skill
+  GET  /decision-engine/stats            Agent/Admin — dashboard stats
+
+═══ RAG KNOWLEDGE BASE (prefix: /rag) ══════════════════════════════════════
+
+  POST  /rag/articles                    Agent/Admin — create article
+  GET   /rag/articles                    Agent/Admin — list articles
+  GET   /rag/articles/{id}               Agent/Admin — get article
+  PATCH /rag/articles/{id}               Admin — update article
+  DELETE /rag/articles/{id}              Admin — soft-delete article
+  POST  /rag/articles/{id}/publish       Admin — publish article
+  POST  /rag/articles/{id}/archive       Admin — archive article
+  POST  /rag/articles/{id}/index         Agent/Admin — index (embed) article
+  POST  /rag/reindex-all                 Admin — reindex all published
+  POST  /rag/search                      Agent/Admin — semantic search
+  POST  /rag/search/hybrid               Agent/Admin — hybrid search
+  GET   /rag/stats                       Agent/Admin — KB statistics
+  GET   /rag/documents                   Agent/Admin — list PDFs
+  POST  /rag/documents/upload            Admin — upload PDF
+  POST  /rag/documents/ingest            Admin — ingest PDF → article
+  POST  /rag/documents/ingest-all        Admin — bulk ingest all PDFs
+
+═══ AI RESPONSE GENERATION (prefix: /rag/generate) ════════════════════════
+
+  POST /rag/generate                     Agent/Admin — RAG → LLM → formatted
+  POST /rag/generate/stream              Agent/Admin — streaming SSE response
+  POST /rag/generate/preview             Agent/Admin — preview all 5 channels
+  GET  /rag/generate/providers           Agent/Admin — list LLM providers
+  GET  /rag/generate/providers/{p}/health Agent/Admin — health check provider
+
+═══ VISUAL AI (prefix: /visual-ai) ════════════════════════════════════════
+
+  POST /visual-ai/upload                 Any user — upload screenshot
+  GET  /visual-ai/screenshots/{id}       Any user — get screenshot info
+  GET  /visual-ai/screenshots            Agent/Admin — list screenshots
+  POST /visual-ai/screenshots/{id}/analyze Any user — analyze screenshot
+  POST /visual-ai/analyze-raw            Any user — analyze without storing
+  GET  /visual-ai/analysis/{id}          Any user — get analysis result
+  POST /visual-ai/analysis/{id}/detect-gap Any user — gap detection
+  POST /visual-ai/references             Admin — create reference screen
+  GET  /visual-ai/references             Agent/Admin — list references
+  GET  /visual-ai/references/{id}        Agent/Admin — get reference
+  DELETE /visual-ai/references/{id}      Admin — delete reference
+  GET  /visual-ai/timeline/{conv_id}     Any user — UI state timeline
+  POST /visual-ai/analysis/{id}/guidance Any user — adaptive guidance
+  POST /visual-ai/process                Any user — full pipeline
+
+═══ INTERNAL (prefix: /internal) ═══════════════════════════════════════════
+
+  POST /internal/rag/search              Service key — internal RAG search
+  POST /internal/rag/generate            Service key — internal RAG + LLM
+
+  TOTAL: ~80+ API endpoints
+
+
+================================================================================
+ 15. SERVICE LAYER (app/services/)
+================================================================================
+
+All services follow the same pattern:
+  • Constructor takes db: AsyncSession
+  • Methods are async
+  • Each service encapsulates one domain's business logic
+
+SERVICE CATALOG:
+
+  ┌────────────────────────────┬─────────────────────────────────────────────┐
+  │ Service                    │ Responsibilities                            │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ AuthService                │ authenticate(), generate_tokens(),          │
+  │                            │ refresh_tokens(), logout()                  │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ UserService                │ create_user(), get_by_id(), get_by_email(), │
+  │                            │ get_by_phone(), list_users(),               │
+  │                            │ update_user(), soft_delete()                │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ TicketService              │ create_ticket(), get_ticket(),              │
+  │                            │ list_tickets() (role-filtered),             │
+  │                            │ update_ticket(), assign_agent(),            │
+  │                            │ soft_delete()                               │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ ConversationService        │ create_conversation(),                      │
+  │                            │ get_conversation(), list_conversations(),   │
+  │                            │ update_conversation(), add_message(),       │
+  │                            │ get_messages()                              │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ EmailService               │ ingest_email(), get_email(),                │
+  │                            │ update_status()                             │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ GmailService (async)       │ get_credential(), save_credential(),       │
+  │                            │ disconnect()                                │
+  │ GmailSyncService (sync)    │ get_all_active_credentials(),              │
+  │                            │ sync_emails_for_credential(),               │
+  │                            │ send_reply()                                │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ WhatsAppProvider (abstract)│ send_message(), get_status()               │
+  │  → MetaCloudProvider       │ Official Meta Cloud API                     │
+  │  → WebBridgeProvider       │ Unofficial Baileys HTTP bridge              │
+  │ WhatsAppSyncService (sync) │ create_conversation_from_message(),        │
+  │                            │ record_outbound_message()                   │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ TranscriptionService       │ get_whisper_model(), transcribe_audio(),   │
+  │                            │ save_upload_and_transcribe()                │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ TTSService                 │ synthesize_speech(), list_available_voices()│
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ AuditService               │ log(), list_logs()                          │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ RedisService               │ blacklist_token(), is_token_blacklisted(),  │
+  │                            │ set(), get(), delete(),                     │
+  │                            │ increment_rate(), get_rate()                │
+  └────────────────────────────┴─────────────────────────────────────────────┘
+
+
+================================================================================
+ 16. CELERY WORKERS & ASYNC TASKS (app/workers/)
+================================================================================
+
+FILE: app/workers/celery_app.py
+
+  Celery instance "support_worker" with:
+    • Redis broker (DB 2) and result backend (DB 3)
+    • JSON serialization, UTC timezone
+    • Late ack + prefetch 1 (at-least-once delivery)
+    • Task routing to dedicated queues (8 queues)
+    • Beat schedule for periodic Gmail sync
+    • Auto-discovery of tasks in: workers, decision_engine, rag, visual_ai
+
+FILE: app/workers/tasks.py
+
+  Sync DB session: Converts asyncpg URL to psycopg2 for Celery's sync context.
+
+  TASK: process_email_task (queue: emails, retries: 3)
+    • Converts ingested email to a ticket
+    • Updates email status through lifecycle: RECEIVED → PROCESSING → CONVERTED
+    • On failure: marks email as FAILED, retries with 60s backoff
+
+  TASK: log_action_task (queue: logging)
+    • Fire-and-forget audit logging in background
+    • Creates AuditLog record from parameters
+
+  TASK: send_notification_placeholder (queue: celery)
+    • Placeholder for future notification system
+
+  TASK: sync_gmail_for_user_task (queue: gmail, retries: 2)
+    • Syncs Gmail for a specific user
+    • Uses GmailSyncService with sync DB session
+
+  TASK: send_email_reply_task (queue: gmail, retries: 2)
+    • Sends reply to email via connected Gmail account
+    • Uses GmailSyncService.send_reply()
+
+  TASK: sync_all_gmail_accounts (queue: gmail, periodic)
+    • Syncs all active Gmail accounts
+    • Triggered by Celery Beat every GMAIL_POLL_INTERVAL_SECONDS
+
+  TASK: process_whatsapp_incoming_task (queue: whatsapp, retries: 3)
+    • Processes incoming WhatsApp message
+    • Find-or-create User by phone number → Conversation → Message
+    • Uses WhatsAppSyncService
+
+  TASK: record_whatsapp_outbound_task (queue: whatsapp)
+    • Records outbound WhatsApp message in Conversation/Message
+
+
+================================================================================
+ 17. MULTI-CHANNEL ARCHITECTURE
+================================================================================
+
+The platform supports 5 communication channels, all normalized into the
+same Conversation + Message model:
+
+    ┌──────────────────────────────────────────────────────────────────────┐
+    │                    MULTI-CHANNEL ARCHITECTURE                        │
+    └──────────────────────────────────────────────────────────────────────┘
+
+    INBOUND CHANNELS:
+    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+    │   Web Chat   │    │    Email     │    │  WhatsApp    │
+    │  (REST API)  │    │ (Gmail API)  │    │ (Meta/Bridge)│
+    └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+           │                   │                    │
+           │                   │                    │
+    ┌──────┴───────┐    ┌──────┴───────┐    ┌──────┴───────┐
+    │   Voice      │    │   Tickets    │    │  LiveKit     │
+    │ (STT→Text)   │    │ (Direct API) │    │ Voice Agents │
+    └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+           │                   │                    │
+           ▼                   ▼                    ▼
+    ┌──────────────────────────────────────────────────────┐
+    │           UNIFIED DATA MODEL                         │
+    │                                                      │
+    │  ┌──────────────┐  ┌──────────────┐                 │
+    │  │ Conversation │──│  Message     │                 │
+    │  │  (channel)   │  │  (content)   │                 │
+    │  └──────────────┘  └──────────────┘                 │
+    │                                                      │
+    │  ┌──────────────┐  ┌──────────────┐                 │
+    │  │   Ticket     │  │    Email     │                 │
+    │  │  (support)   │  │  (raw data)  │                 │
+    │  └──────────────┘  └──────────────┘                 │
+    └──────────────────────────────────────────────────────┘
+           │
+           ▼
+    ┌──────────────────────────────────────────────────────┐
+    │           AI PROCESSING PIPELINE                     │
+    │                                                      │
+    │  Decision Engine → RAG Search → AI Response → Format │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
+           │
+           ▼
+    ┌──────────────────────────────────────────────────────┐
+    │           CHANNEL-FORMATTED OUTPUT                   │
+    │                                                      │
+    │  Chat: Markdown  │  Email: With greeting/signoff     │
+    │  WhatsApp: *bold* │  Voice: No markdown, abbreviations│
+    │  Ticket: With references section                     │
+    └──────────────────────────────────────────────────────┘
+
+
+================================================================================
+ 18. MODULE: EMAIL CHANNEL & GMAIL INTEGRATION
+================================================================================
+
+The email channel has a complete lifecycle from ingestion to reply:
+
+EMAIL INGESTION FLOW:
+
+    External Email
+         │
+         ▼
+    ┌─── Gmail API fetch (periodic sync) ───────┐
+    │    OR POST /emails/ingest (manual)         │
+    │                                            │
+    │  Creates Email record:                     │
+    │    status = RECEIVED                       │
+    │    sender_address, subject, body           │
+    │    gmail_message_id, gmail_thread_id       │
+    └───────────┬────────────────────────────────┘
+                │
+                ▼ (Celery: process_email_task)
+    ┌───────────────────────────────────────────┐
+    │  status = PROCESSING                      │
+    │  Creates Ticket from email:               │
+    │    subject = "[Email] {subject}"          │
+    │    description = email body                │
+    │    channel_source = EMAIL                  │
+    │    source_email_id = email.id              │
+    │  status = CONVERTED                       │
+    └───────────────────────────────────────────┘
+
+GMAIL OAUTH2 FLOW:
+
+    1. GET /gmail/authorize → returns Google OAuth2 URL
+    2. User visits URL, grants access
+    3. Google redirects to GET /gmail/callback?code=...&state=...
+    4. Backend exchanges code for tokens, stores in gmail_credentials
+    5. Periodic sync (Celery Beat) fetches unread emails
+    6. Manual sync: POST /gmail/sync
+    7. Disconnect: DELETE /gmail/disconnect (deactivates credential)
+
+EMAIL REPLY FLOW:
+
+    1. POST /emails/{id}/reply { body: "..." }
+    2. Celery task: send_email_reply_task
+    3. GmailSyncService builds MIME reply with In-Reply-To headers
+    4. Sends via Gmail API (threaded in Gmail)
+    5. Creates outbound Email record in DB
+    6. Audit log entry created
+
+
+================================================================================
+ 19. MODULE: WHATSAPP INTEGRATION (Dual Provider)
+================================================================================
+
+The WhatsApp module supports two providers via a factory pattern:
+
+  ┌───────────────────────────────────────────────────────────────┐
+  │                 WHATSAPP DUAL PROVIDER                        │
+  ├───────────────────────────────────────────────────────────────┤
+  │                                                               │
+  │  WHATSAPP_PROVIDER = "meta"                                   │
+  │  ┌─────────────────────────────────────┐                      │
+  │  │ MetaCloudProvider                   │                      │
+  │  │ • Official WhatsApp Business API    │                      │
+  │  │ • Requires approved Business account │                      │
+  │  │ • Production-ready, reliable         │                      │
+  │  │ • Webhook: POST /whatsapp/webhook   │                      │
+  │  │ • Verify: GET /whatsapp/webhook     │                      │
+  │  └─────────────────────────────────────┘                      │
+  │                                                               │
+  │  WHATSAPP_PROVIDER = "bridge"                                 │
+  │  ┌─────────────────────────────────────┐                      │
+  │  │ WebBridgeProvider                   │                      │
+  │  │ • Unofficial (Baileys protocol)     │                      │
+  │  │ • Free, no approval needed          │                      │
+  │  │ • QR code pairing via /qr           │                      │
+  │  │ • Webhook: POST /whatsapp/bridge/   │                      │
+  │  │   webhook                           │                      │
+  │  │ • Can get banned by WhatsApp        │                      │
+  │  └─────────────────────────────────────┘                      │
+  └───────────────────────────────────────────────────────────────┘
+
+INCOMING MESSAGE FLOW:
+
+    WhatsApp User sends message
+         │
+         ▼
+    ┌── Meta Webhook OR Bridge Webhook ───────────┐
+    │   Parse message: from_number, body, name    │
+    └───────────────┬─────────────────────────────┘
+                    │
+                    ▼ (Celery: process_whatsapp_incoming_task)
+    ┌───────────────────────────────────────────────┐
+    │  1. Find User by phone_number                 │
+    │     → If not found: create CLIENT user         │
+    │       (email = wa_{phone}@whatsapp.local)      │
+    │  2. Find active WHATSAPP Conversation          │
+    │     → If not found: create new Conversation    │
+    │  3. Create Message in Conversation             │
+    └───────────────────────────────────────────────┘
+
+WHATSAPP INBOX (Agent View):
+    GET /whatsapp/inbox — Lists all WhatsApp conversations with:
+      • Contact name and phone number
+      • Unread message count
+      • Last message preview and timestamp
+    GET /whatsapp/inbox/{id} — Full conversation with all messages
+    POST /whatsapp/inbox/{id}/read — Mark messages as read
+
+
+================================================================================
+ 20. MODULE: VOICE CHANNEL (STT / TTS)
+================================================================================
+
+SPEECH-TO-TEXT (STT):
+  • Engine: faster-whisper (CTranslate2 quantized Whisper)
+  • Model: configurable (tiny/base/small/medium/large), default "tiny"
+  • Runs locally on CPU, no external API calls
+  • Supported formats: wav, mp3, webm, ogg, flac, m4a
+  • Max upload: 25 MB
+  • Returns: text, language (auto-detected), timestamped segments
+
+TEXT-TO-SPEECH (TTS):
+  • Engine: edge-tts (Microsoft Edge neural voices)
+  • Free, no API key required
+  • 100+ voices across 40+ languages
+  • Configurable: voice, rate (+10%), pitch (-0Hz)
+  • Output: MP3 audio file
+  • Auto-cleanup after playback time + configurable buffer
+
+VOICE MESSAGE PIPELINE:
+
+    Audio Upload
+         │
+         ▼
+    ┌── POST /voice/message ─────────────────────────────────────┐
+    │  1. Validate audio file (type, size)                       │
+    │  2. Save to temp file                                      │
+    │  3. Transcribe with Whisper                                │
+    │  4. Create Email record:                                   │
+    │       sender = "voice:{user.email}"                        │
+    │       status = CONVERTED                                   │
+    │  5. Create Ticket:                                         │
+    │       subject = "[Voice] {user subject}"                   │
+    │       description = transcript text                        │
+    │       channel_source = CHAT                                │
+    │  6. Audit log + cleanup                                    │
+    │  7. Return: transcription, language, ticket_id, email_id   │
+    └────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+ 21. MODULE: CHAT / CONVERSATIONS
+================================================================================
+
+The chat module provides real-time messaging with role-based visibility:
+
+CONVERSATION MODEL:
+  • Each conversation belongs to one user
+  • Typed by channel (CHAT, EMAIL, WHATSAPP, CALL_TRANSCRIPT)
+  • Status lifecycle: OPEN → PENDING → CLOSED
+  • Contains ordered Messages via relationship
+
+MESSAGE MODEL:
+  • Each message belongs to one conversation
+  • Has sender_id (FK → users)
+  • is_internal flag for agent-only notes
+  • is_read for unread tracking
+  • Ordered by created_at
+
+ACCESS CONTROL:
+  • CLIENT: sees only own conversations
+  • AGENT/ADMIN: sees all conversations
+  • Messages follow parent conversation access
+
+
+================================================================================
+ 22. MODULE: TICKETS & SUPPORT WORKFLOW
+================================================================================
+
+TICKET LIFECYCLE:
+
+    ┌────────┐     ┌─────────────┐     ┌───────────────────┐
+    │  OPEN  │────▶│ IN_PROGRESS │────▶│ WAITING_ON_CUST.  │
+    └────────┘     └──────┬──────┘     └─────────┬─────────┘
+         │                │                       │
+         │                ▼                       │
+         │         ┌──────────────┐               │
+         │         │  ESCALATED   │               │
+         │         └──────┬───────┘               │
+         │                │                       │
+         ▼                ▼                       ▼
+    ┌──────────┐    ┌──────────┐
+    │ RESOLVED │───▶│  CLOSED  │
+    └──────────┘    └──────────┘
+
+TICKET CREATION SOURCES:
+  • Direct API: POST /tickets (any authenticated user)
+  • Email channel: Celery process_email_task
+  • Voice channel: POST /voice/message (transcription → ticket)
+  • Decision engine: auto-actions may update ticket state
+
+TICKET FEATURES:
+  • Priority: LOW, MEDIUM, HIGH, CRITICAL
+  • Agent assignment: POST /tickets/{id}/assign/{agent_id} (admin only)
+  • Escalation flag: Set by decision engine when risk is high
+  • Channel source tracking: Knows how the ticket was created
+  • Linked to: source_email (if from email), conversation (if from chat)
+
+ROLE-BASED LISTING:
+  • CLIENT: sees only tickets they created
+  • AGENT: sees only tickets assigned to them
+  • ADMIN: sees all tickets
+
+
+================================================================================
+ 23. MODULE: AUDIT LOGGING & TRACEABILITY
+================================================================================
+
+Every significant action is logged for full traceability:
+
+AUDIT ACTIONS TRACKED:
+  ┌──────────────────┬────────────────────────────────────────────────────┐
+  │ Action           │ When Triggered                                     │
+  ├──────────────────┼────────────────────────────────────────────────────┤
+  │ CREATE           │ User registration, Gmail connection, voice message│
+  │ UPDATE           │ User/ticket/conversation updates                  │
+  │ DELETE           │ Soft-deletes, Gmail disconnect                    │
+  │ LOGIN            │ Successful authentication                         │
+  │ LOGOUT           │ Token blacklisting                                │
+  │ ESCALATE         │ Decision engine escalation                        │
+  │ ASSIGN           │ Ticket assignment to agent                        │
+  │ STATUS_CHANGE    │ Ticket/conversation status transitions            │
+  │ REPLY            │ Email reply sent                                  │
+  │ WHATSAPP_IN      │ Incoming WhatsApp message processed               │
+  │ WHATSAPP_OUT     │ Outbound WhatsApp message sent                    │
+  └──────────────────┴────────────────────────────────────────────────────┘
+
+AUDIT LOG FIELDS:
+  • action — what happened
+  • resource_type — what entity (user, ticket, email, etc.)
+  • resource_id — which specific entity
+  • user_id — who performed the action
+  • description — human-readable explanation
+  • meta — arbitrary JSON metadata
+  • trace_id — links to request trace for correlation
+  • ip_address — client IP address
+  • created_at — when it happened
+
+AUDIT QUERY API:
+  GET /audit?action=LOGIN&resource_type=user&user_id=...&skip=0&limit=100
+  Returns paginated audit logs, admin only.
+
+
+================================================================================
+ 24. MODULE: RAG KNOWLEDGE BASE (app/rag/)
+================================================================================
+
+PURPOSE:
+  Retrieval-Augmented Generation system that stores, indexes, and retrieves
+  knowledge articles to ground AI responses in factual company information.
+
+EMBEDDING MODEL: all-MiniLM-L6-v2 (384 dimensions, from sentence-transformers)
+VECTOR STORE: pgvector extension in PostgreSQL (cosine distance)
+
+ARTICLE LIFECYCLE:
+
+    ┌───────┐     ┌───────────┐     ┌──────────┐
+    │ DRAFT │────▶│ PUBLISHED │────▶│ ARCHIVED │
+    └───────┘     └───────────┘     └──────────┘
+        │              │
+        └── index ─────┘ (only published articles are searchable)
+
+INDEXING PIPELINE:
+
+    Article Content (text)
+         │
+         ▼
+    ┌── RecursiveTextChunker ────────────────────────┐
+    │  • Splits by: \n\n → \n → . → ? → ! → ; → , →│
+    │  • Target chunk size: 512 tokens (configurable)│
+    │  • Overlap: 64 tokens between chunks           │
+    │  • Merges small consecutive pieces             │
+    └───────────────┬────────────────────────────────┘
+                    │
+                    ▼
+    ┌── Batch Embedding ─────────────────────────────┐
+    │  • all-MiniLM-L6-v2 sentence-transformers      │
+    │  • 384-dimensional vectors, L2 normalized      │
+    │  • Batch size: 64                              │
+    └───────────────┬────────────────────────────────┘
+                    │
+                    ▼
+    ┌── Stored in article_chunks ────────────────────┐
+    │  • Each chunk: content, embedding, token_count │
+    │  • Status: PENDING → INDEXED                   │
+    │  • Unique index on (article_id, chunk_index)   │
+    └────────────────────────────────────────────────┘
+
+SEARCH MODES:
+
+  1. Semantic Search:
+     • Query embedded with same model
+     • pgvector cosine_distance against indexed chunks
+     • Filters: PUBLISHED articles, INDEXED chunks, category, language
+     • min_similarity threshold (default 0.3)
+     • Returns ranked hits with similarity scores
+
+  2. Hybrid Search:
+     • Fetches 3× top_k candidates via semantic search
+     • Re-ranks with weighted score:
+       score = keyword_weight × kw_score + (1 - keyword_weight) × semantic
+     • keyword_weight default: 0.3
+     • Keyword score = fraction of query words found in chunk
+
+PDF INGESTION:
+  • PDF extraction: PyMuPDF (per-page text, metadata)
+  • Creates article with source="pdf:{filename}"
+  • Auto-indexes and optionally auto-publishes
+  • Bulk ingestion for entire documents directory
+  • Skips already-ingested PDFs (by source field)
+
+KNOWLEDGE BASE STATS:
+  • Total/published/draft/archived article counts
+  • Total chunks, indexed chunks, total tokens
+  • Breakdown by category and language
+  • Average chunks per article
+
+TABLE: knowledge_articles
+
+  ┌──────────────────┬────────────────────────┬────────────────────────────┐
+  │ Column           │ Type                   │ Notes                      │
+  ├──────────────────┼────────────────────────┼────────────────────────────┤
+  │ id               │ UUID (PK)              │ v4                         │
+  │ title            │ String(500)            │ Indexed                    │
+  │ content          │ Text                   │ Full article content       │
+  │ summary          │ Text                   │ Optional abstract          │
+  │ category         │ ENUM ArticleCategory   │ 10 values                  │
+  │ status           │ ENUM ArticleStatus     │ DRAFT/PUBLISHED/ARCHIVED   │
+  │ tags             │ JSON                   │ Flexible tagging           │
+  │ source           │ String(255)            │ e.g. "pdf:guide.pdf"       │
+  │ language         │ String(10)             │ Default "en"               │
+  │ metadata_extra   │ JSON                   │ Arbitrary metadata         │
+  │ created_by       │ UUID (FK → users)      │ Author                     │
+  │ updated_by       │ UUID (FK → users)      │ Last editor                │
+  │ is_indexed       │ Boolean                │ Has been embedded          │
+  │ chunk_count      │ Integer                │ Number of chunks           │
+  │ total_tokens     │ Integer                │ Estimated token count      │
+  └──────────────────┴────────────────────────┴────────────────────────────┘
+
+TABLE: article_chunks
+
+  ┌──────────────────┬────────────────────────┬────────────────────────────┐
+  │ Column           │ Type                   │ Notes                      │
+  ├──────────────────┼────────────────────────┼────────────────────────────┤
+  │ id               │ UUID (PK)              │ v4                         │
+  │ article_id       │ UUID (FK)              │ CASCADE delete             │
+  │ chunk_index      │ Integer                │ Ordering within article    │
+  │ content          │ Text                   │ Chunk text                 │
+  │ token_count      │ Integer                │ Estimated tokens           │
+  │ embedding        │ Vector(384)            │ pgvector, nullable         │
+  │ status           │ ENUM ChunkStatus       │ PENDING/INDEXED/FAILED     │
+  └──────────────────┴────────────────────────┴────────────────────────────┘
+  Unique index: (article_id, chunk_index)
+
+
+================================================================================
+ 25. MODULE: AI RESPONSE GENERATION (app/rag/response_providers/)
+================================================================================
+
+PURPOSE:
+  Multi-provider AI response generation with RAG context injection and
+  channel-specific formatting. Supports OpenAI, Claude, Gemini, and local LLMs.
+
+PIPELINE:
+
+    User Query
+         │
+         ▼
+    ┌── RAG Context Retrieval ───────────────────────────┐
+    │  VectorRetriever.get_context_for_query()            │
+    │  Returns: article_title, chunk_content, similarity  │
+    └───────────┬─────────────────────────────────────────┘
+                │
+                ▼
+    ┌── System Prompt Assembly ──────────────────────────┐
+    │  • Channel instructions (CHAT/EMAIL/WHATSAPP/...)  │
+    │  • Tone instructions (PROFESSIONAL/FRIENDLY/...)   │
+    │  • RAG context chunks (numbered)                    │
+    │  • Language preference                              │
+    │  • Customer/agent names                             │
+    └───────────┬─────────────────────────────────────────┘
+                │
+                ▼
+    ┌── LLM Provider ───────────────────────────────────┐
+    │  OpenAI (gpt-4o-mini) / Claude (sonnet-4) /       │
+    │  Gemini (2.0-flash) / Local (llama3.2)            │
+    │  Returns: content, model, tokens_used              │
+    └───────────┬─────────────────────────────────────────┘
+                │
+                ▼
+    ┌── Channel Formatter ──────────────────────────────┐
+    │  • Chat: clean markdown                            │
+    │  • Email: add greeting + sign-off                  │
+    │  • WhatsApp: *bold*, •bullets, no images           │
+    │  • Voice: strip markdown, expand abbreviations     │
+    │  • Ticket: add References section with sources     │
+    └───────────────────────────────────────────────────┘
+
+PROVIDER DETAILS:
+
+  ┌──────────────────┬─────────────────────┬────────────────────────────────┐
+  │ Provider         │ Default Model       │ Available Models               │
+  ├──────────────────┼─────────────────────┼────────────────────────────────┤
+  │ OpenAI           │ gpt-4o-mini         │ gpt-4o, gpt-4o-mini,          │
+  │                  │                     │ gpt-3.5-turbo                  │
+  ├──────────────────┼─────────────────────┼────────────────────────────────┤
+  │ Claude           │ claude-sonnet-4-    │ claude-sonnet-4-20250514,      │
+  │                  │ 20250514            │ claude-3-5-sonnet,             │
+  │                  │                     │ claude-3-haiku                 │
+  ├──────────────────┼─────────────────────┼────────────────────────────────┤
+  │ Gemini           │ gemini-2.0-flash    │ gemini-2.0-flash,             │
+  │                  │                     │ gemini-1.5-pro,               │
+  │                  │                     │ gemini-1.5-flash              │
+  ├──────────────────┼─────────────────────┼────────────────────────────────┤
+  │ Local            │ llama3.2            │ llama3.2, mistral, gemma2,    │
+  │                  │                     │ phi3, qwen2.5 (configurable)  │
+  └──────────────────┴─────────────────────┴────────────────────────────────┘
+
+  All providers use raw httpx (no SDKs) for consistent behavior.
+  All support both synchronous and streaming (SSE) generation.
+
+CHANNEL FORMATTING RULES:
+
+  ┌──────────────┬───────────────────────────────────────────────────────────┐
+  │ Channel      │ Formatting Rules                                          │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ CHAT         │ Clean markdown, collapse excessive blank lines            │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ EMAIL        │ Ensure greeting ("Hello {name}"), sign-off               │
+  │              │ ("Best regards, {agent}"), professional structure          │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ WHATSAPP     │ WhatsApp-style: *bold* (not **bold**), • bullets,        │
+  │              │ no image links, no markdown headers, max 4096 chars       │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ VOICE        │ Strip ALL markdown, URLs, bullets. Expand abbreviations  │
+  │              │ (e.g. → "for example", i.e. → "that is"). Plain speech.  │
+  ├──────────────┼───────────────────────────────────────────────────────────┤
+  │ TICKET       │ Full response + "References:" section with article       │
+  │              │ titles and similarity percentages                         │
+  └──────────────┴───────────────────────────────────────────────────────────┘
+
+MULTI-CHANNEL PREVIEW:
+  POST /rag/generate/preview generates the response once, then formats
+  for all 5 channels simultaneously, returning a side-by-side comparison.
+
+
+================================================================================
+ 26. MODULE: DECISION ENGINE (app/decision_engine/)
+================================================================================
+
+  (See details-decision-engine.txt for the complete 1800+ line documentation)
+
+SUMMARY:
+  The decision engine is a 9-step pipeline that automatically analyzes support
+  tickets to determine how they should be handled:
+
+  Step 1: Intent Classification — keyword + regex matching → 8 categories
+  Step 2: Risk Assessment — 9 weighted factors → risk score (0.0–1.0)
+  Step 3: Decision Rules — confidence × risk matrix → 5 outcomes
+  Step 4: Response Suggestions — template-based per category
+  Step 5: Agent Routing — skill + workload scoring
+  Step 6: Escalation Package — HITL handoff for ESCALATE_HUMAN outcomes
+  Step 7: Build Reasoning — human-readable explanation
+  Step 8: Persist Decision Log — full audit trail
+  Step 9: Auto-Actions — update priority, assign agent, escalate
+
+DECISION OUTCOMES:
+  • AUTO_RESOLVE — High confidence + low risk → system handles
+  • SUGGEST_RESPONSE — Good confidence → suggest responses for agent
+  • CLARIFY — Medium confidence → ask customer for more info
+  • ESCALATE_HUMAN — Low confidence / high risk → human required
+  • ROUTE_AGENT — No rule matched → route to skilled agent
+
+SPECIAL RULES:
+  • SECURITY category → ALWAYS escalated (priority 95)
+  • CRITICAL risk → ALWAYS escalated (priority 100)
+  • LOW confidence → ALWAYS escalated (priority 90)
+
+
+================================================================================
+ 27. MODULE: VISUAL AI (app/visual_ai/)
+================================================================================
+
+PURPOSE:
+  Analyze customer screenshots to detect UI issues, compare against reference
+  screens, track UI state timelines, and provide adaptive guidance.
+
+THREE VISUAL AI PROVIDERS:
+
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Provider         │ Details                                              │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ local-basic      │ Tesseract OCR + CLIP + regex-based UI detection     │
+  │                  │ Cost: FREE, Speed: <1s, Quality: ★★★☆☆              │
+  │                  │ 11 regex rules for UI element detection              │
+  │                  │ Supports English + French                            │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ local-advanced   │ Florence-2 (Microsoft) + CLIP                       │
+  │                  │ Cost: FREE, Speed: 3-8s CPU, Quality: ★★★★★         │
+  │                  │ Uses: <OCR>, <CAPTION>, <OD>, <DENSE_REGION_CAPTION>│
+  │                  │ 14 label-to-UIElementType mappings                   │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ google           │ Google Cloud Vision + Gemini Vision + CLIP          │
+  │                  │ Cost: ~$1.50/1K images, Speed: <1s, Quality: ★★★★★  │
+  │                  │ Cloud Vision TEXT_DETECTION + Gemini structured UI   │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+GAP DETECTION PIPELINE (4 weighted steps):
+
+    Observed Screenshot (analyzed)
+    vs. Reference Screen (stored)
+         │
+         ▼
+    ┌── Step 1: Visual Similarity (weight 0.40) ────────────────┐
+    │  Cosine similarity of CLIP embeddings (512-dim)            │
+    │  0 = identical, 1 = completely different                   │
+    └───────────┬────────────────────────────────────────────────┘
+                │
+    ┌── Step 2: Text Diff (weight 0.30) ────────────────────────┐
+    │  SequenceMatcher on OCR text (expected vs. observed)       │
+    │  0 = identical, 1 = no overlap                             │
+    └───────────┬────────────────────────────────────────────────┘
+                │
+    ┌── Step 3: Element Diff (weight 0.20) ─────────────────────┐
+    │  Symmetric set difference of detected UI element types     │
+    │  Reports missing and extra elements                        │
+    └───────────┬────────────────────────────────────────────────┘
+                │
+    ┌── Step 4: Error Penalty (weight 0.10) ────────────────────┐
+    │  Penalty for ERROR_MESSAGE (1.0) or LOADING_STATE (0.5)   │
+    └───────────┬────────────────────────────────────────────────┘
+                │
+                ▼
+    Gap Score → Severity:
+      < 0.15: NO_GAP
+      < 0.40: MINOR
+      < 0.70: SIGNIFICANT
+      >= 0.70: CRITICAL
+
+UI STATE TIMELINE:
+  Tracks chronological sequence of UI states per conversation:
+  • Each screenshot analysis creates a UIState record
+  • Auto-incremented sequence number per conversation
+  • Records gap detection results (severity, details)
+  • Enables temporal analysis of issue progression
+
+ADAPTIVE GUIDANCE ENGINE:
+  Rule-based + optional AI-enhanced guidance:
+  • 6 rule templates: ERROR_DETECTED, WRONG_PAGE, MISSING_ELEMENT,
+    LOADING_STATE, SUCCESS_STATE, TEXT_MISMATCH
+  • Each template generates specific suggested actions
+  • AI enhancement: calls Gemini for contextual explanation
+    (enabled via VISUAL_GUIDANCE_USE_LLM = True)
+
+VISUAL AI DATABASE TABLES:
+
+  screenshots (images stored on filesystem):
+    id, conversation_id, user_id, filename, file_path, file_size,
+    mime_type, consent, metadata, timestamps
+
+  visual_analyses (per-screenshot analysis):
+    id, screenshot_id, provider, ocr_text, caption, elements (JSON),
+    labels, regions, embedding (Vector 512), raw_result, confidence,
+    processing_ms, timestamps
+
+  ui_states (timeline entries per conversation):
+    id, conversation_id, analysis_id, screenshot_id, state_label,
+    state_data, embedding, sequence_num, gap_detected, gap_details,
+    gap_severity, timestamps
+
+  reference_screens (expected UI states):
+    id, name, description, screen_key (unique), file_path,
+    embedding (Vector 512), expected_elements, expected_ocr_text
+
+FULL PIPELINE (POST /visual-ai/process):
+  1. Store screenshot on disk + DB
+  2. Analyze with selected provider (OCR + UI + CLIP)
+  3. Gap detection against reference (if provided)
+  4. Add to UI state timeline
+  5. Generate adaptive guidance
+  6. Return: screenshot, analysis, gap_result, ui_state, guidance
+
+
+================================================================================
+ 28. MODULE: VOICE AGENTS — LiveKit (voice_agents/)
+================================================================================
+
+PURPOSE:
+  Real-time voice agents running on LiveKit for interactive phone/web call
+  support. Multi-agent system with routing, RAG integration, and multilingual
+  support (English, French, Arabic, Tunisian Derja).
+
+ARCHITECTURE:
+
+    ┌──────────────────────────────────────────────────────────────┐
+    │                  VOICE AGENT SYSTEM                          │
+    ├──────────────────────────────────────────────────────────────┤
+    │                                                              │
+    │   Client (browser/phone)                                     │
+    │        │                                                     │
+    │        ▼                                                     │
+    │   ┌──────────┐     ┌──────────────────────────────┐         │
+    │   │ LiveKit  │────▶│  Agent Session                │         │
+    │   │ Server   │     │  (VAD + STT + LLM + TTS)     │         │
+    │   │  :7880   │     └──────────────────────────────┘         │
+    │   └──────────┘                                               │
+    │                                                              │
+    │   AGENT ROUTING:                                             │
+    │   ┌─────────────┐                                           │
+    │   │ StarterAgent│ ← "Tom" — Greeter & router                │
+    │   │   (Puck)    │                                           │
+    │   └──────┬──────┘                                           │
+    │          │                                                   │
+    │   ┌──────┼──────────────┬──────────────────┐                │
+    │   ▼      ▼              ▼                  ▼                │
+    │ ┌──────────┐  ┌──────────────┐  ┌──────────────┐           │
+    │ │ Support  │  │   Booking    │  │     FAQ      │           │
+    │ │ (Mike)   │  │  (Jessica)   │  │   (Ameni)    │           │
+    │ │ Charon   │  │   Aoede      │  │    Kore      │           │
+    │ └──────────┘  └──────────────┘  └──────────────┘           │
+    │                                                              │
+    │   Each agent can return to StarterAgent                      │
+    └──────────────────────────────────────────────────────────────┘
+
+FOUR SPECIALIZED AGENTS:
+
+  ┌──────────────────┬────────────┬──────────────────────────────────────┐
+  │ Agent            │ LLM Voice  │ Purpose                              │
+  ├──────────────────┼────────────┼──────────────────────────────────────┤
+  │ StarterAgent     │ Puck       │ Greets caller, identifies needs,     │
+  │ "Tom"            │            │ routes to specialist                 │
+  ├──────────────────┼────────────┼──────────────────────────────────────┤
+  │ SupportAgent     │ Charon     │ Technical troubleshooting,           │
+  │ "Mike"           │            │ account issues, billing              │
+  ├──────────────────┼────────────┼──────────────────────────────────────┤
+  │ BookingAgent     │ Aoede      │ Appointment scheduling,              │
+  │ "Jessica"        │            │ availability checking                │
+  ├──────────────────┼────────────┼──────────────────────────────────────┤
+  │ FAQAgent         │ Kore       │ RAG-powered FAQ specialist,          │
+  │ "Ameni"          │            │ TunisieSMS knowledge base            │
+  └──────────────────┴────────────┴──────────────────────────────────────┘
+
+RAG INTEGRATION:
+  All agents have access to RAG tools via rag_bridge.py:
+  • search_knowledge_base(query) — searches the backend knowledge base
+  • generate_answer(question) — generates RAG-augmented response
+  These tools call the internal API (POST /internal/rag/search and
+  POST /internal/rag/generate) using X-Service-Key authentication.
+
+LLM/TTS/STT FACTORY (llm_factory.py):
+  Supports multiple modes depending on configuration:
+
+  ┌────────────────┬──────────────────────────────────────────────────────┐
+  │ Mode           │ Components                                           │
+  ├────────────────┼──────────────────────────────────────────────────────┤
+  │ Gemini Realtime│ LLM: Gemini Realtime API (voice built-in)           │
+  │                │ TTS: None (handled by Gemini)                        │
+  │                │ STT: None (handled by Gemini)                        │
+  ├────────────────┼──────────────────────────────────────────────────────┤
+  │ OpenAI Pipeline│ LLM: GPT-4o-mini                                    │
+  │                │ TTS: OpenAI TTS (alloy/echo/nova/shimmer)           │
+  │                │ STT: OpenAI Whisper API                              │
+  ├────────────────┼──────────────────────────────────────────────────────┤
+  │ Gemini Pipeline│ LLM: Gemini 2.5 Flash Lite                         │
+  │                │ TTS: Google Cloud TTS / Edge-TTS (fallback)          │
+  │                │ STT: Google Cloud STT / Local Whisper (fallback)     │
+  ├────────────────┼──────────────────────────────────────────────────────┤
+  │ Free Mode      │ LLM: Gemini (API key only)                          │
+  │                │ TTS: Edge-TTS (Microsoft, free)                      │
+  │                │ STT: Local Whisper (faster-whisper, free)             │
+  └────────────────┴──────────────────────────────────────────────────────┘
+
+LOCAL PLUGINS:
+  • LocalWhisperSTT — faster-whisper CTranslate2, supports tiny→large
+  • EdgeTTS — edge-tts wrapper for LiveKit, voice mapping per agent
+
+
+================================================================================
+ 29. MODULE: WHATSAPP WEB BRIDGE (whatsapp-bridge/)
+================================================================================
+
+PURPOSE:
+  Node.js HTTP bridge wrapping @whiskeysockets/baileys for free WhatsApp
+  integration without an official Business account.
+
+TECHNOLOGY: Node.js 20 + Express + Baileys (direct WhatsApp protocol)
+
+HOW IT WORKS:
+  1. On startup, connects to WhatsApp via Baileys
+  2. Shows QR code at GET /qr for pairing with phone
+  3. Once authenticated, persists session in /data/auth
+  4. Incoming messages → forwarded to backend webhook
+  5. Backend calls POST /send to send outbound messages
+
+BRIDGE API:
+  ┌────────┬────────────┬──────────────────────────────────────────────┐
+  │ Method │ Path       │ Description                                   │
+  ├────────┼────────────┼──────────────────────────────────────────────┤
+  │ GET    │ /status    │ Connection status + phone info               │
+  │ GET    │ /qr        │ QR code HTML page (auto-refresh)             │
+  │ GET    │ /qr.json   │ QR code as JSON                              │
+  │ POST   │ /send      │ Send message { chatId, message }             │
+  │ GET    │ /health    │ Health check                                  │
+  └────────┴────────────┴──────────────────────────────────────────────┘
+
+MESSAGE FILTERING (incoming):
+  • Filters out: own messages, status broadcasts, group messages,
+    invalid senders, non-text messages, base64/binary content
+  • Forwards to: WEBHOOK_URL (default: backend /whatsapp/bridge/webhook)
+  • Payload: { id, from, body, sender_name, timestamp, type, hasMedia }
+
+
+================================================================================
+ 30. MODULE: INTERNAL SERVICE-TO-SERVICE API
+================================================================================
+
+PURPOSE:
+  Protected API endpoints for internal services (e.g., voice agents) to
+  access RAG and AI generation without user JWT tokens.
+
+AUTHENTICATION:
+  X-Service-Key header matching INTERNAL_SERVICE_KEY from settings.
+  Returns 403 if key doesn't match.
+
+ENDPOINTS:
+
+  POST /api/v1/internal/rag/search
+    • Body: SearchRequest { query, top_k, category, language, min_similarity }
+    • Returns: SearchResponse { query, hits, total_hits, model_used }
+    • Used by: Voice agents (rag_bridge.py)
+
+  POST /api/v1/internal/rag/generate
+    • Body: GenerateRequest { query, channel, provider, tone, ... }
+    • Returns: GenerateResponse { response, raw_response, provider, ... }
+    • Used by: Voice agents for RAG-augmented answers
+
+
+================================================================================
+ 31. ENTITY RELATIONSHIP DIAGRAM
+================================================================================
+
+    ┌──────────────────────────────────────────────────────────────────────┐
+    │                    ENTITY RELATIONSHIP DIAGRAM                       │
+    └──────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────┐       ┌───────────────┐       ┌──────────────┐
+    │  users   │       │   tickets     │       │decision_logs │
+    │──────────│       │───────────────│       │──────────────│
+    │ id (PK)  │◄──┐   │ id (PK)       │◄──────│ ticket_id(FK)│
+    │ email    │   │   │ subject       │       │ intent_cat   │
+    │ full_name│   │   │ description   │       │ confidence   │
+    │ phone    │   │   │ status        │       │ risk_score   │
+    │ role     │   │   │ priority      │       │ outcome      │
+    │ status   │   │   │ creator_id(FK)│───────│ suggested_   │
+    └──────────┘   │   │ agent_id(FK)  │───┐   │   agent_id   │
+         │         │   │ email_id(FK)  │   │   └──────────────┘
+         │         │   │ convo_id(FK)  │   │
+         │         │   └───────────────┘   │
+         │         │          │            │
+         │    ┌────┴─────────┐│            │
+         │    │ agent_skills ││            │
+         │    │──────────────││            │
+         │    │ agent_id(FK) ││            │
+         │    │ skill_cat    ││            │
+         │    │ proficiency  ││            │
+         │    └──────────────┘│            │
+         │                    │            │
+         │    ┌───────────────┘            │
+         │    ▼                            │
+    ┌────┴──────────┐    ┌──────────────┐  │
+    │conversations  │    │   emails     │  │
+    │───────────────│    │──────────────│  │
+    │ user_id(FK)   │    │ sender_addr  │  │
+    │ channel       │    │ subject/body │  │
+    │ status        │    │ gmail_*_id   │  │
+    │ subject       │    │ status       │  │
+    └───────┬───────┘    │ is_outbound  │  │
+            │            └──────────────┘  │
+            ▼                              │
+    ┌───────────────┐                      │
+    │  messages     │    ┌──────────────┐  │
+    │───────────────│    │ audit_logs   │  │
+    │ convo_id(FK)  │    │──────────────│  │
+    │ sender_id(FK) │    │ user_id(FK)  │──┘
+    │ content       │    │ action       │
+    │ is_internal   │    │ resource_*   │
+    │ is_read       │    │ trace_id     │
+    └───────────────┘    └──────────────┘
+
+    ┌──────────────────┐    ┌──────────────┐
+    │gmail_credentials │    │knowledge_    │
+    │──────────────────│    │  articles    │
+    │ user_id(FK)      │    │──────────────│
+    │ gmail_address    │    │ title/content│
+    │ access_token     │    │ category     │
+    │ refresh_token    │    │ status       │
+    │ is_active        │    │ created_by   │
+    └──────────────────┘    └──────┬───────┘
+                                   │
+                            ┌──────┴───────┐
+                            │article_chunks│
+                            │──────────────│
+                            │ article_id   │
+                            │ content      │
+                            │ embedding    │
+                            │ (Vector 384) │
+                            └──────────────┘
+
+    ┌──────────────┐    ┌──────────────────┐    ┌──────────────┐
+    │ screenshots  │    │visual_analyses   │    │  ui_states   │
+    │──────────────│    │──────────────────│    │──────────────│
+    │ convo_id(FK) │───▶│ screenshot_id(FK)│───▶│ analysis_id  │
+    │ user_id(FK)  │    │ provider         │    │ convo_id(FK) │
+    │ filename     │    │ ocr_text/caption │    │ sequence_num │
+    │ consent      │    │ elements (JSON)  │    │ gap_detected │
+    └──────────────┘    │ embedding (512)  │    │ gap_severity │
+                        └──────────────────┘    └──────────────┘
+
+    ┌──────────────────┐
+    │reference_screens │
+    │──────────────────│
+    │ screen_key (UQ)  │
+    │ embedding (512)  │
+    │ expected_elements│
+    │ expected_ocr     │
+    └──────────────────┘
+
+
+================================================================================
+ 32. DATA FLOW DIAGRAMS
+================================================================================
+
+═══ DIAGRAM A: Ticket Analysis Flow ═══
+
+    Customer creates ticket (any channel)
+         │
+         ▼
+    ┌── Ticket Created ──────────────────────────┐
+    │   POST /tickets or Celery (email/voice)    │
+    └───────────────┬────────────────────────────┘
+                    │
+                    ▼ (optional: async via Celery)
+    ┌── Decision Engine Analysis ────────────────┐
+    │   1. Classify intent (keyword matching)    │
+    │   2. Score risk (9 factors)                 │
+    │   3. Apply rules (confidence × risk)        │
+    │   4. Generate suggestions (templates)       │
+    │   5. Route to agent (skill + workload)      │
+    │   6. Build escalation (if needed)           │
+    │   7. Persist decision log                   │
+    │   8. Auto-actions (priority, assign, esc.)  │
+    └───────────────┬────────────────────────────┘
+                    │
+                    ▼
+    ┌── Outcome ─────────────────────────────────┐
+    │   AUTO_RESOLVE → Mark resolved              │
+    │   SUGGEST_RESPONSE → Show to agent          │
+    │   CLARIFY → Ask customer for more info      │
+    │   ESCALATE_HUMAN → Build HITL package       │
+    │   ROUTE_AGENT → Assign to best-fit agent    │
+    └────────────────────────────────────────────┘
+
+═══ DIAGRAM B: RAG-Powered Response Flow ═══
+
+    Agent requests AI response
+         │
+         ▼
+    ┌── POST /rag/generate ──────────────────────┐
+    │   { query, channel: EMAIL, tone: FRIENDLY } │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── RAG Retrieval ───────────────────────────┐
+    │   Embed query → pgvector cosine search     │
+    │   → Top-K relevant chunks from KB          │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── LLM Generation ─────────────────────────┐
+    │   System prompt: channel + tone + RAG ctx  │
+    │   → OpenAI/Claude/Gemini/Local generates   │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── Channel Formatting ─────────────────────┐
+    │   EMAIL → greeting + sign-off added        │
+    │   WHATSAPP → *bold*, •bullets              │
+    │   VOICE → plain speech, no markdown        │
+    └────────────────────────────────────────────┘
+
+═══ DIAGRAM C: Visual AI Full Pipeline ═══
+
+    Customer uploads screenshot (with consent)
+         │
+         ▼
+    ┌── POST /visual-ai/process ─────────────────┐
+    │   form: file, consent=true, reference_key   │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── Store on Disk ───────────────────────────┐
+    │   screenshots/{conv_id}/img_xxx.png        │
+    │   Screenshot record in DB                   │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── Provider Analysis ───────────────────────┐
+    │   OCR → caption → UI elements → CLIP embed │
+    │   VisualAnalysis record in DB              │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── Gap Detection ──────────────────────────┐
+    │   Compare vs. reference screen:            │
+    │   visual sim + text diff + element diff    │
+    │   → Gap score → Severity                   │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── Timeline Update ────────────────────────┐
+    │   UIState record: sequence_num, gap info   │
+    └───────────────┬────────────────────────────┘
+                    │
+    ┌── Adaptive Guidance ──────────────────────┐
+    │   Rule-based + optional LLM enhancement    │
+    │   → Suggested actions for the user         │
+    └────────────────────────────────────────────┘
+
+
+================================================================================
+ 33. SPRINT PLANNING & ROADMAP
+================================================================================
+
+  ┌───────────────┬────────────────┬────────────────┬─────────────────────────┐
+  │ Sprint        │ Start Date     │ End Date       │ Deliverables            │
+  ├───────────────┼────────────────┼────────────────┼─────────────────────────┤
+  │ Init          │ 02/02/2026     │ 15/02/2026     │ Requirements analysis,  │
+  │               │                │                │ architecture design,    │
+  │               │                │                │ environment setup       │
+  ├───────────────┼────────────────┼────────────────┼─────────────────────────┤
+  │ Sprint 1      │ 16/02/2026     │ 08/03/2026     │ Backend architecture:   │
+  │               │                │                │ FastAPI, PostgreSQL,    │
+  │               │                │                │ Redis, auth, users,     │
+  │               │                │                │ multi-channel (chat,    │
+  │               │                │                │ email, tickets, voice,  │
+  │               │                │                │ WhatsApp), audit logs,  │
+  │               │                │                │ Gmail integration       │
+  ├───────────────┼────────────────┼────────────────┼─────────────────────────┤
+  │ Sprint 2      │ 09/03/2026     │ 29/03/2026     │ Decision engine:        │
+  │               │                │                │ classification, scoring,│
+  │               │                │                │ rules, routing, HITL,   │
+  │               │                │                │ RAG knowledge base,     │
+  │               │                │                │ AI response generation  │
+  ├───────────────┼────────────────┼────────────────┼─────────────────────────┤
+  │ Sprint 3      │ 30/03/2026     │ 19/04/2026     │ Visual AI: CLIP,        │
+  │               │                │                │ OCR, gap detection,     │
+  │               │                │                │ timeline, guidance,     │
+  │               │                │                │ voice agents (LiveKit)  │
+  ├───────────────┼────────────────┼────────────────┼─────────────────────────┤
+  │ Sprint 4      │ 20/04/2026     │ 10/05/2026     │ Frontend + integration, │
+  │               │                │                │ testing, optimization   │
+  ├───────────────┼────────────────┼────────────────┼─────────────────────────┤
+  │ Finalization  │ 11/05/2026     │ 23/05/2026     │ Documentation, report,  │
+  │               │                │                │ demo preparation        │
+  └───────────────┴────────────────┴────────────────┴─────────────────────────┘
+
+
+================================================================================
+ 34. CONFIGURATION REFERENCE
+================================================================================
+
+STARTUP COMMAND:
+  Development:  uvicorn main:app --reload
+  Docker:       docker-compose up -d
+  Voice Agents: python run_voice_agents.py dev
+
+DATABASE MIGRATION:
+  Create:  alembic revision --autogenerate -m "description"
+  Apply:   alembic upgrade head
+  Rollback: alembic downgrade -1
+
+REQUIRED ENVIRONMENT VARIABLES (minimum for development):
+  DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/support_db
+  REDIS_URL=redis://localhost:6379/0
+  JWT_SECRET_KEY=<random-secret>
+
+OPTIONAL API KEYS:
+  OPENAI_API_KEY        — For OpenAI response provider
+  ANTHROPIC_API_KEY     — For Claude response provider
+  GEMINI_API_KEY        — For Gemini response provider + Visual AI guidance
+  GMAIL_CLIENT_ID       — For Gmail OAuth2 integration
+  GMAIL_CLIENT_SECRET   — For Gmail OAuth2 integration
+  WHATSAPP_ACCESS_TOKEN — For Meta Cloud API
+  GOOGLE_API_KEY        — For voice agents (Gemini)
+  LIVEKIT_API_KEY       — For LiveKit voice agents
+  LIVEKIT_API_SECRET    — For LiveKit voice agents
+
+HEALTH CHECK:
+  GET /health → { "status": "healthy", "version": "0.1.0", "environment": "development" }
+
+
+================================================================================
+ END OF DOCUMENT
+================================================================================
+
+  Total models:          15 database tables
+  Total API endpoints:   ~80+
+  Total services:        12 service classes
+  Total Celery tasks:    12 background tasks
+  Total Celery queues:   8 dedicated queues
+  Total AI providers:    4 LLM + 3 Visual AI
+  Total voice agents:    4 specialized agents
+  Total enums:           20+ enum types
+  Total schemas:         60+ Pydantic models
+
+  Lines of application code: ~15,000+
+  Docker services: 9
+  Database migrations: 10
+
+================================================================================

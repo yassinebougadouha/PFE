@@ -1,0 +1,9 @@
+# ── Voice Agents — LiveKit multi-agent dependencies ──────
+# Install separately from the main backend:
+#   pip install -r voice_agents/requirements.txt
+
+livekit-agents[openai,google,silero,turn-detector]~=1.3
+livekit-plugins-google==1.3.9
+livekit-plugins-noise-cancellation~=0.2
+python-dotenv>=1.2.1
+httpx>=0.27.0

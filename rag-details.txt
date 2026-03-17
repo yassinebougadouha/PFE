@@ -1,0 +1,2896 @@
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                ║
+║            RAG KNOWLEDGE BASE & AI RESPONSE PROVIDERS                          ║
+║            COMPLETE TECHNICAL DOCUMENTATION                                    ║
+║                                                                                ║
+║            Sprint 3: RAG Knowledge Base                                        ║
+║            Sprint 4: PDF Document Integration                                  ║
+║            Sprint 5: AI Response Providers (OpenAI / Claude / Gemini / Local)  ║
+║            Sprint 6: Voice Agents RAG Integration                              ║
+║            Version: 1.0  |  Date: March 2026                                  ║
+║                                                                                ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ TABLE OF CONTENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1.  Overview & Purpose
+  2.  Architecture Overview
+  3.  File Structure & Module Map
+  4.  Full RAG Pipeline Flow Diagram
+  5.  Module 1: Embedding Service (embeddings.py)
+  6.  Module 2: Text Chunker (chunker.py)
+  7.  Module 3: Database Models (models.py)
+  8.  Module 4: Knowledge Base Service (service.py)
+  9.  Module 5: Vector Retriever (retriever.py)
+  10. Module 6: PDF Loader (pdf_loader.py)
+  11. Module 7: PDF Ingestion Service (pdf_service.py)
+  12. Module 8: Celery Tasks (tasks.py)
+  13. Module 9: Response Provider Base (base.py)
+  14. Module 10: OpenAI Provider (openai_provider.py)
+  15. Module 11: Claude Provider (claude_provider.py)
+  16. Module 12: Gemini Provider (gemini_provider.py)
+  16b. Module 12b: Local LLM Provider (local_provider.py)
+  17. Module 13: Channel Formatter (channel_formatter.py)
+  18. Module 14: Response Generation Service (service.py)
+  19. Module 15: Internal API — Service-to-Service (internal.py)
+  20. Module 16: Voice Agents RAG Bridge (rag_bridge.py)
+  21. Module 17: Voice Agents LLM Factory (llm_factory.py)
+  22. Module 18: Voice Agents Local STT Plugin (local_stt.py)
+  23. Module 19: Voice Agents Local TTS Plugin (local_tts.py)
+  24. Database Schema & ER Diagram
+  25. Enumerations & Constants
+  26. API Endpoints Reference — Knowledge Base
+  27. API Endpoints Reference — Response Providers
+  28. API Endpoints Reference — Internal Services
+  29. Embedding & Similarity Algorithms (Detailed)
+  30. Chunking Algorithm (Detailed)
+  31. Hybrid Search Scoring Algorithm
+  32. Response Generation Pipeline (Detailed)
+  33. Channel Formatting Rules
+  34. Voice Agents RAG Integration Architecture
+  35. Diagrams & Flow Examples
+  36. Example Walkthrough: End-to-End
+  37. Configuration & Deployment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+================================================================================
+ 1. OVERVIEW & PURPOSE
+================================================================================
+
+The RAG (Retrieval-Augmented Generation) system is the knowledge intelligence
+layer of the AI support agent backend. It combines a vector-based knowledge
+base with multi-provider LLM generation and channel-aware formatting to
+deliver accurate, context-grounded responses across all support channels.
+
+The system spans four development sprints:
+
+  Sprint 3: RAG Knowledge Base
+    — Article CRUD, text chunking, sentence-transformer embeddings,
+      pgvector semantic search, hybrid keyword+semantic search
+
+  Sprint 4: PDF Document Integration
+    — PDF text extraction via PyMuPDF, automated ingestion into the
+      knowledge base, bulk ingest, upload endpoint
+
+  Sprint 5: AI Response Providers
+    — Multi-provider LLM support (OpenAI GPT, Anthropic Claude, Google Gemini),
+      channel-aware formatting (CHAT, EMAIL, WHATSAPP, VOICE, TICKET),
+      tone presets, streaming, multi-channel preview
+
+  Sprint 6: Voice Agents RAG Integration
+    — Internal API for service-to-service communication, RAG bridge HTTP
+      client for voice agents, multi-provider LLM/STT/TTS factory,
+      RAG function tools on all voice agents
+
+KEY GOALS:
+  • Ground AI responses in factual, up-to-date knowledge base content
+  • Support multiple LLM providers (OpenAI, Claude, Gemini) with zero-code switching
+  • Format responses automatically for each output channel (chat, email, WhatsApp, voice, ticket)
+  • Enable voice agents to access RAG context in real-time during conversations
+  • Provide full PDF-to-knowledge-base pipeline for document ingestion
+  • Support semantic search (vector similarity) and hybrid search (keyword + semantic)
+  • Fully async architecture with Celery background indexing for large batches
+
+DESIGN PHILOSOPHY:
+  • Provider-Agnostic — All LLM providers implement a common BaseProvider
+    interface. Switching providers requires only changing an env var.
+  • No SDK Lock-in — All provider implementations use raw httpx HTTP calls,
+    avoiding heavy SDK dependencies.
+  • Channel-Aware — Every response is automatically formatted for its target
+    channel before delivery. Voice responses strip markdown; emails add
+    greeting/sign-off; WhatsApp uses mobile-friendly formatting.
+  • Graceful Degradation — If the RAG knowledge base has no relevant content,
+    the system clearly indicates this. If a provider is down, voice agents
+    fall back to their built-in LLM knowledge.
+  • Fully Auditable — Every generation request logs provider, model, latency,
+    token usage, and RAG chunks used.
+
+
+================================================================================
+ 2. ARCHITECTURE OVERVIEW
+================================================================================
+
+The RAG system follows a layered architecture with four main subsystems:
+
+    ┌──────────────────────────────────────────────────────────────────────┐
+    │                       RAG KNOWLEDGE BASE SYSTEM                      │
+    │                                                                      │
+    │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐               │
+    │  │   FastAPI    │   │   Celery     │   │  Voice      │               │
+    │  │   Routes     │   │   Workers    │   │  Agents     │               │
+    │  └──────┬───┬──┘   └──────┬──────┘   └──────┬──────┘               │
+    │         │   │              │                  │                       │
+    │         │   │              │         ┌────────┴────────┐             │
+    │         │   │              │         │  RAG Bridge     │             │
+    │         │   │              │         │  (httpx client) │             │
+    │         │   │              │         └────────┬────────┘             │
+    │         │   │              │                  │                       │
+    │         │   ▼              │                  ▼                       │
+    │         │  ┌───────────────────────────────────────────┐             │
+    │         │  │         INTERNAL API (/internal/rag/*)     │             │
+    │         │  │         Service-Key Auth (X-Service-Key)   │             │
+    │         │  └───────────────┬───────────────────────────┘             │
+    │         │                  │                                          │
+    │         ▼                  ▼                                          │
+    │  ┌─────────────────────────────────────────────────────┐             │
+    │  │          RESPONSE GENERATION SERVICE                 │             │
+    │  │                                                      │             │
+    │  │  ┌──────────────┐  ┌───────────────┐                │             │
+    │  │  │   RAG         │  │  LLM Provider  │               │             │
+    │  │  │   Retriever   │  │  Registry      │               │             │
+    │  │  │  (pgvector)   │  │  ┌──────────┐  │               │             │
+    │  │  └──────┬───────┘  │  │  OpenAI   │  │               │             │
+    │  │         │          │  │  Claude   │  │               │             │
+    │  │         │          │  │  Gemini   │  │               │             │
+    │  │         │          │  │  Local    │  │               │             │
+    │  │         │          │  └──────────┘  │               │             │
+    │  │         │          └───────┬───────┘                │             │
+    │  │         │                  │                         │             │
+    │  │         │                  ▼                         │             │
+    │  │         │          ┌───────────────┐                │             │
+    │  │         │          │   Channel      │               │             │
+    │  │         │          │   Formatter    │               │             │
+    │  │         │          └───────────────┘                │             │
+    │  └─────────────────────────────────────────────────────┘             │
+    │                                                                      │
+    │  ┌─────────────────────────────────────────────────────┐             │
+    │  │          KNOWLEDGE BASE LAYER                        │             │
+    │  │                                                      │             │
+    │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐          │             │
+    │  │  │  Article  │  │  Chunker │  │ Embedding│          │             │
+    │  │  │  CRUD     │──▶│  Engine  │──▶│  Service │          │             │
+    │  │  └──────────┘  └──────────┘  └──────────┘          │             │
+    │  │       │                            │                 │             │
+    │  │       ▼                            ▼                 │             │
+    │  │  ┌──────────┐              ┌──────────────┐         │             │
+    │  │  │  PDF      │              │  PostgreSQL   │         │             │
+    │  │  │  Loader   │──────────▶  │  pgvector     │         │             │
+    │  │  │  (fitz)   │              │  (vector 384) │         │             │
+    │  │  └──────────┘              └──────────────┘         │             │
+    │  └─────────────────────────────────────────────────────┘             │
+    └──────────────────────────────────────────────────────────────────────┘
+
+INTEGRATION POINTS:
+  • FastAPI Routes — HTTP endpoints for article CRUD, search, indexing, PDF ops,
+    response generation, provider management
+  • Celery Workers — Background indexing and bulk reindex tasks
+  • PostgreSQL + pgvector — Stores articles, chunks with vector(384) embeddings
+  • Voice Agents — Access RAG via internal API using service-key auth
+  • LLM Providers — OpenAI, Claude, Gemini via httpx REST calls
+
+
+================================================================================
+ 3. FILE STRUCTURE & MODULE MAP
+================================================================================
+
+    app/rag/
+    │
+    ├── __init__.py              Module marker
+    │
+    ├── enums.py                 Enumerations: ArticleStatus, ArticleCategory,
+    │                            ChunkStatus
+    │
+    ├── models.py                SQLAlchemy models: KnowledgeArticle,
+    │                            ArticleChunk (with pgvector embedding)
+    │
+    ├── schemas.py               Pydantic models: ArticleCreate, ArticleUpdate,
+    │                            ArticleResponse, SearchRequest, SearchResponse,
+    │                            SearchHit, HybridSearchRequest, etc.
+    │
+    ├── embeddings.py            Sentence-transformer embedding generation
+    │                            (all-MiniLM-L6-v2, 384 dims, singleton model)
+    │
+    ├── chunker.py               Recursive text chunker with overlap
+    │                            (paragraphs → sentences → words → chars)
+    │
+    ├── retriever.py             VectorRetriever: semantic search, hybrid search,
+    │                            get_context_for_query helper
+    │
+    ├── service.py               KnowledgeBaseService: article CRUD, indexing
+    │                            (chunk + embed), statistics
+    │
+    ├── routes.py                FastAPI router: 13 endpoints under /rag
+    │
+    ├── tasks.py                 Celery tasks: index_article_task,
+    │                            reindex_all_articles_task
+    │
+    ├── pdf_loader.py            PDF text extraction via PyMuPDF (fitz)
+    │
+    ├── pdf_schemas.py           Pydantic schemas for PDF operations
+    │
+    ├── pdf_service.py           PDFIngestionService: ingest_pdf, bulk_ingest
+    │
+    ├── documents/               PDF files storage directory
+    │   ├── .gitkeep
+    │   ├── email-troubleshooting.pdf
+    │   ├── getting-started-guide.pdf
+    │   ├── return-policy.pdf
+    │   └── security-best-practices.pdf
+    │
+    └── response_providers/      AI response generation sub-module
+        │
+        ├── __init__.py          Exports: AIProvider, ResponseChannel,
+        │                        ResponseTone, ResponseGenerationService
+        │
+        ├── enums.py             AIProvider (openai/claude/gemini),
+        │                        ResponseChannel (CHAT/EMAIL/WHATSAPP/VOICE/TICKET),
+        │                        ResponseTone (professional/friendly/empathetic/
+        │                        concise/technical)
+        │
+        ├── schemas.py           GenerateRequest, GenerateResponse, SourceReference,
+        │                        MultiChannelPreviewResponse, ProviderStatus
+        │
+        ├── base.py              Abstract BaseProvider with system prompt builder,
+        │                        channel instructions, tone instructions
+        │
+        ├── openai_provider.py   OpenAI/ChatGPT via httpx (GPT-4o, GPT-4o-mini)
+        │
+        ├── claude_provider.py   Anthropic Claude via httpx (Claude Sonnet 4,
+        │                        Claude 3.5 Sonnet, Claude 3 Haiku)
+        │
+        ├── gemini_provider.py   Google Gemini via httpx (Gemini 2.0 Flash,
+        │                        Gemini 1.5 Pro, Gemini 1.5 Flash)
+        │
+        ├── local_provider.py   Local / self-hosted LLMs via OpenAI-compat
+        │                        API (Ollama, llama.cpp, vLLM, LM Studio,
+        │                        LocalAI, text-generation-webui)
+        │
+        ├── channel_formatter.py Per-channel post-processing (chat, email,
+        │                        WhatsApp, voice, ticket)
+        │
+        ├── service.py           ResponseGenerationService: orchestrates
+        │                        RAG retrieval → LLM call → channel formatting
+        │
+        └── routes.py            FastAPI router: 5 endpoints under /rag/generate
+
+
+    app/api/routes/
+    │
+    └── internal.py              Internal API: /internal/rag/search,
+                                 /internal/rag/generate (service-key auth)
+
+
+    voice_agents/
+    │
+    ├── config.py                VoiceAgentSettings: provider selection, backend
+    │                            API URL, service key, LLM model settings
+    │
+    ├── rag_bridge.py            HTTP client bridge: search_knowledge_base(),
+    │                            generate_rag_response(), format_rag_context()
+    │
+    ├── llm_factory.py           Multi-provider LLM/TTS/STT factories
+    │                            (Gemini LLM, local STT/TTS defaults,
+    │                             cloud OpenAI/Google as optional upgrades)
+    │
+    ├── local_stt.py             Local STT plugin: faster-whisper (CTranslate2)
+    │                            LiveKit stt.STT subclass, free, no API key
+    │
+    ├── local_tts.py             Local TTS plugin: edge-tts (Microsoft Edge)
+    │                            LiveKit tts.TTS subclass, free, no API key
+    │
+    ├── generic_agent.py         Base agent with search_knowledge_base and
+    │                            generate_answer function tools
+    │
+    ├── agents.py                Specialised agents (Tom, Mike, Jessica, Ameni)
+    │
+    └── server.py                LiveKit AgentServer with provider-aware setup
+
+
+DEPENDENCY FLOW BETWEEN MODULES:
+
+    routes.py ────────────▶ service.py ──────────▶ chunker.py
+        │                      │                       │
+        │                      │                       ▼
+        │                      │                  embeddings.py
+        │                      │                       │
+        │                      ▼                       ▼
+        │                  models.py ◀────────── PostgreSQL (pgvector)
+        │                      │
+        ▼                      ▼
+    retriever.py ──────▶ embeddings.py
+        │
+        ▼
+    response_providers/service.py ──▶ base.py
+                                         │
+                  ┌───────────┬──────────┼──────────┬──────────┐
+                  ▼           ▼          ▼          ▼          ▼
+            openai_provider claude_provider gemini_provider local_provider
+                                         │
+                                         ▼
+                                  channel_formatter.py
+
+    internal.py ──────────▶ retriever.py + response_providers/service.py
+        ▲
+        │ (httpx)
+    voice_agents/rag_bridge.py ──▶ voice_agents/generic_agent.py
+
+
+================================================================================
+ 4. FULL RAG PIPELINE FLOW DIAGRAM
+================================================================================
+
+The complete pipeline from user query to formatted response:
+
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                   FULL RAG RESPONSE GENERATION PIPELINE                  │
+    └─────────────────────────────────────────────────────────────────────────┘
+
+    USER QUERY
+        │
+        ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 1: RAG CONTEXT RETRIEVAL  (retriever.py)          │
+    │                                                         │
+    │  1a. Embed the query using sentence-transformers        │
+    │      (all-MiniLM-L6-v2, 384 dimensions)                │
+    │                                                         │
+    │  1b. Execute pgvector cosine distance search:           │
+    │      SELECT chunks with their articles                  │
+    │      WHERE article.status = PUBLISHED                   │
+    │            AND chunk.status = INDEXED                   │
+    │            AND chunk.embedding IS NOT NULL              │
+    │      ORDER BY cosine_distance ASC                       │
+    │      LIMIT top_k (default 5)                            │
+    │                                                         │
+    │  1c. Filter by min_similarity threshold (default 0.3)   │
+    │                                                         │
+    │  OUTPUT:                                                │
+    │    chunks = [                                           │
+    │      {article_title, chunk_content, similarity, id},    │
+    │      ...                                                │
+    │    ]                                                    │
+    │    sources = [SourceReference, ...]                      │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 2: SYSTEM PROMPT ASSEMBLY  (base.py)              │
+    │                                                         │
+    │  Build system prompt from components:                   │
+    │    a. Base role: "You are an AI-powered customer        │
+    │       support assistant."                               │
+    │                                                         │
+    │    b. Channel instructions (CHAT/EMAIL/WHATSAPP/        │
+    │       VOICE/TICKET) — see Section 31                    │
+    │                                                         │
+    │    c. Tone instructions (professional/friendly/         │
+    │       empathetic/concise/technical)                     │
+    │                                                         │
+    │    d. Language directive (if specified)                  │
+    │                                                         │
+    │    e. Customer/agent name personalization               │
+    │                                                         │
+    │    f. RAG context injection:                            │
+    │       "## Knowledge base context"                       │
+    │       "### Source 1: <title>\n<content>"                │
+    │       "### Source 2: <title>\n<content>"                │
+    │       "Base your answer on the knowledge base context   │
+    │        above. If the context doesn't contain enough     │
+    │        information, say so clearly."                    │
+    │                                                         │
+    │  OUTPUT: Full system prompt string                      │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 3: MESSAGE ASSEMBLY  (base.py)                    │
+    │                                                         │
+    │  Build OpenAI-compatible messages array:                │
+    │    [                                                    │
+    │      {role: "system", content: <system_prompt>},        │
+    │      {role: "user", content: "history msg 1"},          │
+    │      {role: "assistant", content: "history msg 2"},     │
+    │      ... (last 10 conversation turns)                   │
+    │      {role: "user", content: <current_query>},          │
+    │    ]                                                    │
+    │                                                         │
+    │  NOTE: For Claude, system is a separate parameter.      │
+    │        For Gemini, roles are remapped (assistant→model). │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 4: LLM PROVIDER CALL  (provider implementations) │
+    │                                                         │
+    │  Selected by AI_RESPONSE_PROVIDER env var or per-request│
+    │  override. All use httpx — no SDK dependencies.         │
+    │                                                         │
+    │  ┌─ OpenAI ─────────────────────────────────────────┐   │
+    │  │ POST https://api.openai.com/v1/chat/completions  │   │
+    │  │ Authorization: Bearer <OPENAI_API_KEY>            │   │
+    │  │ Default model: gpt-4o-mini                        │   │
+    │  └──────────────────────────────────────────────────┘   │
+    │                                                         │
+    │  ┌─ Claude ─────────────────────────────────────────┐   │
+    │  │ POST https://api.anthropic.com/v1/messages        │   │
+    │  │ x-api-key: <ANTHROPIC_API_KEY>                    │   │
+    │  │ Default model: claude-sonnet-4-20250514           │   │
+    │  └──────────────────────────────────────────────────┘   │
+    │                                                         │
+    │  ┌─ Gemini ─────────────────────────────────────────┐   │
+    │  │ POST googleapis.com/.../generateContent           │   │
+    │  │ key=<GEMINI_API_KEY>                              │   │
+    │  │ Default model: gemini-2.0-flash                   │   │
+    │  └──────────────────────────────────────────────────┘   │
+    │                                                         │
+    │  ┌─ Local ──────────────────────────────────────────┐   │
+    │  │ POST <LOCAL_LLM_BASE_URL>/chat/completions       │   │
+    │  │ Optional Bearer <LOCAL_LLM_API_KEY>               │   │
+    │  │ Default model: llama3.2 (configurable)            │   │
+    │  │ Supports: Ollama, llama.cpp, vLLM, LM Studio     │   │
+    │  └──────────────────────────────────────────────────┘   │
+    │                                                         │
+    │  OUTPUT:                                                │
+    │    raw_response = "Based on our documentation..."       │
+    │    model = "gpt-4o-mini"                                │
+    │    tokens_used = 342                                    │
+    │    latency_ms = 1850                                    │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  STEP 5: CHANNEL FORMATTING  (channel_formatter.py)     │
+    │                                                         │
+    │  ┌─ CHAT ──────────────────────────────────────────┐    │
+    │  │ Trim excessive whitespace, keep light markdown   │    │
+    │  └─────────────────────────────────────────────────┘    │
+    │                                                         │
+    │  ┌─ EMAIL ─────────────────────────────────────────┐    │
+    │  │ Ensure greeting + sign-off, use customer name    │    │
+    │  └─────────────────────────────────────────────────┘    │
+    │                                                         │
+    │  ┌─ WHATSAPP ──────────────────────────────────────┐    │
+    │  │ Strip markdown, use • bullets, mobile-friendly   │    │
+    │  └─────────────────────────────────────────────────┘    │
+    │                                                         │
+    │  ┌─ VOICE ─────────────────────────────────────────┐    │
+    │  │ Strip ALL formatting, expand abbreviations,      │    │
+    │  │ remove URLs, natural spoken language              │    │
+    │  └─────────────────────────────────────────────────┘    │
+    │                                                         │
+    │  ┌─ TICKET ────────────────────────────────────────┐    │
+    │  │ Keep full markdown, append source references     │    │
+    │  └─────────────────────────────────────────────────┘    │
+    │                                                         │
+    │  OUTPUT: Formatted response string                      │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  FINAL OUTPUT: GenerateResponse                         │
+    │                                                         │
+    │  {                                                      │
+    │    response: "Formatted text for the channel",          │
+    │    raw_response: "Unformatted LLM output",              │
+    │    provider: "openai",                                  │
+    │    model_used: "gpt-4o-mini",                           │
+    │    channel: "VOICE",                                    │
+    │    tone: "friendly",                                    │
+    │    sources: [{article_id, article_title, similarity}],  │
+    │    rag_chunks_used: 3,                                  │
+    │    tokens_used: 342,                                    │
+    │    latency_ms: 1850,                                    │
+    │    generated_at: "2026-03-08T12:00:00"                  │
+    │  }                                                      │
+    └─────────────────────────────────────────────────────────┘
+
+
+================================================================================
+ 5. MODULE 1: EMBEDDING SERVICE (embeddings.py)
+================================================================================
+
+PURPOSE:
+  Generates dense vector embeddings from text using sentence-transformers.
+  These embeddings are stored in pgvector and used for semantic similarity
+  search.
+
+MODEL: all-MiniLM-L6-v2
+  • Dimension: 384
+  • Architecture: MiniLM (distilled BERT)
+  • Parameters: ~22M
+  • Speed: Very fast — suitable for real-time embedding
+  • Quality: Excellent for sentence-level semantic similarity
+  • Multilingual: Primarily English but handles French reasonably well
+  • Normalization: All embeddings are L2-normalized (unit sphere)
+
+IMPLEMENTATION:
+  The model is loaded as a lazy singleton — only instantiated on first use
+  and cached for the process lifetime.
+
+    ┌─────────────────────────┐
+    │     _get_model()        │
+    │                         │
+    │  if _model is None:     │
+    │    _model = Sentence-   │
+    │      Transformer(       │
+    │        config.RAG_      │
+    │        EMBEDDING_MODEL  │
+    │      )                  │
+    │  return _model          │
+    └─────────────────────────┘
+
+FUNCTIONS:
+
+  ┌──────────────────────────┬────────────────────────────────────────────────┐
+  │ Function                 │ Description                                    │
+  ├──────────────────────────┼────────────────────────────────────────────────┤
+  │ embed_text(text)         │ Single text → list[float] (384 dims)          │
+  │                          │ Uses normalize_embeddings=True                 │
+  ├──────────────────────────┼────────────────────────────────────────────────┤
+  │ embed_texts(texts, batch)│ Batch embedding with configurable batch_size  │
+  │                          │ Shows progress bar if >100 texts              │
+  │                          │ Returns list[list[float]]                     │
+  ├──────────────────────────┼────────────────────────────────────────────────┤
+  │ cosine_similarity(a, b)  │ Compute cosine similarity between 2 vectors   │
+  │                          │ Uses numpy dot product / norms                │
+  ├──────────────────────────┼────────────────────────────────────────────────┤
+  │ get_embedding_dimension()│ Returns the model's embedding dimension (384) │
+  ├──────────────────────────┼────────────────────────────────────────────────┤
+  │ get_model_name()         │ Returns the configured model name string      │
+  └──────────────────────────┴────────────────────────────────────────────────┘
+
+CONFIGURATION:
+  • RAG_EMBEDDING_MODEL = "all-MiniLM-L6-v2" (in app/core/config.py)
+  • Can be changed to any sentence-transformers model without code changes
+
+
+================================================================================
+ 6. MODULE 2: TEXT CHUNKER (chunker.py)
+================================================================================
+
+PURPOSE:
+  Splits long documents into overlapping text chunks suitable for embedding
+  and retrieval. Uses a recursive strategy that respects natural text
+  boundaries (paragraphs → sentences → words → characters).
+
+CLASS: RecursiveTextChunker
+
+CONFIGURATION (ChunkerConfig):
+  ┌────────────────────────┬──────────┬──────────────────────────────────────┐
+  │ Parameter              │ Default  │ Description                          │
+  ├────────────────────────┼──────────┼──────────────────────────────────────┤
+  │ chunk_size             │ 512      │ Target tokens per chunk              │
+  │ chunk_overlap          │ 64       │ Overlap tokens between chunks        │
+  │ separators             │ (list)   │ Split hierarchy (see below)          │
+  │ strip_whitespace       │ True     │ Trim whitespace from chunk edges     │
+  └────────────────────────┴──────────┴──────────────────────────────────────┘
+
+SEPARATOR HIERARCHY (priority order):
+  1. "\n\n"  — double newline (paragraph breaks) — preferred split point
+  2. "\n"    — single newline
+  3. ". "    — sentence boundary
+  4. "? "    — question mark
+  5. "! "    — exclamation mark
+  6. "; "    — semicolon
+  7. ", "    — comma
+  8. " "     — word boundary (last resort before force-split)
+
+ALGORITHM:
+
+    ┌─────────────────────────────────────────────────────────┐
+    │            RECURSIVE TEXT CHUNKING ALGORITHM             │
+    └─────────────────────────────────────────────────────────┘
+
+    Input: "Long document text..." (e.g., 5000 words)
+           │
+           ▼
+    ┌── STEP 1: _split_recursive(text, sep_idx=0) ───────────┐
+    │                                                         │
+    │  Is text small enough? (≤ chunk_size tokens)            │
+    │    YES → Return [text]                                  │
+    │    NO  → Split by separator[0] = "\n\n" (paragraphs)   │
+    │                                                         │
+    │  For each resulting piece:                              │
+    │    Small enough? → Keep                                 │
+    │    Too large?    → Recurse with separator[1] = "\n"     │
+    │      Still too large? → separator[2] = ". "             │
+    │      Still too large? → separator[3] = "? "             │
+    │      ... continue down the hierarchy ...                │
+    │      All separators exhausted? → _force_split()         │
+    │        (split by character count as last resort)         │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌── STEP 2: _merge_small_chunks(pieces) ──────────────────┐
+    │                                                         │
+    │  Merge consecutive small pieces until reaching target:  │
+    │                                                         │
+    │  current = ""                                           │
+    │  for piece in pieces:                                   │
+    │    candidate = current + " " + piece                    │
+    │    if tokens(candidate) <= chunk_size:                   │
+    │      current = candidate    ← merge into current        │
+    │    else:                                                │
+    │      output current, reset current = piece              │
+    │                                                         │
+    │  This prevents tiny orphan chunks.                      │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌── STEP 3: _add_overlap(chunks) ─────────────────────────┐
+    │                                                         │
+    │  For each chunk[i] (except first):                      │
+    │    Take the last N words from chunk[i-1]                │
+    │    Prepend them to chunk[i]                             │
+    │                                                         │
+    │  N = chunk_overlap (default 64 words)                   │
+    │                                                         │
+    │  This creates semantic continuity between chunks,       │
+    │  ensuring that information at chunk boundaries is        │
+    │  captured in both adjacent chunks.                       │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    Output: List of Chunk(index, content, token_count)
+
+TOKEN ESTIMATION:
+  estimate_tokens(text) → count whitespace-separated tokens
+  Approximately 1 token per word (rough estimate for English)
+
+CONVENIENCE FUNCTION:
+  chunk_text(text, chunk_size=512, chunk_overlap=64) → list[Chunk]
+  Creates a chunker with defaults and returns chunks.
+
+
+================================================================================
+ 7. MODULE 3: DATABASE MODELS (models.py)
+================================================================================
+
+PURPOSE:
+  SQLAlchemy ORM models for the knowledge base. Uses pgvector for storing
+  and querying embedding vectors.
+
+TABLE: knowledge_articles
+
+    ┌─────────────────────┬───────────────────────┬────────────────────────────┐
+    │ Column              │ Type                  │ Description                │
+    ├─────────────────────┼───────────────────────┼────────────────────────────┤
+    │ id                  │ UUID (PK)             │ Primary key                │
+    │ title               │ VARCHAR(500)          │ Article title              │
+    │ content             │ TEXT                  │ Full article content       │
+    │ summary             │ TEXT (nullable)       │ Optional summary           │
+    │ category            │ ENUM article_category │ Semantic category          │
+    │ status              │ ENUM article_status   │ DRAFT/PUBLISHED/ARCHIVED   │
+    │ tags                │ JSON                  │ List of tag strings        │
+    │ source              │ VARCHAR(255)          │ Origin (manual, pdf:name)  │
+    │ language            │ VARCHAR(10)           │ ISO code (en, fr, ar)      │
+    │ metadata_extra      │ JSON                  │ Arbitrary key-value data   │
+    │ created_by          │ UUID (FK → users)     │ Author user ID             │
+    │ updated_by          │ UUID (FK → users)     │ Last editor user ID        │
+    │ is_indexed          │ BOOLEAN               │ Whether chunks exist       │
+    │ chunk_count         │ INTEGER               │ Number of chunks           │
+    │ total_tokens        │ INTEGER               │ Sum of chunk tokens        │
+    │ is_deleted          │ BOOLEAN               │ Soft-delete flag           │
+    │ deleted_at          │ TIMESTAMP (nullable)  │ Soft-delete timestamp      │
+    │ created_at          │ TIMESTAMP             │ Creation time              │
+    │ updated_at          │ TIMESTAMP             │ Last update time           │
+    └─────────────────────┴───────────────────────┴────────────────────────────┘
+
+    INDEXES:
+      • ix_articles_title (title)
+      • ix_articles_category_status (category, status)
+      • ix_articles_language (language)
+
+TABLE: article_chunks
+
+    ┌─────────────────────┬───────────────────────┬────────────────────────────┐
+    │ Column              │ Type                  │ Description                │
+    ├─────────────────────┼───────────────────────┼────────────────────────────┤
+    │ id                  │ UUID (PK)             │ Primary key                │
+    │ article_id          │ UUID (FK → articles)  │ Parent article (CASCADE)   │
+    │ chunk_index         │ INTEGER               │ Ordering index (0-based)   │
+    │ content             │ TEXT                  │ Chunk text content         │
+    │ token_count         │ INTEGER               │ Estimated token count      │
+    │ embedding           │ vector(384)           │ pgvector embedding         │
+    │ status              │ ENUM chunk_status     │ PENDING/INDEXED/FAILED     │
+    │ created_at          │ TIMESTAMP             │ Creation time              │
+    │ updated_at          │ TIMESTAMP             │ Last update time           │
+    └─────────────────────┴───────────────────────┴────────────────────────────┘
+
+    INDEXES:
+      • ix_chunks_article_id (article_id)
+      • ix_chunks_article_index (article_id, chunk_index) — UNIQUE
+
+RELATIONSHIPS:
+  • KnowledgeArticle.chunks → list[ArticleChunk] (cascade delete)
+  • ArticleChunk.article → KnowledgeArticle (back reference)
+  • KnowledgeArticle.author → User (via created_by FK)
+
+ENTITY RELATIONSHIP DIAGRAM:
+
+    ┌──────────────────┐       ┌──────────────────┐
+    │      users       │       │knowledge_articles│
+    │──────────────────│       │──────────────────│
+    │ id (PK)          │◄──────│ created_by (FK)  │
+    │ email            │       │ id (PK)          │
+    │ role             │       │ title            │
+    │ status           │       │ content          │
+    └──────────────────┘       │ category         │
+                               │ status           │
+                               │ is_indexed       │
+                               │ chunk_count      │
+                               └────────┬─────────┘
+                                        │ 1:N (cascade)
+                                        ▼
+                               ┌──────────────────┐
+                               │  article_chunks   │
+                               │──────────────────│
+                               │ id (PK)          │
+                               │ article_id (FK)  │
+                               │ chunk_index      │
+                               │ content          │
+                               │ token_count      │
+                               │ embedding (384d) │
+                               │ status           │
+                               └──────────────────┘
+
+
+================================================================================
+ 8. MODULE 4: KNOWLEDGE BASE SERVICE (service.py)
+================================================================================
+
+PURPOSE:
+  Business logic layer for article CRUD and indexing. Handles the lifecycle
+  of knowledge articles from creation through chunking, embedding, publishing,
+  and statistics.
+
+CLASS: KnowledgeBaseService(db: AsyncSession)
+
+METHODS:
+
+  ┌─────────────────────────┬───────────────────────────────────────────────┐
+  │ Method                  │ Description                                   │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ create_article()        │ Create new article with DRAFT status.         │
+  │                         │ Associates author via user_id FK.             │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ get_article()           │ Fetch single article with eager-loaded chunks.│
+  │                         │ Filters out soft-deleted articles.            │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ list_articles()         │ Paginated listing with filters:               │
+  │                         │ category, status, language, title search.     │
+  │                         │ Returns ArticleListResponse with total count. │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ update_article()        │ Partial update (PATCH semantics). Only        │
+  │                         │ modifies fields present in payload.           │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ delete_article()        │ Soft-delete: sets is_deleted=True and         │
+  │                         │ deleted_at timestamp.                         │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ publish_article()       │ Sets status → PUBLISHED. Article becomes      │
+  │                         │ searchable by the retriever.                  │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ archive_article()       │ Sets status → ARCHIVED. Article removed       │
+  │                         │ from search results.                          │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ index_article()         │ Full indexing pipeline (see below).           │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ get_all_published_ids() │ Returns UUIDs of all published articles.      │
+  │                         │ Used by the reindex_all endpoint/task.        │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ get_stats()             │ Dashboard statistics: total articles by       │
+  │                         │ status, chunk counts, token sums, category    │
+  │                         │ breakdown, language breakdown, avg chunks.    │
+  └─────────────────────────┴───────────────────────────────────────────────┘
+
+INDEXING PIPELINE (index_article):
+
+    ┌─────────────────────────────────────────────────────────┐
+    │              ARTICLE INDEXING PIPELINE                    │
+    └─────────────────────────────────────────────────────────┘
+
+    Input: article_id, chunk_size=512, chunk_overlap=64
+           │
+           ▼
+    Step 1: DELETE existing chunks for this article
+           │
+           ▼
+    Step 2: CHUNK the article content
+           │  Uses RecursiveTextChunker
+           │  paragraphs → sentences → words → chars
+           │
+           ▼
+    Step 3: EMBED all chunks in batch
+           │  embed_texts(chunk_texts) → list[list[float]]
+           │  Uses sentence-transformers batch encoding
+           │
+           ▼
+    Step 4: CREATE ArticleChunk records
+           │  Each chunk gets: content, embedding, token_count,
+           │  status=INDEXED
+           │
+           ▼
+    Step 5: UPDATE article metadata
+           │  is_indexed=True, chunk_count=N, total_tokens=M
+           │
+           ▼
+    Output: IndexArticleResponse(article_id, chunks_created,
+            total_tokens, status="indexed")
+
+
+================================================================================
+ 9. MODULE 5: VECTOR RETRIEVER (retriever.py)
+================================================================================
+
+PURPOSE:
+  Performs semantic and hybrid search against the knowledge base, finding
+  the most relevant chunks for a given query.
+
+CLASS: VectorRetriever(db: AsyncSession)
+
+METHODS:
+
+  ┌──────────────────────────┬───────────────────────────────────────────────┐
+  │ Method                   │ Description                                   │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ semantic_search(request) │ Pure vector similarity search using pgvector  │
+  │                          │ cosine distance operator.                     │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ hybrid_search(request)   │ Combined keyword + semantic search with       │
+  │                          │ configurable weighting.                       │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ get_context_for_query()  │ Simplified helper that returns a list of      │
+  │                          │ dicts for internal use (decision engine,      │
+  │                          │ response providers).                          │
+  └──────────────────────────┴───────────────────────────────────────────────┘
+
+SEMANTIC SEARCH ALGORITHM:
+
+    Query: "How do I reset my password?"
+           │
+           ▼
+    1. embed_text(query) → [0.032, -0.118, ..., 0.074]  (384 floats)
+           │
+           ▼
+    2. SQL: SELECT chunk.*, article.title, article.category,
+              (1 - chunk.embedding <=> query_embedding) AS similarity
+            FROM article_chunks chunk
+            JOIN knowledge_articles article ON chunk.article_id = article.id
+            WHERE article.status = 'PUBLISHED'
+              AND article.is_deleted = FALSE
+              AND chunk.status = 'INDEXED'
+              AND chunk.embedding IS NOT NULL
+              [AND article.category = <filter>]   -- optional
+              [AND article.language = <filter>]   -- optional
+            ORDER BY chunk.embedding <=> query_embedding ASC
+            LIMIT <top_k>
+           │
+           ▼
+    3. Filter: Remove hits where similarity < min_similarity
+           │
+           ▼
+    4. Return SearchResponse(query, hits, total_hits, model_used)
+
+    NOTE: <=> is pgvector's cosine distance operator.
+          cosine_distance = 1 - cosine_similarity
+          Lower distance = higher similarity.
+
+HYBRID SEARCH ALGORITHM:
+  See Section 29 for the detailed hybrid scoring formula.
+
+
+================================================================================
+ 10. MODULE 6: PDF LOADER (pdf_loader.py)
+================================================================================
+
+PURPOSE:
+  Extracts text and metadata from PDF files using PyMuPDF (fitz).
+  Provides page-level extraction with metadata (author, title, subject).
+
+FUNCTIONS:
+
+  ┌──────────────────────────┬───────────────────────────────────────────────┐
+  │ Function                 │ Description                                   │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ extract_pdf(filepath)    │ Extract text from a PDF file.                 │
+  │                          │ Returns PDFDocument with pages, metadata,     │
+  │                          │ and full_text / text_only properties.         │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ list_pdf_files(dir)      │ List all PDFs in a directory (non-recursive). │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ list_pdf_files_recursive │ List all PDFs in a directory tree.            │
+  │ (dir)                    │                                               │
+  └──────────────────────────┴───────────────────────────────────────────────┘
+
+DATA STRUCTURES:
+
+  PDFPage:
+    • page_number (1-based)
+    • text (extracted text content)
+    • char_count, word_count
+
+  PDFDocument:
+    • filename, filepath
+    • title, author, subject (from PDF metadata)
+    • page_count, total_chars, total_words
+    • pages: list[PDFPage]
+    • full_text property: pages with "[Page N]" markers
+    • text_only property: pages without markers
+
+EXTRACTION FLOW:
+
+    PDF File (e.g., "getting-started-guide.pdf")
+           │
+           ▼
+    fitz.open(filepath)
+           │
+           ▼
+    Extract metadata (title, author, subject)
+           │
+           ▼
+    For each page:
+      page.get_text("text") → page text
+      Count chars and words
+           │
+           ▼
+    Return PDFDocument(
+      filename, pages, metadata, totals
+    )
+
+SAMPLE PDF DOCUMENTS (in app/rag/documents/):
+  • email-troubleshooting.pdf
+  • getting-started-guide.pdf
+  • return-policy.pdf
+  • security-best-practices.pdf
+
+
+================================================================================
+ 11. MODULE 7: PDF INGESTION SERVICE (pdf_service.py)
+================================================================================
+
+PURPOSE:
+  Bridges PDF text extraction with the knowledge base service. Converts
+  extracted PDFs into KnowledgeArticle records, with optional auto-indexing
+  and auto-publishing.
+
+CLASS: PDFIngestionService(db: AsyncSession)
+
+METHODS:
+
+  ┌──────────────────────────┬───────────────────────────────────────────────┐
+  │ Method                   │ Description                                   │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ list_pdfs()              │ List all PDF files in the documents folder.   │
+  │                          │ Returns PDFListResponse with file info.       │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ ingest_pdf(request)      │ Full PDF → KnowledgeArticle pipeline.        │
+  │                          │ Optionally indexes and publishes.             │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ bulk_ingest(request)     │ Ingest all PDFs from documents folder.       │
+  │                          │ Skips already-ingested files (by source tag). │
+  └──────────────────────────┴───────────────────────────────────────────────┘
+
+INGESTION FLOW:
+
+    IngestPDFRequest(filename, category, language, tags,
+                     auto_index, auto_publish)
+           │
+           ▼
+    1. extract_pdf(documents_dir / filename)
+           │
+           ▼
+    2. Create ArticleCreate payload:
+       • title = PDF metadata title or filename-derived
+       • content = pdf_doc.text_only
+       • source = "pdf:<filename>"
+       • tags = ["pdf", filename] + request.tags
+       • metadata_extra = {pdf_pages, pdf_words, pdf_author, ...}
+           │
+           ▼
+    3. kb_service.create_article(payload)
+       → Creates article with status=DRAFT
+           │
+           ▼
+    4. If auto_index:
+       kb_service.index_article(article.id)
+       → Chunk + embed → creates ArticleChunk records
+           │
+           ▼
+    5. If auto_publish:
+       kb_service.publish_article(article.id)
+       → status → PUBLISHED → now searchable
+           │
+           ▼
+    6. Return IngestPDFResponse(
+         filename, article_id, title, page_count,
+         total_words, chunks_created, status
+       )
+
+DEDUPLICATION:
+  _is_already_ingested(filename) checks if a KnowledgeArticle with
+  source="pdf:<filename>" already exists (non-deleted). Used by bulk_ingest
+  when skip_existing=True.
+
+
+================================================================================
+ 12. MODULE 8: CELERY TASKS (tasks.py)
+================================================================================
+
+PURPOSE:
+  Background processing for article indexing. Uses synchronous psycopg2
+  connections since Celery workers run in a synchronous context.
+
+TASKS:
+
+  ┌──────────────────────────┬───────────────────────────────────────────────┐
+  │ Task                     │ Description                                   │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ index_article_task       │ Index a single article: fetch content, chunk, │
+  │                          │ embed, insert chunks via raw SQL. Queue: rag. │
+  │                          │ Max retries: 3, retry delay: 30s.            │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ reindex_all_articles_task│ Reindex multiple articles sequentially.       │
+  │                          │ Dispatches index_article_task for each.       │
+  │                          │ Queue: rag. Max retries: 1.                  │
+  └──────────────────────────┴───────────────────────────────────────────────┘
+
+TASK FLOW:
+
+    API: POST /rag/reindex-all?use_celery=true
+         │
+         ▼
+    Queue reindex_all_articles_task.delay(article_ids)
+         │  (via Redis broker)
+         ▼
+    Celery Worker picks up task
+         │
+         ▼
+    For each article_id:
+      1. Connect via psycopg2 (sync)
+      2. Fetch article content from DB
+      3. chunk_text(content) → chunks
+      4. embed_texts(chunk_texts) → embeddings
+      5. DELETE existing chunks (raw SQL)
+      6. INSERT new chunks with embeddings (raw SQL)
+      7. UPDATE article metadata (is_indexed, chunk_count, total_tokens)
+      8. COMMIT
+         │
+         ▼
+    Return {total, success, failed, results}
+
+DB URL CONVERSION:
+  Converts "postgresql+asyncpg://" → "postgresql://" for psycopg2
+  compatibility (Celery runs sync, not async).
+
+
+================================================================================
+ 13. MODULE 9: RESPONSE PROVIDER BASE (base.py)
+================================================================================
+
+PURPOSE:
+  Abstract base class that all LLM providers inherit from. Defines the
+  common interface and shared system prompt building logic.
+
+CLASS: BaseProvider (ABC)
+
+CLASS ATTRIBUTES:
+  • provider: AIProvider        — enum identifying the provider
+  • default_model: str          — fallback model if none specified
+  • available_models: list[str] — models the provider supports
+
+ABSTRACT METHODS (implemented by each provider):
+
+  ┌──────────────────────────┬───────────────────────────────────────────────┐
+  │ Method                   │ Description                                   │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ generate(messages,       │ Send messages to LLM, return full response.   │
+  │   model, temp, max_tok)  │ Returns {content, model, tokens_used}.        │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ stream(messages,         │ Stream response tokens as async iterator.     │
+  │   model, temp, max_tok)  │ Yields str tokens as they arrive.            │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ health_check()           │ Return True if provider API is reachable.     │
+  └──────────────────────────┴───────────────────────────────────────────────┘
+
+CONCRETE METHODS:
+
+  build_system_prompt(channel, tone, rag_context, language, customer_name,
+                      agent_name) → str
+    Assembles the full system prompt from:
+    1. Base role instruction
+    2. Channel instructions (see CHANNEL_INSTRUCTIONS dict)
+    3. Tone instructions (see TONE_INSTRUCTIONS dict)
+    4. Language directive
+    5. Customer/agent name personalization
+    6. RAG context blocks (or "no context found" message)
+
+  _build_messages(system_prompt, query, conversation_history) → list[dict]
+    Builds OpenAI-compatible messages array:
+    [system, ...last 10 history turns..., user query]
+
+  generate_response(query, channel, tone, rag_context, ...) → dict
+    High-level wrapper: build_system_prompt → _build_messages →
+    generate → return result with latency_ms measurement.
+
+CHANNEL INSTRUCTIONS (injected into every system prompt):
+
+  ┌─────────────┬──────────────────────────────────────────────────────────┐
+  │ Channel     │ Instructions (summary)                                   │
+  ├─────────────┼──────────────────────────────────────────────────────────┤
+  │ CHAT        │ Live-chat agent. Concise (2-4 paragraphs). Short         │
+  │             │ sentences, bullet points. Conversational but professional.│
+  ├─────────────┼──────────────────────────────────────────────────────────┤
+  │ EMAIL       │ Professional support email. Greeting with customer name.  │
+  │             │ Clear paragraphs. Polite sign-off with agent name.       │
+  │             │ Full sentences, no bullet-heavy format.                  │
+  ├─────────────┼──────────────────────────────────────────────────────────┤
+  │ WHATSAPP    │ Short, mobile-friendly. 1-3 paragraphs max. Emoji OK.   │
+  │             │ No markdown. Plain text only. Dashes for lists.          │
+  ├─────────────┼──────────────────────────────────────────────────────────┤
+  │ VOICE       │ Read aloud by TTS. Natural spoken language. No markdown, │
+  │             │ no bullets, no URLs, no special chars. Short sentences.  │
+  │             │ Spell out numbers under 10.                             │
+  ├─────────────┼──────────────────────────────────────────────────────────┤
+  │ TICKET      │ Detailed support ticket response. Thorough, step-by-step│
+  │             │ instructions. Markdown formatting. Source references.    │
+  └─────────────┴──────────────────────────────────────────────────────────┘
+
+TONE INSTRUCTIONS:
+
+  ┌───────────────┬────────────────────────────────────────────────────────┐
+  │ Tone          │ Instructions (summary)                                 │
+  ├───────────────┼────────────────────────────────────────────────────────┤
+  │ PROFESSIONAL  │ Professional, neutral tone throughout.                 │
+  ├───────────────┼────────────────────────────────────────────────────────┤
+  │ FRIENDLY      │ Warm and approachable while staying helpful.           │
+  ├───────────────┼────────────────────────────────────────────────────────┤
+  │ EMPATHETIC    │ Show empathy, acknowledge feelings before solutions.   │
+  ├───────────────┼────────────────────────────────────────────────────────┤
+  │ CONCISE       │ Extremely brief. Minimize filler words.                │
+  ├───────────────┼────────────────────────────────────────────────────────┤
+  │ TECHNICAL     │ Precise technical language. Include error codes,       │
+  │               │ configuration specifics where applicable.              │
+  └───────────────┴────────────────────────────────────────────────────────┘
+
+
+================================================================================
+ 14. MODULE 10: OPENAI PROVIDER (openai_provider.py)
+================================================================================
+
+PURPOSE:
+  OpenAI ChatGPT provider using raw httpx HTTP calls (no openai SDK).
+
+CLASS: OpenAIProvider(BaseProvider)
+
+CONFIGURATION:
+  • API Key: OPENAI_API_KEY (from .env / Settings)
+  • Endpoint: https://api.openai.com/v1/chat/completions
+  • Auth: Authorization: Bearer <key>
+
+MODELS:
+  ┌─────────────────────┬──────────────┐
+  │ Model               │ Role         │
+  ├─────────────────────┼──────────────┤
+  │ gpt-4o-mini         │ Default      │
+  │ gpt-4o              │ Available    │
+  │ gpt-3.5-turbo       │ Available    │
+  └─────────────────────┴──────────────┘
+
+GENERATE FLOW:
+  1. Construct payload: {model, messages, temperature, max_tokens}
+  2. POST to OpenAI API with Bearer auth
+  3. Parse response: choices[0].message.content
+  4. Extract token usage from usage.total_tokens
+  5. Return {content, model, tokens_used}
+
+STREAM FLOW:
+  1. Same payload + stream=True
+  2. Use httpx.stream() for SSE
+  3. Parse "data: " lines, extract choices[0].delta.content
+  4. Yield text tokens
+
+HEALTH CHECK:
+  GET https://api.openai.com/v1/models → 200 = healthy
+
+
+================================================================================
+ 15. MODULE 11: CLAUDE PROVIDER (claude_provider.py)
+================================================================================
+
+PURPOSE:
+  Anthropic Claude provider using raw httpx HTTP calls (no anthropic SDK).
+
+CLASS: ClaudeProvider(BaseProvider)
+
+CONFIGURATION:
+  • API Key: ANTHROPIC_API_KEY (from .env / Settings)
+  • Endpoint: https://api.anthropic.com/v1/messages
+  • Auth: x-api-key: <key>
+  • API Version: anthropic-version: 2023-06-01
+
+MODELS:
+  ┌──────────────────────────────┬──────────────┐
+  │ Model                        │ Role         │
+  ├──────────────────────────────┼──────────────┤
+  │ claude-sonnet-4-20250514     │ Default      │
+  │ claude-3-5-sonnet-20241022   │ Available    │
+  │ claude-3-haiku-20240307      │ Available    │
+  └──────────────────────────────┴──────────────┘
+
+MESSAGE CONVERSION:
+  Claude uses a separate "system" parameter (not a system message in the
+  messages array). The _convert_messages() method splits OpenAI-style
+  messages into:
+    • system_prompt: str (extracted from system messages)
+    • user_messages: list[dict] (remaining user/assistant messages)
+
+GENERATE FLOW:
+  1. Convert messages: separate system prompt from conversation
+  2. POST to Anthropic API with extracted system parameter
+  3. Parse response: content[0].text (text blocks)
+  4. Sum input_tokens + output_tokens for total usage
+  5. Return {content, model, tokens_used}
+
+STREAM FLOW:
+  1. Same payload + stream=True
+  2. Parse SSE events with type "content_block_delta"
+  3. Extract delta.text from each event
+  4. Yield text tokens
+
+HEALTH CHECK:
+  Sends a minimal "ping" message to claude-3-haiku and checks for success.
+
+
+================================================================================
+ 16. MODULE 12: GEMINI PROVIDER (gemini_provider.py)
+================================================================================
+
+PURPOSE:
+  Google Gemini provider using the REST API (no google-generativeai SDK).
+
+CLASS: GeminiProvider(BaseProvider)
+
+CONFIGURATION:
+  • API Key: GEMINI_API_KEY (from .env / Settings)
+  • Base URL: https://generativelanguage.googleapis.com/v1beta/models
+  • Auth: key=<key> as query parameter
+
+MODELS:
+  ┌──────────────────────┬──────────────┐
+  │ Model                │ Role         │
+  ├──────────────────────┼──────────────┤
+  │ gemini-2.0-flash     │ Default      │
+  │ gemini-1.5-pro       │ Available    │
+  │ gemini-1.5-flash     │ Available    │
+  └──────────────────────┴──────────────┘
+
+MESSAGE CONVERSION:
+  Gemini uses different role names and message structure:
+  • OpenAI "system" → Gemini systemInstruction.parts[{text}]
+  • OpenAI "assistant" → Gemini "model" role
+  • OpenAI "user" → Gemini "user" role
+  • Content wrapped in: {role, parts: [{text: "..."}]}
+
+GENERATE FLOW:
+  1. Convert messages: extract system instruction, remap roles
+  2. POST to /<model>:generateContent?key=<key>
+  3. Parse: candidates[0].content.parts[*].text (concatenated)
+  4. Extract usageMetadata.totalTokenCount
+  5. Return {content, model, tokens_used}
+
+STREAM FLOW:
+  1. POST to /<model>:streamGenerateContent?alt=sse&key=<key>
+  2. Parse SSE "data: " lines
+  3. Extract candidates[0].content.parts[*].text from each chunk
+  4. Yield text tokens
+
+HEALTH CHECK:
+  GET /v1beta/models?key=<key> → 200 = healthy
+
+
+================================================================================
+ 16b. MODULE 12b: LOCAL LLM PROVIDER (local_provider.py)
+================================================================================
+
+PURPOSE:
+  Provider for locally hosted / self-hosted LLMs using the OpenAI-compatible
+  chat completions API. A single implementation that works with any server
+  exposing the standard /v1/chat/completions endpoint.
+
+SUPPORTED SERVERS:
+  ┌──────────────────────────┬──────────────────────────┬────────────────────┐
+  │ Server                   │ Default URL              │ Notes              │
+  ├──────────────────────────┼──────────────────────────┼────────────────────┤
+  │ Ollama                   │ http://localhost:11434/v1│ Most popular       │
+  │ llama.cpp (server mode)  │ http://localhost:8080/v1 │ Lightweight C++    │
+  │ vLLM                     │ http://localhost:8000/v1 │ High-throughput    │
+  │ LM Studio                │ http://localhost:1234/v1 │ Desktop GUI        │
+  │ LocalAI                  │ http://localhost:8080/v1 │ Drop-in replacement│
+  │ text-generation-webui    │ http://localhost:5000/v1 │ Gradio UI + API    │
+  └──────────────────────────┴──────────────────────────┴────────────────────┘
+
+CLASS: LocalProvider(BaseProvider)
+
+CONFIGURATION:
+  • Base URL: LOCAL_LLM_BASE_URL (default: http://localhost:11434/v1)
+  • Model:    LOCAL_LLM_MODEL (default: llama3.2)
+  • API Key:  LOCAL_LLM_API_KEY (optional — Ollama does not require one)
+  • Models:   LOCAL_LLM_MODELS (comma-separated list of model names)
+
+DEFAULT MODELS:
+  ┌─────────────────────┬──────────────┐
+  │ Model               │ Role         │
+  ├─────────────────────┼──────────────┤
+  │ llama3.2            │ Default      │
+  │ mistral             │ Available    │
+  │ gemma2              │ Available    │
+  │ phi3                │ Available    │
+  │ qwen2.5             │ Available    │
+  └─────────────────────┴──────────────┘
+
+  NOTE: Available models are fully configurable via LOCAL_LLM_MODELS env var.
+  The list above is just the default when no models are specified.
+
+DESIGN DECISIONS:
+  • Uses the same OpenAI-compatible /v1/chat/completions format that all
+    major local servers support — no server-specific code needed.
+  • Timeout is set to 180s (generate) and 300s (stream) — local LLMs on
+    CPU can be slow, especially for large models.
+  • API key is optional (Bearer auth) since most local servers don't need one.
+  • Health check tries /v1/models first (standard), then falls back to
+    Ollama-specific /api/tags endpoint for maximum compatibility.
+
+GENERATE FLOW:
+  1. Construct payload: {model, messages, temperature, max_tokens, stream: false}
+  2. POST to <LOCAL_LLM_BASE_URL>/chat/completions
+  3. Parse response: choices[0].message.content (OpenAI-compatible format)
+  4. Extract token usage from usage.total_tokens (if provided)
+  5. Return {content, model, tokens_used}
+
+STREAM FLOW:
+  1. Same payload + stream=True
+  2. Use httpx.stream() for SSE
+  3. Parse "data: " lines, extract choices[0].delta.content
+  4. Yield text tokens
+  5. Stop on "data: [DONE]" sentinel
+
+HEALTH CHECK:
+  1. GET <LOCAL_LLM_BASE_URL>/models → 200 = healthy
+  2. Fallback: GET <base>/api/tags (Ollama-specific) → 200 = healthy
+  3. If both fail → return False
+
+
+================================================================================
+ 17. MODULE 13: CHANNEL FORMATTER (channel_formatter.py)
+================================================================================
+
+PURPOSE:
+  Post-processes raw LLM output to match the formatting requirements of
+  each output channel. Applied after LLM generation, before delivery.
+
+FORMATTERS:
+
+  ┌──────────────────────────┬───────────────────────────────────────────────┐
+  │ Formatter                │ Transformations Applied                       │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ format_for_chat(text)    │ • Collapse ≥3 consecutive newlines to 2      │
+  │                          │ • Trim whitespace                             │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ format_for_email(text,   │ • Add greeting if missing (Hello <name>,)    │
+  │   customer_name,         │ • Add sign-off if missing (Best regards,     │
+  │   agent_name)            │   <agent>)                                   │
+  │                          │ • Detects existing greetings (dear, hello,   │
+  │                          │   hi, hey, good morning/afternoon/evening)   │
+  │                          │ • Detects existing sign-offs (regards,       │
+  │                          │   sincerely, thank you, cheers)              │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ format_for_whatsapp(text)│ • Remove markdown headers (# → nothing)      │
+  │                          │ • Convert **bold** → *bold* (WhatsApp style) │
+  │                          │ • Remove image markdown                      │
+  │                          │ • Convert [text](url) → text (url)           │
+  │                          │ • Collapse blank lines                       │
+  │                          │ • Convert "- " bullets → "• "                │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ format_for_voice(text)   │ • Strip ALL markdown (headers, bold, italic, │
+  │                          │   code blocks)                               │
+  │                          │ • Remove URLs                                │
+  │                          │ • Remove bullet/numbered list markers        │
+  │                          │ • Convert multi-newlines to ". "             │
+  │                          │ • Collapse whitespace                         │
+  │                          │ • Expand abbreviations:                      │
+  │                          │   e.g. → "for example"                       │
+  │                          │   i.e. → "that is"                           │
+  │                          │   etc. → "and so on"                         │
+  │                          │   vs.  → "versus"                            │
+  │                          │   approx. → "approximately"                  │
+  ├──────────────────────────┼───────────────────────────────────────────────┤
+  │ format_for_ticket(text,  │ • Keep full markdown intact                  │
+  │   sources)               │ • Append source references section:          │
+  │                          │   "---\n**References:**\n"                   │
+  │                          │   "1. <title> (relevance: 85%)\n"            │
+  │                          │   "2. <title> (relevance: 72%)\n"            │
+  └──────────────────────────┴───────────────────────────────────────────────┘
+
+DISPATCHER:
+  format_response(text, channel, customer_name, agent_name, sources) → str
+  Routes to the correct formatter based on channel enum.
+  Falls back to chat formatter for unknown channels.
+
+
+================================================================================
+ 18. MODULE 14: RESPONSE GENERATION SERVICE (service.py)
+================================================================================
+
+PURPOSE:
+  Central orchestrator that chains RAG retrieval, LLM generation, and
+  channel formatting into a single pipeline. The main entry point for
+  all response generation.
+
+CLASS: ResponseGenerationService(db: AsyncSession)
+
+PROVIDER REGISTRY:
+  ┌──────────────────┬────────────────────────┐
+  │ AIProvider Enum  │ Implementation Class   │
+  ├──────────────────┼────────────────────────┤
+  │ OPENAI           │ OpenAIProvider         │
+  │ CLAUDE           │ ClaudeProvider         │
+  │ GEMINI           │ GeminiProvider         │
+  │ LOCAL            │ LocalProvider          │
+  ┌────────────────────────────┬────────────────────────────────────────────┐
+  │ Method                     │ Description                                │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ generate(request)          │ Full pipeline: RAG → LLM → format.        │
+  │                            │ Returns GenerateResponse.                  │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ generate_stream(request)   │ Streaming: RAG → LLM stream → yield.      │
+  │                            │ No channel formatting during stream.       │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ generate_multi_channel_    │ Generate once, format for ALL channels.    │
+  │ preview(request)           │ Returns MultiChannelPreviewResponse.       │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ get_providers_status()     │ Return config/health of all providers.     │
+  │ (static)                   │ Shows which are configured and their       │
+  │                            │ available models.                          │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ check_provider_health()    │ Run health check on a specific provider.   │
+  │ (static)                   │ Calls provider.health_check().             │
+  └────────────────────────────┴────────────────────────────────────────────┘
+
+GENERATE PIPELINE (detailed):
+
+    GenerateRequest { query, channel, provider, tone, category,
+                      language, top_k, conversation_history,
+                      customer_name, agent_name, max_tokens,
+                      temperature, include_sources }
+           │
+           ▼
+    1. _fetch_rag_context(query, top_k, category)
+       │ → VectorRetriever.get_context_for_query()
+       │ → Returns (chunks, source_references)
+       │ → Gracefully returns [] on failure
+           │
+           ▼
+    2. get_provider(request.provider)
+       │ → Instantiate selected or default provider
+           │
+           ▼
+    3. provider.generate_response(query, channel, tone, rag_context, ...)
+       │ → build_system_prompt()
+       │ → _build_messages()
+       │ → generate()
+       │ → Returns {content, model, tokens_used, latency_ms, provider}
+           │
+           ▼
+    4. format_response(raw_response, channel, customer_name, agent_name, sources)
+       │ → Apply channel-specific post-processing
+           │
+           ▼
+    5. Return GenerateResponse {
+         response, raw_response, provider, model_used,
+         channel, tone, sources, rag_chunks_used,
+         tokens_used, latency_ms, generated_at
+       }
+
+
+================================================================================
+ 19. MODULE 15: INTERNAL API — SERVICE-TO-SERVICE (internal.py)
+================================================================================
+
+PURPOSE:
+  Internal API endpoints that allow services running outside the FastAPI
+  process (e.g., voice agents) to access the RAG knowledge base and
+  response providers. Protected by a shared service key instead of JWT auth.
+
+LOCATION: app/api/routes/internal.py
+PREFIX: /api/v1/internal
+TAG: Internal Services
+
+AUTH MECHANISM:
+  • Header: X-Service-Key
+  • Validated against INTERNAL_SERVICE_KEY from config
+  • No JWT token required
+  • Returns 403 Forbidden if key doesn't match
+
+ENDPOINTS:
+
+  ┌─────────┬──────────────────────────┬──────────────────────────────────────┐
+  │ Method  │ Path                     │ Description                          │
+  ├─────────┼──────────────────────────┼──────────────────────────────────────┤
+  │ POST    │ /internal/rag/search     │ Semantic search the knowledge base.  │
+  │         │                          │ Body: SearchRequest (same as public  │
+  │         │                          │ /rag/search endpoint).               │
+  │         │                          │ Returns: SearchResponse.             │
+  ├─────────┼──────────────────────────┼──────────────────────────────────────┤
+  │ POST    │ /internal/rag/generate   │ Full RAG + LLM generation pipeline.  │
+  │         │                          │ Body: GenerateRequest (same as       │
+  │         │                          │ public /rag/generate endpoint).      │
+  │         │                          │ Returns: GenerateResponse.           │
+  └─────────┴──────────────────────────┴──────────────────────────────────────┘
+
+DESIGN RATIONALE:
+  Voice agents run as a separate LiveKit process, not inside the FastAPI
+  application. They cannot directly import database-dependent code (ORM,
+  async sessions). The internal API provides a clean HTTP boundary:
+
+    Voice Agent Process              FastAPI Process
+    ┌──────────────────┐             ┌──────────────────┐
+    │  rag_bridge.py   │ ──httpx──▶ │  internal.py     │
+    │  (httpx client)  │             │  (X-Service-Key) │
+    │                  │             │       │          │
+    │                  │             │       ▼          │
+    │                  │             │  RAG retriever   │
+    │                  │             │  + LLM provider  │
+    │                  │  ◀──JSON── │  + formatter     │
+    └──────────────────┘             └──────────────────┘
+
+
+================================================================================
+ 20. MODULE 16: VOICE AGENTS RAG BRIDGE (rag_bridge.py)
+================================================================================
+
+PURPOSE:
+  HTTP client bridge that connects the voice agents (LiveKit process)
+  to the backend's RAG knowledge base via the internal API. Provides
+  graceful degradation if the backend is unreachable.
+
+LOCATION: voice_agents/rag_bridge.py
+
+FUNCTIONS:
+
+  ┌──────────────────────────────┬──────────────────────────────────────────┐
+  │ Function                     │ Description                              │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ search_knowledge_base(       │ Search the RAG KB for relevant chunks.   │
+  │   query, top_k, category,   │ Calls POST /internal/rag/search.         │
+  │   min_similarity)            │ Returns list[dict] or [] on failure.     │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ generate_rag_response(       │ Generate full RAG + LLM response.        │
+  │   query, channel, provider,  │ Calls POST /internal/rag/generate.       │
+  │   tone, category, language,  │ Returns str or None on failure.          │
+  │   top_k, conversation_       │                                          │
+  │   history, customer_name,    │                                          │
+  │   agent_name)                │                                          │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ format_rag_context(chunks)   │ Format search results into a text block  │
+  │                              │ for LLM context injection:               │
+  │                              │ "[Source 1: Title (relevance: 85%)]      │
+  │                              │  <content>"                              │
+  ├──────────────────────────────┼──────────────────────────────────────────┤
+  │ close()                      │ Close the reusable httpx client.         │
+  └──────────────────────────────┴──────────────────────────────────────────┘
+
+HTTP CLIENT:
+  Uses a module-level httpx.AsyncClient singleton with 30-second timeout.
+  Lazy-created on first use and reused across all subsequent calls.
+
+HEADERS:
+  • X-Service-Key: <INTERNAL_SERVICE_KEY from config>
+  • Content-Type: application/json
+
+ERROR HANDLING:
+  All functions catch and log these errors, returning safe defaults:
+  • httpx.ConnectError → backend unreachable → return []/None
+  • httpx.HTTPStatusError → API error → return []/None
+  • Exception → unexpected error → return []/None
+
+
+================================================================================
+ 21. MODULE 17: VOICE AGENTS LLM FACTORY (llm_factory.py)
+================================================================================
+
+PURPOSE:
+  Creates LiveKit-compatible LLM, TTS, and STT instances based on the
+  configured AI provider. Defaults to free, no-API-key solutions for
+  STT (faster-whisper) and TTS (edge-tts), with cloud providers as
+  optional upgrades when credentials are available.
+
+LOCATION: voice_agents/llm_factory.py
+
+IMPORTS:
+  • voice_agents.local_stt.LocalWhisperSTT — local Whisper STT plugin
+  • voice_agents.local_tts.EdgeTTS, VOICE_MAP — local Edge TTS plugin
+  • livekit.plugins.google — Google Cloud & Gemini LLM plugin
+  • livekit.plugins.openai (optional) — OpenAI cloud plugin
+
+PROVIDER SUPPORT:
+
+  ┌──────────────┬──────────────────┬──────────────────┬──────────────────┐
+  │ Provider     │ LLM              │ TTS              │ STT              │
+  ├──────────────┼──────────────────┼──────────────────┼──────────────────┤
+  │ local        │ —                │ EdgeTTS          │ LocalWhisperSTT  │
+  │ (default)    │                  │ (edge-tts, free) │ (faster-whisper, │
+  │              │                  │ Microsoft neural │  free, on CPU)   │
+  │              │                  │ voices           │                  │
+  ├──────────────┼──────────────────┼──────────────────┼──────────────────┤
+  │ gemini       │ google.LLM       │ EdgeTTS          │ LocalWhisperSTT  │
+  │ (default LLM)│ (gemini-2.5-     │ (free fallback)  │ (free fallback)  │
+  │              │  flash-lite)     │                  │                  │
+  ├──────────────┼──────────────────┼──────────────────┼──────────────────┤
+  │ openai       │ openai.LLM       │ openai.TTS       │ openai.STT       │
+  │ (cloud, paid)│ (gpt-4o-mini)    │ (alloy, echo,    │ (Whisper)        │
+  │              │                  │  nova, shimmer)  │                  │
+  ├──────────────┼──────────────────┼──────────────────┼──────────────────┤
+  │ google cloud │ —                │ google.TTS       │ google.STT       │
+  │ (service acct│                  │ (Puck, Charon,   │ (detect_language │
+  │  credentials)│                  │  Aoede, Kore)    │  =True)          │
+  ├──────────────┼──────────────────┼──────────────────┼──────────────────┤
+  │ realtime     │ google.beta.     │ (built-in)       │ (built-in)       │
+  │ (Gemini)     │ realtime.        │                  │                  │
+  │              │ RealtimeModel    │                  │                  │
+  └──────────────┴──────────────────┴──────────────────┴──────────────────┘
+
+  IMPORTANT AUTH NOTES:
+    • google.LLM works with a free Gemini API key (GEMINI_API_KEY)
+    • google.STT and google.TTS require Google Cloud service-account
+      credentials (GOOGLE_APPLICATION_CREDENTIALS JSON file) — a
+      Gemini API key is NOT sufficient
+    • OpenAI STT/TTS require a funded OPENAI_API_KEY
+    • Local STT/TTS (faster-whisper + edge-tts) need NO API keys at all
+
+VOICE NAME MAPPING (Google → OpenAI → Edge TTS):
+
+  ┌──────────────┬──────────────┬───────────────────────┬──────────────────┐
+  │ Google Voice │ OpenAI Voice │ Edge TTS Voice        │ Agent            │
+  ├──────────────┼──────────────┼───────────────────────┼──────────────────┤
+  │ Puck         │ alloy        │ en-US-GuyNeural       │ Tom (Starter)    │
+  │ Charon       │ echo         │ en-US-ChristopherNeural│ Mike (Support)   │
+  │ Aoede        │ nova         │ en-US-JennyNeural     │ Jessica (Booking)│
+  │ Kore         │ shimmer      │ en-US-AriaNeural      │ Ameni (FAQ)      │
+  └──────────────┴──────────────┴───────────────────────┴──────────────────┘
+
+FACTORY FUNCTIONS:
+
+  make_llm(voice: str)
+    • Realtime mode → google.beta.realtime.RealtimeModel(voice=voice)
+    • Pipeline "openai" + key → openai_plugin.LLM(model=openai_model)
+    • Pipeline default → google.LLM(model=gemini_model)  [free Gemini key]
+
+  make_tts(voice: str)
+    • Realtime mode → None (model handles TTS)
+    • Priority 1: "openai" provider + OPENAI_API_KEY → openai_plugin.TTS
+    • Priority 2: GOOGLE_APPLICATION_CREDENTIALS file → google.TTS
+    • Priority 3 (default): EdgeTTS(voice=mapped_edge_voice)  [FREE]
+
+  make_stt()
+    • Priority 1: "openai" provider + OPENAI_API_KEY → openai_plugin.STT
+    • Priority 2: GOOGLE_APPLICATION_CREDENTIALS file → google.STT
+    • Priority 3 (default): LocalWhisperSTT(model_size=WHISPER_MODEL)  [FREE]
+
+
+================================================================================
+ 22. MODULE 18: VOICE AGENTS LOCAL STT PLUGIN (local_stt.py)
+================================================================================
+
+PURPOSE:
+  Custom LiveKit STT plugin that transcribes audio locally using
+  faster-whisper (CTranslate2 runtime). Same Whisper engine used by the
+  backend's /api/v1/voice/transcribe endpoint. Runs on CPU, requires
+  no API keys, completely free.
+
+LOCATION: voice_agents/local_stt.py
+
+CLASS: LocalWhisperSTT(stt.STT)
+
+  LiveKit-compatible STT subclass. Implements the _recognize_impl()
+  abstract method from the LiveKit agents SDK.
+
+CONSTRUCTOR PARAMETERS:
+  ┌────────────────────────┬──────────┬──────────────────────────────────────┐
+  │ Parameter              │ Default  │ Description                          │
+  ├────────────────────────┼──────────┼──────────────────────────────────────┤
+  │ model_size             │ "tiny"   │ Whisper model: tiny/base/small/      │
+  │                        │          │ medium/large                         │
+  │ language               │ None     │ Optional fixed language code         │
+  │ detect_language         │ True     │ Auto-detect spoken language          │
+  │ beam_size              │ 5        │ Beam search width for decoding       │
+  └────────────────────────┴──────────┴──────────────────────────────────────┘
+
+CAPABILITIES:
+  • streaming: False (batch recognition only)
+  • interim_results: False
+
+PROPERTIES:
+  • model → "faster-whisper-{model_size}" (e.g. "faster-whisper-tiny")
+  • provider → "local-whisper"
+
+MODEL SINGLETON:
+  _get_model(model_size) loads the faster-whisper model once per process
+  and caches it globally. First load may take a few seconds. Uses CPU with
+  int8 quantization for speed.
+
+RECOGNITION FLOW (_recognize_impl):
+
+    LiveKit AudioBuffer (list[AudioFrame])
+         │
+         ▼
+    1. rtc.combine_audio_frames(buffer) → single AudioFrame
+         │
+         ▼
+    2. Convert int16 PCM bytes → float32 numpy array
+       pcm_int16 = np.frombuffer(data, dtype=np.int16)
+       audio_float32 = pcm_int16 / 32768.0
+         │
+         ▼
+    3. If stereo → mono (average channels)
+         │
+         ▼
+    4. model.transcribe(audio_float32,
+         language=lang, beam_size=5, vad_filter=True)
+         │
+         ▼
+    5. Collect segments → join text → SpeechEvent
+       type: FINAL_TRANSCRIPT
+       alternatives: [SpeechData(text, language, confidence)]
+
+ERROR HANDLING:
+  • All exceptions logged and re-raised (LiveKit handles retries)
+
+
+================================================================================
+ 23. MODULE 19: VOICE AGENTS LOCAL TTS PLUGIN (local_tts.py)
+================================================================================
+
+PURPOSE:
+  Custom LiveKit TTS plugin that synthesizes speech via edge-tts
+  (Microsoft Edge neural voices). Same engine used by the backend's
+  /api/v1/voice/synthesize endpoint. Free, no API keys, high-quality
+  neural voices.
+
+LOCATION: voice_agents/local_tts.py
+
+CLASSES:
+
+  EdgeTTS(tts.TTS)
+    LiveKit-compatible TTS subclass. Implements the synthesize() method.
+
+  _EdgeChunkedStream(tts.ChunkedStream)
+    Internal stream class that pushes MP3 chunks from edge-tts into
+    the LiveKit audio pipeline.
+
+CONSTRUCTOR PARAMETERS (EdgeTTS):
+  ┌────────────────────────┬────────────────────┬──────────────────────────┐
+  │ Parameter              │ Default            │ Description              │
+  ├────────────────────────┼────────────────────┼──────────────────────────┤
+  │ voice                  │ "en-GB-RyanNeural" │ edge-tts voice name      │
+  │ rate                   │ "+0%"              │ Speech rate adjustment   │
+  │ pitch                  │ "+0Hz"             │ Pitch adjustment         │
+  └────────────────────────┴────────────────────┴──────────────────────────┘
+
+CAPABILITIES:
+  • streaming: False (chunked non-streaming synthesis)
+  • sample_rate: 24000 Hz
+  • num_channels: 1 (mono)
+
+PROPERTIES:
+  • model → "edge-tts"
+  • provider → "microsoft-edge"
+
+VOICE MAP (Google voice IDs → edge-tts voice names):
+  ┌──────────────┬───────────────────────────┬─────────────┐
+  │ Google Voice │ edge-tts Voice            │ Agent       │
+  ├──────────────┼───────────────────────────┼─────────────┤
+  │ Puck         │ en-US-GuyNeural           │ Tom         │
+  │ Charon       │ en-US-ChristopherNeural   │ Mike        │
+  │ Aoede        │ en-US-JennyNeural         │ Jessica     │
+  │ Kore         │ en-US-AriaNeural          │ Ameni       │
+  │ (default)    │ en-GB-RyanNeural          │ —           │
+  └──────────────┴───────────────────────────┴─────────────┘
+
+SYNTHESIS FLOW (_run method):
+
+    EdgeTTS.synthesize(text) → _EdgeChunkedStream
+         │
+         ▼
+    _EdgeChunkedStream._run(output_emitter)
+         │
+         ▼
+    1. Create edge_tts.Communicate(text, voice, rate, pitch)
+         │
+         ▼
+    2. output_emitter.initialize(
+         request_id=uuid, sample_rate=24000,
+         num_channels=1, mime_type="audio/mpeg")
+         │
+         ▼
+    3. async for chunk in communicate.stream():
+         if chunk["type"] == "audio" and chunk["data"]:
+           output_emitter.push(chunk["data"])  ← MP3 bytes
+         (SentenceBoundary chunks are ignored)
+         │
+         ▼
+    4. output_emitter.flush()
+
+  NOTE: edge-tts outputs MP3 audio. LiveKit's AudioEmitter handles
+  MP3 → PCM decoding automatically when mime_type="audio/mpeg" is set.
+
+EDGE-TTS CHUNK TYPES:
+  • {"type": "audio", "data": bytes}           — MP3 audio data
+  • {"type": "SentenceBoundary", "offset": int,
+     "duration": int, "text": str}             — text metadata (ignored)
+
+
+================================================================================
+ 24. DATABASE SCHEMA & ER DIAGRAM
+================================================================================
+
+POSTGRESQL ENUM TYPES (3 custom enums):
+
+  • article_status:   DRAFT, PUBLISHED, ARCHIVED
+  • article_category: TECHNICAL, BILLING, ACCOUNT, GENERAL, SECURITY,
+                      TROUBLESHOOTING, FAQ, POLICY, ONBOARDING, FEATURE_GUIDE
+  • chunk_status:     PENDING, INDEXED, FAILED
+
+PGVECTOR EXTENSION:
+  The system requires the pgvector extension for PostgreSQL:
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+  Chunks use the vector(384) column type for storing embeddings.
+  Search uses the <=> (cosine distance) operator.
+
+FULL ER DIAGRAM:
+
+    ┌──────────────────┐       ┌───────────────────────┐
+    │      users       │       │  knowledge_articles   │
+    │──────────────────│       │───────────────────────│
+    │ id (PK)          │◄──────│ created_by (FK)       │
+    │ email            │       │ updated_by (FK)       │
+    │ role             │       │ id (PK)               │
+    │ status           │       │ title                 │
+    └──────────────────┘       │ content               │
+                               │ summary               │
+                               │ category (ENUM)       │
+                               │ status (ENUM)         │
+                               │ tags (JSON)           │
+                               │ source                │
+                               │ language              │
+                               │ metadata_extra (JSON) │
+                               │ is_indexed            │
+                               │ chunk_count           │
+                               │ total_tokens          │
+                               │ is_deleted            │
+                               │ created_at            │
+                               │ updated_at            │
+                               └────────┬──────────────┘
+                                        │
+                                        │  1:N cascade delete
+                                        ▼
+                               ┌───────────────────────┐
+                               │   article_chunks      │
+                               │───────────────────────│
+                               │ id (PK)               │
+                               │ article_id (FK)       │
+                               │ chunk_index           │
+                               │ content               │
+                               │ token_count           │
+                               │ embedding vector(384) │
+                               │ status (ENUM)         │
+                               │ created_at            │
+                               │ updated_at            │
+                               └───────────────────────┘
+
+
+================================================================================
+ 25. ENUMERATIONS & CONSTANTS
+================================================================================
+
+ARTICLE CATEGORIES (10):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ TECHNICAL        │ Technical documentation, API guides, system configs │
+  │ BILLING          │ Payment, invoicing, pricing, subscription info      │
+  │ ACCOUNT          │ Account management, login, profiles, permissions    │
+  │ GENERAL          │ General information that doesn't fit other cats     │
+  │ SECURITY         │ Security policies, best practices, compliance      │
+  │ TROUBLESHOOTING  │ Problem-solving guides, debug procedures            │
+  │ FAQ              │ Frequently asked questions and answers              │
+  │ POLICY           │ Company policies, return policies, terms of service │
+  │ ONBOARDING       │ Getting started guides, setup instructions          │
+  │ FEATURE_GUIDE    │ Feature documentation, how-to guides               │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+ARTICLE STATUS (3):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ DRAFT            │ Not yet published — invisible to search             │
+  │ PUBLISHED        │ Active — searchable by retriever                    │
+  │ ARCHIVED         │ Retired — no longer searchable                      │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+CHUNK STATUS (3):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ PENDING          │ Chunk created but not yet embedded                  │
+  │ INDEXED          │ Chunk has embedding — ready for search              │
+  │ FAILED           │ Embedding generation failed                         │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+AI PROVIDERS (4):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ openai           │ OpenAI ChatGPT (GPT-4o, GPT-4o-mini, GPT-3.5)     │
+  │ claude           │ Anthropic Claude (Sonnet 4, 3.5 Sonnet, 3 Haiku)   │
+  │ gemini           │ Google Gemini (2.0 Flash, 1.5 Pro, 1.5 Flash)      │
+  │ local            │ Local / self-hosted (Ollama, llama.cpp, vLLM,       │
+  │                  │ LM Studio, LocalAI — any OpenAI-compat server)      │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+RESPONSE CHANNELS (5):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ CHAT             │ Live chat — concise, conversational                 │
+  │ EMAIL            │ Email — formal with greeting/sign-off               │
+  │ WHATSAPP         │ WhatsApp — short, mobile-friendly, emoji OK         │
+  │ VOICE            │ Voice/TTS — natural spoken language, no markdown    │
+  │ TICKET           │ Support ticket — detailed, markdown, references     │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+RESPONSE TONES (5):
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Value            │ Description                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ professional     │ Neutral, business tone                              │
+  │ friendly         │ Warm and approachable                               │
+  │ empathetic       │ Acknowledges feelings, shows understanding          │
+  │ concise          │ Extremely brief, minimal filler                     │
+  │ technical        │ Precise, includes technical details                 │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+
+================================================================================
+ 26. API ENDPOINTS REFERENCE — KNOWLEDGE BASE
+================================================================================
+
+All endpoints prefixed with: /api/v1/rag
+
+  ┌─────────┬──────────────────────────────┬──────────────┬──────────────────┐
+  │ Method  │ Path                         │ Auth         │ Description      │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /articles                    │ Agent/Admin  │ Create article   │
+  │         │                              │              │ (auto-index opt) │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ GET     │ /articles                    │ Agent/Admin  │ List articles    │
+  │         │                              │              │ (paginated,      │
+  │         │                              │              │  filterable)     │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ GET     │ /articles/{id}               │ Agent/Admin  │ Get article      │
+  │         │                              │              │ with chunks      │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ PATCH   │ /articles/{id}               │ Admin        │ Update article   │
+  │         │                              │              │ (re-index opt)   │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ DELETE  │ /articles/{id}               │ Admin        │ Soft-delete      │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /articles/{id}/publish       │ Admin        │ Publish article  │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /articles/{id}/archive       │ Admin        │ Archive article  │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /articles/{id}/index         │ Agent/Admin  │ Index article    │
+  │         │                              │              │ (chunk + embed)  │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /reindex-all                 │ Admin        │ Reindex all      │
+  │         │                              │              │ published (sync  │
+  │         │                              │              │ or Celery async) │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /search                      │ Agent/Admin  │ Semantic search  │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /search/hybrid               │ Agent/Admin  │ Hybrid search    │
+  │         │                              │              │ (keyword+vector) │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ GET     │ /stats                       │ Agent/Admin  │ KB statistics    │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ GET     │ /documents                   │ Agent/Admin  │ List PDF files   │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /documents/upload            │ Admin        │ Upload PDF file  │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /documents/ingest            │ Admin        │ Ingest single    │
+  │         │                              │              │ PDF into KB      │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /documents/ingest-all        │ Admin        │ Bulk ingest all  │
+  │         │                              │              │ PDFs             │
+  └─────────┴──────────────────────────────┴──────────────┴──────────────────┘
+
+TOTAL: 16 endpoints
+
+
+================================================================================
+ 27. API ENDPOINTS REFERENCE — RESPONSE PROVIDERS
+================================================================================
+
+All endpoints prefixed with: /api/v1/rag/generate
+
+  ┌─────────┬──────────────────────────────┬──────────────┬──────────────────┐
+  │ Method  │ Path                         │ Auth         │ Description      │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /rag/generate                │ Agent/Admin  │ Generate AI      │
+  │         │                              │              │ response with    │
+  │         │                              │              │ RAG context      │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /rag/generate/stream         │ Agent/Admin  │ Stream response  │
+  │         │                              │              │ via SSE          │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /rag/generate/preview        │ Agent/Admin  │ Multi-channel    │
+  │         │                              │              │ format preview   │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ GET     │ /rag/generate/providers      │ Agent/Admin  │ List provider    │
+  │         │                              │              │ config/status    │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ GET     │ /rag/generate/providers/     │ Agent/Admin  │ Health check a   │
+  │         │ {provider}/health            │              │ specific provider│
+  └─────────┴──────────────────────────────┴──────────────┴──────────────────┘
+
+TOTAL: 5 endpoints
+
+
+================================================================================
+ 28. API ENDPOINTS REFERENCE — INTERNAL SERVICES
+================================================================================
+
+All endpoints prefixed with: /api/v1/internal
+
+  ┌─────────┬──────────────────────────────┬──────────────┬──────────────────┐
+  │ Method  │ Path                         │ Auth         │ Description      │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /internal/rag/search         │ Service-Key  │ Internal RAG     │
+  │         │                              │ (X-Service-  │ semantic search  │
+  │         │                              │  Key header) │                  │
+  ├─────────┼──────────────────────────────┼──────────────┼──────────────────┤
+  │ POST    │ /internal/rag/generate       │ Service-Key  │ Internal RAG +   │
+  │         │                              │ (X-Service-  │ LLM generation   │
+  │         │                              │  Key header) │                  │
+  └─────────┴──────────────────────────────┴──────────────┴──────────────────┘
+
+TOTAL: 2 endpoints
+
+COMBINED TOTAL: 23 endpoints (16 KB + 5 providers + 2 internal)
+
+
+================================================================================
+ 29. EMBEDDING & SIMILARITY ALGORITHMS (DETAILED)
+================================================================================
+
+═══ A. EMBEDDING GENERATION ═══
+
+  Text → sentence-transformers → normalized vector ∈ ℝ³⁸⁴
+
+  Model: all-MiniLM-L6-v2
+    • Based on MiniLM architecture (distilled from BERT)
+    • 22 million parameters
+    • 384-dimensional output
+    • Trained on 1B+ sentence pairs
+    • L2-normalization applied (normalize_embeddings=True)
+
+  Process:
+    1. Tokenize input text using model's tokenizer
+    2. Pass through 6-layer transformer
+    3. Mean pooling over token embeddings
+    4. L2-normalize the result → unit vector on 384-dim hypersphere
+
+  Since all vectors are L2-normalized:
+    cosine_similarity(a, b) = dot_product(a, b)
+    cosine_distance(a, b)   = 1 - dot_product(a, b)
+
+═══ B. COSINE SIMILARITY SEARCH ═══
+
+  Given query embedding q and chunk embeddings {c₁, c₂, ..., cₙ}:
+
+    similarity(q, cᵢ) = q · cᵢ / (‖q‖ × ‖cᵢ‖)
+
+  Since vectors are normalized (‖q‖ = ‖cᵢ‖ = 1):
+
+    similarity(q, cᵢ) = q · cᵢ
+
+  PostgreSQL query uses the <=> operator (cosine distance):
+
+    distance = 1 - similarity
+    ORDER BY distance ASC = ORDER BY similarity DESC
+
+  Results are filtered: similarity ≥ min_similarity (default 0.3)
+
+═══ C. BATCH EMBEDDING ═══
+
+  For indexing, chunks are embedded in batches:
+    • Default batch_size: 64
+    • Progress bar shown for >100 texts
+    • Returns list of 384-dim vectors
+
+  Example: 10 chunks → embed_texts(10 texts, batch=64)
+    → 1 batch → 10 × 384 matrix → 10 normalized vectors
+
+
+================================================================================
+ 30. CHUNKING ALGORITHM (DETAILED)
+================================================================================
+
+═══ RECURSIVE SPLITTING ═══
+
+  The RecursiveTextChunker uses a separator hierarchy to split text at
+  natural boundaries while respecting the target chunk size.
+
+  Input: "Long document..." (2000 words)
+  Config: chunk_size=512, chunk_overlap=64
+
+  PHASE 1: Split by separators
+
+    Try "\n\n" (paragraphs):
+      "Paragraph 1" (100 words) → OK, keep
+      "Paragraph 2" (800 words) → TOO LARGE, recurse
+        Try "\n" (newlines):
+          "Section A" (300 words) → OK, keep
+          "Section B" (500 words) → OK, keep
+      "Paragraph 3" (200 words) → OK, keep
+      ...
+
+  PHASE 2: Merge small chunks
+
+    ["100-word piece", "50-word piece", "80-word piece", ...]
+    → Merge consecutive small pieces until hitting chunk_size:
+      "100 + 50 + 80 = 230 words" → still < 512, keep merging
+      "230 + 300 = 530 words" → exceeds 512, split here
+
+  PHASE 3: Add overlap
+
+    Chunk[0]: "...end of chunk 0"
+    Chunk[1]: "end of chunk 0 [OVERLAP] start of chunk 1..."
+    Chunk[2]: "end of chunk 1 [OVERLAP] start of chunk 2..."
+
+    Overlap = last 64 words of previous chunk prepended to next
+
+═══ TOKEN ESTIMATION ═══
+
+    estimate_tokens(text)  = count of whitespace-separated tokens
+    Approximation:           ~1 token per word (for English)
+    Used for:                chunk size decisions (not billing)
+
+═══ FORCE SPLIT ═══
+
+  If all separators are exhausted and text is still too long:
+    Split by character count: chunk_size × 4 chars per chunk
+    This is a last resort for texts with no natural boundaries.
+
+
+================================================================================
+ 31. HYBRID SEARCH SCORING ALGORITHM
+================================================================================
+
+The hybrid search combines keyword matching with semantic similarity
+using a weighted formula.
+
+═══ FORMULA ═══
+
+    hybrid_score = keyword_weight × kw_score + (1 - keyword_weight) × semantic_score
+
+  Where:
+    keyword_weight = request.keyword_weight (default 0.3)
+    kw_score = number_of_matching_keywords / total_keywords  (0.0 to 1.0)
+    semantic_score = 1 - cosine_distance  (0.0 to 1.0)
+
+═══ ALGORITHM ═══
+
+    Input: query = "SMS API integration", keyword_weight = 0.3
+           │
+           ▼
+    1. Embed query → query_embedding (384 dims)
+           │
+           ▼
+    2. Extract keywords: ["sms", "api", "integration"]
+           │
+           ▼
+    3. Execute pgvector search (fetch top_k × 3 candidates):
+       SELECT chunks ordered by cosine distance ASC
+           │
+           ▼
+    4. For each candidate chunk:
+       a. semantic_score = 1 - cosine_distance (from pgvector)
+       b. Count keyword matches in chunk.content.lower():
+          "sms" found? YES (+1)
+          "api" found? YES (+1)
+          "integration" found? NO (+0)
+          kw_score = 2/3 = 0.667
+       c. hybrid_score = 0.3 × 0.667 + 0.7 × 0.82 = 0.200 + 0.574 = 0.774
+           │
+           ▼
+    5. Filter: hybrid_score ≥ min_similarity (default 0.2)
+           │
+           ▼
+    6. Sort by hybrid_score DESC, take top_k
+           │
+           ▼
+    Output: SearchResponse with re-ranked hits
+
+═══ EXAMPLE ═══
+
+    Chunk A: "Our SMS API supports REST..." 
+      semantic = 0.82, keywords = 3/3 = 1.0
+      hybrid = 0.3×1.0 + 0.7×0.82 = 0.874
+
+    Chunk B: "Message delivery notification..."
+      semantic = 0.85, keywords = 0/3 = 0.0
+      hybrid = 0.3×0.0 + 0.7×0.85 = 0.595
+
+    Chunk A ranks higher despite lower semantic score because
+    all keywords match. The keyword component provides a lexical
+    signal that complements the semantic embedding.
+
+
+================================================================================
+ 32. RESPONSE GENERATION PIPELINE (DETAILED)
+================================================================================
+
+═══ REQUEST SCHEMA ═══
+
+    GenerateRequest:
+      query:                str     (2-5000 chars, required)
+      channel:              CHAT | EMAIL | WHATSAPP | VOICE | TICKET
+      provider:             openai | claude | gemini | null (use default)
+      tone:                 professional | friendly | empathetic | concise | technical
+      category:             optional filter for RAG retrieval
+      language:             optional ISO code (en, fr, ar)
+      top_k:                1-20 (default 5) — number of RAG chunks
+      conversation_history: [{role, content}, ...] — last 10 turns used
+      customer_name:        optional — for email greeting/sign-off
+      agent_name:           optional — for email sign-off
+      max_tokens:           64-4096 (default 1024)
+      temperature:          0.0-1.0 (default 0.3)
+      include_sources:      boolean (default true)
+
+═══ RESPONSE SCHEMA ═══
+
+    GenerateResponse:
+      response:         str       — formatted for channel
+      raw_response:     str       — unformatted LLM output
+      provider:         AIProvider
+      model_used:       str       — e.g. "gpt-4o-mini"
+      channel:          ResponseChannel
+      tone:             ResponseTone
+      sources:          [SourceReference, ...]
+      rag_chunks_used:  int       — how many KB chunks were injected
+      tokens_used:      int|null  — total tokens consumed
+      latency_ms:       int|null  — LLM call duration
+      generated_at:     datetime
+
+═══ SYSTEM PROMPT ASSEMBLY ═══
+
+    The system prompt is built from blocks:
+
+    ┌─────────────────────────────────────────────────────────┐
+    │  "You are an AI-powered customer support assistant."    │
+    │                                                         │
+    │  ## Channel instructions                                │
+    │  <channel-specific rules from CHANNEL_INSTRUCTIONS>     │
+    │                                                         │
+    │  ## Tone                                                │
+    │  <tone rules from TONE_INSTRUCTIONS>                    │
+    │                                                         │
+    │  ## Language (if specified)                              │
+    │  Respond in <language>.                                 │
+    │                                                         │
+    │  ## Customer name: <name> (if provided)                 │
+    │  ## Agent name: <name> (if provided)                    │
+    │                                                         │
+    │  ## Knowledge base context                              │
+    │  ### Source 1: <article_title>                           │
+    │  <chunk_content>                                        │
+    │  ### Source 2: <article_title>                           │
+    │  <chunk_content>                                        │
+    │  ... (up to top_k sources)                              │
+    │                                                         │
+    │  Base your answer on the knowledge base context above.  │
+    │  If the context doesn't contain enough information,     │
+    │  say so clearly.                                        │
+    └─────────────────────────────────────────────────────────┘
+
+═══ MULTI-CHANNEL PREVIEW ═══
+
+    One LLM call → format for all 5 channels:
+
+    Query → RAG → LLM → raw_response
+                          │
+              ┌───────────┼───────────┬───────────┬───────────┐
+              ▼           ▼           ▼           ▼           ▼
+           CHAT        EMAIL      WHATSAPP     VOICE      TICKET
+           (concise)  (greeting   (short,     (spoken    (detailed,
+                       sign-off)  mobile)     language)  references)
+
+
+================================================================================
+ 33. CHANNEL FORMATTING RULES
+================================================================================
+
+═══ CHAT ═══
+  Input:  "Here is the info:\n\n\n\nPoint 1: ..."
+  Output: "Here is the info:\n\nPoint 1: ..."
+  Rules:  Collapse ≥3 consecutive newlines to 2. Light markdown OK.
+
+═══ EMAIL ═══
+  Input:  "Your account has been updated."
+  Output: "Hello John,\n\nYour account has been updated.\n\nBest regards,\nSupport Team"
+  Rules:
+    • Detect missing greeting → add "Hello <customer_name>,"
+    • Detect missing sign-off → add "Best regards,\n<agent_name>"
+    • Greeting detection regex: /^(dear|hello|hi|hey|good morning|...)/i
+    • Sign-off detection regex: /(best regards|kind regards|sincerely|...)\s*[,.]?\s*$/im
+
+═══ WHATSAPP ═══
+  Input:  "## Header\n**Bold text**\n- Item 1\n- Item 2\n[Link](http://...)"
+  Output: "Header\n*Bold text*\n• Item 1\n• Item 2\nLink (http://...)"
+  Rules:
+    • Remove # headers → plain text
+    • **bold** → *bold* (WhatsApp native bold)
+    • Remove image markdown
+    • [text](url) → text (url)
+    • "- " bullets → "• " bullets
+    • Collapse blank lines
+
+═══ VOICE ═══
+  Input:  "## Steps\n1. Go to **Settings**\n2. Click `Reset`\nhttps://example.com"
+  Output: "Steps. Go to Settings. Click Reset."
+  Rules:
+    • Strip ALL markdown: headers, bold, italic, code
+    • Remove ALL URLs
+    • Remove bullet and numbered list markers
+    • Multi-newlines → ". " (sentence break)
+    • Collapse whitespace
+    • Expand abbreviations:
+      "e.g." → "for example"
+      "i.e." → "that is"
+      "etc." → "and so on"
+      "vs."  → "versus"
+      "approx." → "approximately"
+
+═══ TICKET ═══
+  Input:  "Here is detailed analysis..."
+  Output: "Here is detailed analysis...\n\n---\n**References:**\n1. Title (relevance: 85%)\n2. ..."
+  Rules:
+    • Keep all markdown formatting intact
+    • Append source references section (if sources provided)
+    • Only append if "source" not already in the last 200 chars
+
+
+================================================================================
+ 34. VOICE AGENTS RAG INTEGRATION ARCHITECTURE
+================================================================================
+
+The voice agents run as a separate LiveKit process and access the RAG
+knowledge base through an HTTP bridge to the backend API.
+
+═══ ARCHITECTURE ═══
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    LIVEKIT VOICE AGENT PROCESS                   │
+    │                                                                 │
+    │  ┌────────────────────────────────────────────────────┐        │
+    │  │  AgentSession (STT → LLM → TTS)                    │        │
+    │  │                                                     │        │
+    │  │  ┌──────────────────────────────────────────────┐  │        │
+    │  │  │  StarterAgent (Tom)                           │  │        │
+    │  │  │    • Inherits: GenericAgent                   │  │        │
+    │  │  │    • Tools: call_support_agent,               │  │        │
+    │  │  │      call_booking_agent, call_faq_agent       │  │        │
+    │  │  │    • RAG: search_knowledge_base,              │  │        │
+    │  │  │      generate_answer (inherited)               │  │        │
+    │  │  └──────────────────────────────────────────────┘  │        │
+    │  │                                                     │        │
+    │  │  ┌──────────────────────────────────────────────┐  │        │
+    │  │  │  SupportAgent (Mike)                          │  │        │
+    │  │  │    • Tools: call_first_agent                  │  │        │
+    │  │  │    • RAG: search_knowledge_base,              │  │        │
+    │  │  │      generate_answer (inherited)               │  │        │
+    │  │  └──────────────────────────────────────────────┘  │        │
+    │  │                                                     │        │
+    │  │  ┌──────────────────────────────────────────────┐  │        │
+    │  │  │  BookingAgent (Jessica)                       │  │        │
+    │  │  │    • Tools: call_first_agent                  │  │        │
+    │  │  │    • RAG: search_knowledge_base,              │  │        │
+    │  │  │      generate_answer (inherited)               │  │        │
+    │  │  └──────────────────────────────────────────────┘  │        │
+    │  │                                                     │        │
+    │  │  ┌──────────────────────────────────────────────┐  │        │
+    │  │  │  FAQAgent (Ameni)                             │  │        │
+    │  │  │    • Tools: call_first_agent                  │  │        │
+    │  │  │    • RAG: search_knowledge_base,              │  │        │
+    │  │  │      generate_answer (inherited)               │  │        │
+    │  │  └──────────────────────────────────────────────┘  │        │
+    │  └────────────────────────────────────────────────────┘        │
+    │                           │                                     │
+    │                           │ Function tool calls                 │
+    │                           ▼                                     │
+    │  ┌────────────────────────────────────────────────────┐        │
+    │  │  rag_bridge.py                                      │        │
+    │  │    search_knowledge_base(query) ──httpx──▶ Backend  │        │
+    │  │    generate_rag_response(query) ──httpx──▶ Backend  │        │
+    │  └────────────────────────────────────────────────────┘        │
+    └─────────────────────────────────────────────────────────────────┘
+                                │
+                                │ HTTP POST + X-Service-Key
+                                ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    FASTAPI BACKEND PROCESS                       │
+    │                                                                 │
+    │  /api/v1/internal/rag/search    → VectorRetriever               │
+    │  /api/v1/internal/rag/generate  → ResponseGenerationService     │
+    │                                    → RAG retrieval               │
+    │                                    → LLM provider call           │
+    │                                    → Channel formatting (VOICE)  │
+    └─────────────────────────────────────────────────────────────────┘
+
+═══ RAG FUNCTION TOOLS ON ALL AGENTS ═══
+
+  All voice agents inherit from GenericAgent, which provides two RAG tools:
+
+  @function_tool
+  search_knowledge_base(query: str) → str
+    "Search the knowledge base for information about TunisieSMS services..."
+    • Calls rag_bridge.search_knowledge_base(query, top_k=5)
+    • Returns formatted context or "No relevant information found..."
+    • Used when the LLM decides to look up information
+
+  @function_tool
+  generate_answer(question: str) → str
+    "Generate a detailed answer using the RAG knowledge base and AI providers."
+    • Calls rag_bridge.generate_rag_response(question, channel="VOICE", tone="friendly")
+    • Returns the generated response or fallback message
+    • Used for comprehensive, well-sourced answers
+
+  The LLM decides when to call these tools based on the conversation context.
+  Tool descriptions guide the LLM on when each tool is appropriate.
+
+═══ MULTI-PROVIDER VOICE PIPELINE ═══
+
+  The voice pipeline components (STT, LLM, TTS) are selected by factory
+  functions in llm_factory.py using a priority chain.  Local / free
+  engines are the DEFAULT; cloud providers activate only when their
+  credentials are present.
+
+  ── STT priority (make_stt) ──
+    1. openai.STT()            — if OPENAI_API_KEY set ($$$)
+    2. google.STT()            — if GOOGLE_APPLICATION_CREDENTIALS set ($$$)
+    3. LocalWhisperSTT()       — DEFAULT / FREE (faster-whisper, CPU, int8)
+
+  ── LLM priority (make_llm) ──
+    • USE_REALTIME=true  → google.beta.realtime.RealtimeModel(voice)
+    • provider=openai    → openai.LLM(model="gpt-4o-mini")
+    • default (gemini)   → google.LLM(model="gemini-2.5-flash-lite")
+      (works with free Gemini API key via GOOGLE_API_KEY)
+
+  ── TTS priority (make_tts) ──
+    1. None               — if USE_REALTIME (realtime model handles TTS)
+    2. openai.TTS()       — if provider=openai AND OPENAI_API_KEY ($$$)
+    3. google.TTS()       — if GOOGLE_APPLICATION_CREDENTIALS set ($$$)
+    4. EdgeTTS()          — DEFAULT / FREE (edge-tts, Microsoft neural voices)
+
+  ── Voice-name mapping (EdgeTTS) ──
+    Gemini voice   →  Edge TTS voice
+    ─────────────────────────────────
+    Puck           →  en-US-GuyNeural
+    Charon         →  en-US-ChristopherNeural
+    Aoede          →  en-US-JennyNeural
+    Kore           →  en-US-AriaNeural
+    (other)        →  en-GB-RyanNeural (default)
+
+
+================================================================================
+ 35. DIAGRAMS & FLOW EXAMPLES
+================================================================================
+
+═══ DIAGRAM A: Article Lifecycle ═══
+
+    Create Article (POST /rag/articles)
+         │
+         ▼
+    ┌──────────┐
+    │  DRAFT   │  ← Initial status, not searchable
+    └────┬─────┘
+         │ auto_index=true?
+         ▼
+    Chunk + Embed (index_article)
+         │ → Delete old chunks
+         │ → Split text (RecursiveTextChunker)
+         │ → Embed chunks (sentence-transformers batch)
+         │ → Store ArticleChunk records with embeddings
+         │
+         ▼
+    ┌──────────┐
+    │  DRAFT   │  ← Indexed but still not searchable
+    │ (indexed) │
+    └────┬─────┘
+         │ POST /rag/articles/{id}/publish
+         ▼
+    ┌──────────────┐
+    │  PUBLISHED   │  ← Now searchable by the retriever
+    └────┬─────────┘
+         │ POST /rag/articles/{id}/archive
+         ▼
+    ┌──────────────┐
+    │  ARCHIVED    │  ← Removed from search results
+    └──────────────┘
+         │ DELETE /rag/articles/{id}
+         ▼
+    ┌──────────────┐
+    │  SOFT-DELETED│  ← is_deleted=true, invisible
+    └──────────────┘
+
+
+═══ DIAGRAM B: PDF Ingestion Pipeline ═══
+
+    PDF File (e.g., "getting-started-guide.pdf")
+         │
+         ▼
+    ┌─ extract_pdf() ─────────────────────────────────────────┐
+    │  fitz.open(filepath)                                     │
+    │  → Extract metadata (title, author, subject)             │
+    │  → For each page: get_text("text")                       │
+    │  → Count chars, words per page                           │
+    │  → Return PDFDocument(pages, metadata, totals)           │
+    └────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+    ┌─ ingest_pdf() ──────────────────────────────────────────┐
+    │  1. Create ArticleCreate payload:                        │
+    │     title = PDF title or filename-derived                │
+    │     content = pdf_doc.text_only                          │
+    │     source = "pdf:getting-started-guide.pdf"             │
+    │     tags = ["pdf", "getting-started-guide.pdf"]          │
+    │     metadata_extra = {pdf_pages, pdf_words, ...}         │
+    │                                                          │
+    │  2. kb_service.create_article() → DRAFT                  │
+    │                                                          │
+    │  3. If auto_index: kb_service.index_article()            │
+    │     → Chunk (RecursiveTextChunker)                       │
+    │     → Embed (sentence-transformers)                      │
+    │     → Store chunks with vector(384) embeddings           │
+    │                                                          │
+    │  4. If auto_publish: kb_service.publish_article()        │
+    │     → status = PUBLISHED → now searchable                │
+    └──────────────────────────────────────────────────────────┘
+
+
+═══ DIAGRAM C: Voice Agent RAG Flow ═══
+
+    User (speaking): "What SMS API do you offer?"
+         │
+         ▼
+    STT (Local Whisper / Google / OpenAI) → text: "What SMS API do you offer?"
+         │
+         ▼
+    LLM receives text + system instructions
+    LLM decides to call search_knowledge_base tool
+         │
+         ▼
+    ┌─ GenericAgent.search_knowledge_base("SMS API") ─────────┐
+    │                                                          │
+    │  rag_bridge.search_knowledge_base(query="SMS API", top_k=5)
+    │    │
+    │    │ POST http://localhost:8000/api/v1/internal/rag/search
+    │    │ Headers: X-Service-Key: <INTERNAL_SERVICE_KEY>
+    │    │ Body: {"query": "SMS API", "top_k": 5, ...}
+    │    │
+    │    ▼
+    │  Backend: VectorRetriever.semantic_search()
+    │    → Embed "SMS API" → vector(384)
+    │    → pgvector cosine search → top 5 chunks
+    │    → Return SearchResponse with hits
+    │    │
+    │    ▼
+    │  rag_bridge.format_rag_context(chunks)
+    │    → "[Source 1: TunisieSMS API Guide (relevance: 92%)]
+    │       Our SMS API supports REST and SOAP protocols..."
+    │    │
+    │    ▼
+    │  Return formatted context to LLM
+    └──────────────────────────────────────────────────────────┘
+         │
+         ▼
+    LLM generates response using RAG context:
+    "We offer a full REST SMS API that supports..."
+         │
+         ▼
+    TTS (Edge TTS / Google / OpenAI) → audio response to user
+
+
+═══ DIAGRAM D: Provider Selection Flow ═══
+
+    GenerateRequest.provider = null (not specified)
+         │
+         ▼
+    _get_default_provider()
+         │
+         ▼
+    Read AI_RESPONSE_PROVIDER from Settings
+    (default: "openai", configurable via .env)
+         │
+         ▼
+    ┌─ "openai" ──┐  ┌─ "claude" ──┐  ┌─ "gemini" ──┐  ┌─ "local" ───┐
+    │ OpenAI       │  │ ClaudeProvider│  │ GeminiProvider│  │ LocalProvider│
+    │ Provider     │  │            │  │              │  │              │
+    │ gpt-4o-mini  │  │ claude-4   │  │ gemini-2.0   │  │ llama3.2     │
+    │              │  │ sonnet     │  │ flash        │  │ (Ollama)     │
+    └──────────────┘  └────────────┘  └──────────────┘  └──────────────┘
+         │
+         ▼
+    provider.generate_response(query, channel, tone, rag_context, ...)
+
+
+================================================================================
+ 36. EXAMPLE WALKTHROUGH: END-TO-END
+================================================================================
+
+═══ Example 1: Semantic Search ═══
+
+  Request:
+    POST /api/v1/rag/search
+    {
+      "query": "How do I send bulk SMS?",
+      "top_k": 3,
+      "min_similarity": 0.3
+    }
+
+  Backend Processing:
+    1. embed_text("How do I send bulk SMS?") → [0.032, -0.118, ..., 0.074]
+    2. pgvector cosine search against article_chunks
+    3. Join with knowledge_articles (PUBLISHED only)
+    4. Filter: similarity ≥ 0.3
+    5. Return top 3 hits
+
+  Response:
+    {
+      "query": "How do I send bulk SMS?",
+      "hits": [
+        {
+          "article_id": "abc-123",
+          "article_title": "TunisieSMS API Guide",
+          "article_category": "TECHNICAL",
+          "chunk_id": "def-456",
+          "chunk_index": 2,
+          "chunk_content": "To send bulk SMS, use the /api/v1/sms/send endpoint...",
+          "similarity": 0.8724,
+          "token_count": 145
+        },
+        {
+          "article_id": "ghi-789",
+          "article_title": "SMS Marketing Best Practices",
+          "article_category": "FAQ",
+          "chunk_content": "Bulk SMS campaigns can be sent through our platform...",
+          "similarity": 0.7891,
+          "token_count": 203
+        }
+      ],
+      "total_hits": 2,
+      "model_used": "all-MiniLM-L6-v2"
+    }
+
+
+═══ Example 2: RAG Response Generation (VOICE channel) ═══
+
+  Request:
+    POST /api/v1/rag/generate
+    {
+      "query": "What are the character limits for SMS?",
+      "channel": "VOICE",
+      "provider": "gemini",
+      "tone": "friendly",
+      "top_k": 3
+    }
+
+  Backend Processing:
+    1. RAG retrieval: top 3 chunks about SMS character limits
+    2. Build system prompt:
+       - Voice channel instructions (spoken language, no markdown)
+       - Friendly tone
+       - RAG context: "Source 1: SMS FAQ → A standard SMS contains
+         160 characters in Latin alphabet..."
+    3. Call Gemini 2.0 Flash with assembled messages
+    4. Format for VOICE: strip markdown, expand abbreviations
+    5. Return response
+
+  Response:
+    {
+      "response": "A standard SMS contains one hundred and sixty characters
+        when using the Latin alphabet. If you go over that limit, the message
+        becomes what's called a concatenated SMS, which means it gets split
+        into multiple parts. Two SMS segments give you three hundred and six
+        characters, and three segments give you four hundred and fifty nine.
+        For Arabic or Unicode characters, the limit is seventy characters per
+        SMS.",
+      "raw_response": "A standard SMS contains 160 characters...",
+      "provider": "gemini",
+      "model_used": "gemini-2.0-flash",
+      "channel": "VOICE",
+      "tone": "friendly",
+      "sources": [
+        {"article_title": "SMS FAQ", "similarity": 0.91}
+      ],
+      "rag_chunks_used": 3,
+      "tokens_used": 287,
+      "latency_ms": 1230
+    }
+
+
+═══ Example 3: Voice Agent RAG Tool Call ═══
+
+  User speaks: "Combien de caractères dans un SMS?"
+  (French: "How many characters in an SMS?")
+
+  1. google.STT (detect_language=True) → text: "Combien de caractères dans un SMS?"
+  2. LLM (FAQAgent/Ameni) receives text in system context:
+     - Instructions include multilingual + RAG tool descriptions
+  3. LLM calls function_tool: search_knowledge_base(query="caractères SMS limite")
+  4. rag_bridge.search_knowledge_base("caractères SMS limite"):
+     - POST /api/v1/internal/rag/search
+     - Returns: [{article_title: "SMS FAQ", chunk_content: "Un SMS standard
+       contient 160 caractères...", similarity: 0.89}]
+  5. format_rag_context → "[Source 1: SMS FAQ (relevance: 89%)]
+     Un SMS standard contient 160 caractères..."
+  6. LLM generates response in French (detected language):
+     "Un SMS standard contient 160 caractères en alphabet latin..."
+  7. google.TTS → spoken French response to user
+
+
+================================================================================
+ 37. CONFIGURATION & DEPLOYMENT
+================================================================================
+
+═══ ENVIRONMENT VARIABLES ═══
+
+  # RAG / Knowledge Base
+  RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2      # Sentence-transformer model
+  RAG_CHUNK_SIZE=512                          # Target tokens per chunk
+  RAG_CHUNK_OVERLAP=64                        # Overlap tokens
+  RAG_DEFAULT_TOP_K=5                         # Default search results
+  RAG_MIN_SIMILARITY=0.3                      # Minimum cosine similarity
+  RAG_DOCUMENTS_DIR=app/rag/documents         # PDF storage directory
+
+  # AI Response Providers
+  OPENAI_API_KEY=sk-...                       # OpenAI API key
+  ANTHROPIC_API_KEY=sk-ant-...                # Anthropic API key
+  GEMINI_API_KEY=AI...                        # Google Gemini API key
+  AI_RESPONSE_PROVIDER=gemini                 # Default: openai | claude | gemini | local
+  AI_RESPONSE_TEMPERATURE=0.3                 # Default temperature
+  AI_RESPONSE_MAX_TOKENS=1024                 # Default max tokens
+
+  # Local LLM (Ollama / llama.cpp / vLLM / LM Studio)
+  LOCAL_LLM_BASE_URL=http://localhost:11434/v1  # OpenAI-compat endpoint
+  LOCAL_LLM_MODEL=llama3.2                      # Default model name
+  LOCAL_LLM_API_KEY=                            # Optional API key
+  LOCAL_LLM_MODELS=llama3.2,mistral,gemma2      # Comma-separated model list
+
+  # Internal Service Auth
+  INTERNAL_SERVICE_KEY=change-me-internal-key  # Shared key for voice agents
+
+  # Voice Agents Backend Integration
+  BACKEND_API_URL=http://localhost:8000        # Backend URL for RAG bridge
+
+  # Voice Agents Provider Selection
+  LIVEKIT_API_KEY=devkey                       # LiveKit key
+  LIVEKIT_API_SECRET=secret                    # LiveKit secret
+  LIVEKIT_URL=ws://localhost:7880              # LiveKit server
+  GEMINI_API_KEY=AI...                         # Gemini LLM (free tier, auto-set as GOOGLE_API_KEY)
+  USE_REALTIME=false                           # Gemini Realtime mode
+  WHISPER_MODEL=tiny                           # faster-whisper model size (tiny/base/small)
+  TTS_VOICE=en-GB-RyanNeural                   # Default edge-tts voice
+  # Optional cloud upgrade (only if you have service-account / funded key):
+  # GOOGLE_APPLICATION_CREDENTIALS=...         # Enables Google Cloud STT/TTS
+  # OPENAI_API_KEY=sk-...                      # Enables OpenAI STT/TTS (needs funded account)
+
+═══ POSTGRESQL REQUIREMENTS ═══
+
+  The database must have the pgvector extension:
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+  Docker image: pgvector/pgvector:0.8.0-pg16
+  This provides the vector(N) column type and <=> operator.
+
+═══ PYTHON DEPENDENCIES ═══
+
+  Backend (requirements.txt):
+    sentence-transformers>=3.3.1    # Embedding model
+    pgvector>=0.3.6                 # SQLAlchemy pgvector integration
+    PyMuPDF>=1.24.0                 # PDF text extraction (fitz)
+    httpx>=0.27.0                   # HTTP client for LLM providers
+    numpy                           # Vector operations
+
+  Voice Agents (voice_agents/requirements.txt):
+    livekit-agents[openai,google,silero,turn-detector]~=1.3
+    livekit-plugins-google==1.3.9
+    livekit-plugins-noise-cancellation~=0.2
+    python-dotenv>=1.2.1
+    httpx>=0.27.0                   # RAG bridge HTTP client
+    faster-whisper>=1.1.1           # Local Whisper STT (CTranslate2, CPU)
+    edge-tts>=7.2.7                 # Microsoft Edge neural TTS (free)
+
+═══ DOCKER SERVICES ═══
+
+  The RAG system uses these Docker services:
+
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ Service          │ Role                                                 │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ postgres         │ pgvector/pgvector:0.8.0-pg16 — stores articles,     │
+  │                  │ chunks with vector(384) embeddings                  │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ redis            │ Celery message broker for async indexing tasks       │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ api              │ FastAPI — serves all RAG and provider endpoints      │
+  │                  │ including /internal/* for voice agents               │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ celery_worker    │ Processes index_article_task and                     │
+  │                  │ reindex_all_articles_task in background              │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ voice_agents     │ Separate LiveKit process (not in Docker by default). │
+  │ (external)       │ Accesses backend via BACKEND_API_URL.               │
+  │                  │ STT: faster-whisper (local, free)                   │
+  │                  │ TTS: edge-tts (Microsoft neural, free)              │
+  │                  │ LLM: Gemini 2.5 Flash Lite (free API key)           │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+═══ CELERY CONFIGURATION ═══
+
+  Queue: "rag" (dedicated queue for RAG indexing tasks)
+  Broker: Redis (CELERY_BROKER_URL)
+  Result backend: Redis (CELERY_RESULT_BACKEND)
+  Tasks registered:
+    • app.rag.tasks.index_article_task
+    • app.rag.tasks.reindex_all_articles_task
+
+═══ MAIN.PY REGISTRATION ═══
+
+  app.include_router(rag_router, prefix=settings.API_V1_PREFIX)
+  app.include_router(response_gen_router, prefix=settings.API_V1_PREFIX)
+  app.include_router(internal.router, prefix=settings.API_V1_PREFIX)
+
+
+================================================================================
+ END OF DOCUMENT
+================================================================================
+
+  Total files documented:  31 (15 RAG core + 11 response providers + 5 voice/internal)
+  Total API endpoints:     23 (16 KB + 5 providers + 2 internal)
+  Database tables:         2  (knowledge_articles, article_chunks)
+  PostgreSQL enums:        3  (article_status, article_category, chunk_status)
+  LLM providers:           4  (OpenAI, Claude, Gemini, Local)
+  Response channels:       5  (CHAT, EMAIL, WHATSAPP, VOICE, TICKET)
+  Response tones:          5  (professional, friendly, empathetic, concise, technical)
+  Voice agent tools:       2  (search_knowledge_base, generate_answer)
+  Voice STT engines:       3  (Local Whisper [default/free], Google Cloud, OpenAI)
+  Voice TTS engines:       3  (Edge TTS [default/free], Google Cloud, OpenAI)
+
+================================================================================

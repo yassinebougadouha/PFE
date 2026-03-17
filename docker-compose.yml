@@ -1,7 +1,7 @@
 services:
   # ── PostgreSQL ─────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.0-pg16
     container_name: support_postgres
     environment:
       POSTGRES_USER: postgres
@@ -75,7 +75,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q emails,logging,gmail,whatsapp,decision,celery
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q emails,logging,gmail,whatsapp,decision,rag,celery
 
   # ── Celery Beat (periodic scheduler) ─────────
   celery_beat:
@@ -132,6 +132,19 @@ services:
     depends_on:
       api:
         condition: service_started
+    restart: unless-stopped
+
+  # ── LiveKit Server ─────────────────────────────
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: support_livekit
+    ports:
+      - "7880:7880"   # HTTP / WebSocket (clients + agents connect here)
+      - "7881:7881"   # RTC over TCP (fallback when UDP is blocked)
+      - "50000-50060:50000-50060/udp"  # WebRTC media (UDP)
+    environment:
+      LIVEKIT_KEYS: "devkey: secret"   # must match LIVEKIT_API_KEY / SECRET in .env
+    command: --dev --bind 0.0.0.0
     restart: unless-stopped
 
 volumes:

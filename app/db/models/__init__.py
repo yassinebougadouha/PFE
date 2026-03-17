@@ -25,11 +25,15 @@ from app.decision_engine.enums import (
     ConfidenceLevel,
 )
 from app.decision_engine.models import DecisionLog, AgentSkill
+from app.rag.enums import ArticleStatus, ArticleCategory, ChunkStatus
+from app.rag.models import KnowledgeArticle, ArticleChunk
 
 __all__ = [
     "UserRole", "UserStatus", "ChannelType", "ConversationStatus",
     "TicketStatus", "TicketPriority", "EmailStatus", "AuditAction",
     "IntentCategory", "DecisionOutcome", "RiskLevel", "ConfidenceLevel",
+    "ArticleStatus", "ArticleCategory", "ChunkStatus",
     "User", "Conversation", "Message", "Ticket", "Email", "AuditLog",
     "GmailCredential", "DecisionLog", "AgentSkill",
+    "KnowledgeArticle", "ArticleChunk",
 ]
