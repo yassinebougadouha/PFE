@@ -46,6 +46,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/3
+      LIVEKIT_URL: ws://livekit:7880
+      BACKEND_API_URL: http://api:8000
+      VOICE_AGENTS_CONTROL_URL: http://livekit:8001
+      API_RELOAD: ${API_RELOAD:-false}
+      API_WORKERS: ${API_WORKERS:-4}
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,7 +60,11 @@ services:
       - .:/app
     command: >
       sh -c "alembic upgrade head &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+             if [ \"$$API_RELOAD\" = \"true\" ]; then
+               uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app;
+             else
+               uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers $$API_WORKERS;
+             fi"
 
   # ── Celery Worker ──────────────────────────────
   celery_worker:
@@ -75,7 +84,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.workers.celery_app worker --loglevel=info -Q emails,logging,gmail,whatsapp,decision,rag,celery
+    volumes:
+      - .:/app
+    command: python scripts/dev_celery.py worker
 
   # ── Celery Beat (periodic scheduler) ─────────
   celery_beat:
@@ -95,7 +106,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.workers.celery_app beat --loglevel=info
+    volumes:
+      - .:/app
+    command: python scripts/dev_celery.py beat
 
   # ── Flower (Celery monitoring) ─────────────────
   flower:
@@ -141,10 +154,44 @@ services:
     ports:
       - "7880:7880"   # HTTP / WebSocket (clients + agents connect here)
       - "7881:7881"   # RTC over TCP (fallback when UDP is blocked)
-      - "50000-50060:50000-50060/udp"  # WebRTC media (UDP)
+      - "50000-50010:50000-50010/udp"  # WebRTC media (UDP)
     environment:
       LIVEKIT_KEYS: "devkey: secret"   # must match LIVEKIT_API_KEY / SECRET in .env
-    command: --dev --bind 0.0.0.0
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    restart: unless-stopped
+
+  # ── Voice Agents (LiveKit agent workers) ───────
+  voice_agents:
+    build:
+      context: .
+      dockerfile: voice_agents/Dockerfile
+    container_name: support_voice_agents
+    network_mode: "service:livekit"
+    env_file:
+      - .env
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      BACKEND_API_URL: http://api:8000
+      LIVEKIT_URL: ws://localhost:7880
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/support_db
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-change-me-internal-key}
+      VOICE_RECORDINGS_DIR: /app/recordings
+      AI_RESPONSE_PROVIDER: ${AI_RESPONSE_PROVIDER:-gemini}
+      USE_REALTIME: ${USE_REALTIME:-false}
+      GOOGLE_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      livekit:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./recordings:/app/recordings
     restart: unless-stopped
 
 volumes:

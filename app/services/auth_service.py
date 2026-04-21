@@ -31,11 +31,12 @@ class AuthService:
             return None
         return user
 
-    def generate_tokens(self, user: User) -> dict:
+    def generate_tokens(self, user: User, *, access_token_minutes: int | None = None) -> dict:
         """Create access + refresh token pair."""
         access = create_access_token(
             subject=str(user.id),
             extra_claims={"role": user.role.value},
+            expires_minutes=access_token_minutes,
         )
         refresh = create_refresh_token(subject=str(user.id))
         return {
@@ -44,7 +45,12 @@ class AuthService:
             "token_type": "bearer",
         }
 
-    async def refresh_tokens(self, refresh_token: str) -> dict | None:
+    async def refresh_tokens(
+        self,
+        refresh_token: str,
+        *,
+        access_token_minutes: int | None = None,
+    ) -> dict | None:
         """Validate refresh token and issue a new pair."""
         try:
             payload = decode_token(refresh_token)
@@ -67,7 +73,7 @@ class AuthService:
         ttl = payload.get("exp", 0)
         await self.redis.blacklist_token(refresh_token, ttl)
 
-        return self.generate_tokens(user)
+        return self.generate_tokens(user, access_token_minutes=access_token_minutes)
 
     async def logout(self, access_token: str, refresh_token: str | None = None):
         """Blacklist current tokens."""

@@ -77,7 +77,7 @@ class DecisionLogResponse(BaseModel):
 
 class DecisionHistoryResponse(BaseModel):
     """List of decision logs for a ticket."""
-    ticket_id: uuid.UUID
+    ticket_id: Optional[uuid.UUID] = None
     decisions: list[DecisionLogResponse]
     total: int
 
@@ -184,3 +184,50 @@ class DecisionStats(BaseModel):
     decisions_by_category: dict[str, int]
     decisions_by_outcome: dict[str, int]
     escalation_rate: float
+
+
+class DecisionEngineConfigResponse(BaseModel):
+    confidence_high_threshold: float = Field(..., ge=0.45, le=0.98)
+    confidence_medium_threshold: float = Field(..., ge=0.05, le=0.94)
+    risk_critical_threshold: float = Field(..., ge=0.45, le=1.0)
+    risk_high_threshold: float = Field(..., ge=0.2, le=0.98)
+    risk_medium_threshold: float = Field(..., ge=0.05, le=0.9)
+    low_confidence_risk_boost: float = Field(..., ge=0.0, le=0.4)
+    medium_confidence_risk_boost: float = Field(..., ge=0.0, le=0.25)
+    enforce_security_escalation: bool
+    enforce_critical_escalation: bool
+    low_confidence_general_suggest: bool
+
+
+class DecisionEngineConfigUpdate(BaseModel):
+    confidence_high_threshold: float = Field(..., ge=0.45, le=0.98)
+    confidence_medium_threshold: float = Field(..., ge=0.05, le=0.94)
+    risk_critical_threshold: float = Field(..., ge=0.45, le=1.0)
+    risk_high_threshold: float = Field(..., ge=0.2, le=0.98)
+    risk_medium_threshold: float = Field(..., ge=0.05, le=0.9)
+    low_confidence_risk_boost: float = Field(..., ge=0.0, le=0.4)
+    medium_confidence_risk_boost: float = Field(..., ge=0.0, le=0.25)
+    enforce_security_escalation: bool
+    enforce_critical_escalation: bool
+    low_confidence_general_suggest: bool
+
+
+class DecisionOutcomeDoc(BaseModel):
+    outcome: DecisionOutcome
+    title: str
+    description: str
+    operator_guidance: str
+
+
+class DecisionMatrixRow(BaseModel):
+    confidence_level: ConfidenceLevel
+    risk_level: RiskLevel
+    category: IntentCategory
+    outcome: DecisionOutcome
+    matched_rule: str
+    notes: str
+
+
+class DecisionOutcomeDocsResponse(BaseModel):
+    outcomes: list[DecisionOutcomeDoc]
+    matrix: list[DecisionMatrixRow]

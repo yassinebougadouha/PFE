@@ -10,6 +10,7 @@ class VisualAIProvider(str, enum.Enum):
     LOCAL_BASIC = "local-basic"
     LOCAL_ADVANCED = "local-advanced"
     GOOGLE = "google"
+    GEMINI = "gemini"
 
 
 class GapSeverity(str, enum.Enum):

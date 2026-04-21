@@ -90,6 +90,9 @@ class WhatsAppSendRequest(BaseModel):
 class WhatsAppReplyRequest(BaseModel):
     """Reply in a WhatsApp conversation."""
     message: str = Field(..., min_length=1, max_length=4096)
+    used_assisted_draft: bool = False
+    assisted_draft_edited: bool | None = None
+    assisted_draft_generated_at: Optional[datetime] = None
 
 
 class WhatsAppSendResult(BaseModel):
@@ -126,6 +129,7 @@ class WhatsAppMessageItem(BaseModel):
     sender_id: uuid.UUID
     sender_name: Optional[str] = None
     sender_phone: Optional[str] = None
+    direction: Literal["inbound", "outbound"] = "inbound"
     content: str
     is_read: bool
     created_at: datetime
@@ -169,3 +173,30 @@ class WhatsAppConversationDetail(BaseModel):
 class MarkReadRequest(BaseModel):
     """Mark messages as read."""
     message_ids: Optional[list[uuid.UUID]] = None  # if None, mark all in conversation
+
+
+class WhatsAppConversationSummary(BaseModel):
+    """AI-generated summary for a WhatsApp conversation."""
+    conversation_id: uuid.UUID
+    message_count: int
+    provider: str
+    model: str
+    problem_summary: str
+    resolution_state: Literal[
+        "unresolved",
+        "in_progress",
+        "partially_resolved",
+        "resolved",
+        "unknown",
+    ] = "unknown"
+    resolution_description: str
+    next_action: str
+    customer_sentiment: Literal[
+        "calm",
+        "frustrated",
+        "urgent",
+        "neutral",
+        "unknown",
+    ] = "unknown"
+    language: Optional[str] = None
+    generated_at: datetime

@@ -3,7 +3,7 @@
 ║         AI SUPPORT AGENT BACKEND — COMPLETE PROJECT DOCUMENTATION              ║
 ║                                                                                ║
 ║         Full Architecture & Module Reference                                   ║
-║         Version: 0.1.0  |  Date: March 2026                                   ║
+║         Version: 0.1.0  |  Date: April 2026                                   ║
 ║                                                                                ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
@@ -174,6 +174,7 @@ HIGH-LEVEL SYSTEM ARCHITECTURE:
     │   │  │ Tickets │ Conversations │ │                                      │
     │   │  │ Emails  │ Gmail         │ │                                      │
     │   │  │ WhatsApp│ Voice (STT)   │ │                                      │
+    │   │  │ Voice Calls / Agents    │ │                                      │
     │   │  │ Audit   │ Internal      │ │                                      │
     │   │  └─────────────────────────┘ │                                      │
     │   │  ┌─────────────────────────┐ │                                      │
@@ -283,7 +284,8 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │       ├── conversation.py      Conversation + Message models
     │   │       ├── email.py             Email model (with Gmail threading)
     │   │       ├── audit_log.py         AuditLog model
-    │   │       └── gmail_credential.py  GmailCredential model (OAuth2 tokens)
+    │   │       ├── gmail_credential.py  GmailCredential model (OAuth2 tokens)
+    │   │       └── voice_call_log.py    Voice call transcript/audio log model
     │   │
     │   ├── schemas/                     ─── PYDANTIC SCHEMAS ───
     │   │   ├── common.py               HealthResponse, MessageOut
@@ -295,6 +297,8 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │   ├── audit.py                AuditLogResponse, AuditLogListResponse
     │   │   ├── gmail.py                GmailAuthURL, GmailStatusResponse, etc.
     │   │   ├── voice.py                TranscriptionResult, TTSRequest, TTSResult
+    │   │   ├── voice_call.py           VoiceCallLogResponse, pagination schemas
+    │   │   ├── voice_agent.py          Voice agent admin config/control schemas
     │   │   └── whatsapp.py             WhatsAppSendRequest, webhook schemas, etc.
     │   │
     │   ├── api/                         ─── API ROUTES ───
@@ -310,6 +314,8 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │       ├── gmail.py            /gmail/authorize, callback, sync, status
     │   │       ├── whatsapp.py         /whatsapp/webhook, send, reply, inbox
     │   │       ├── voice.py            /voice/transcribe, message, synthesize
+    │   │       ├── voice_calls.py      /voice-calls list/detail/audio streaming
+    │   │       ├── voice_agents.py     /voice-agents admin process control API
     │   │       ├── audit.py            GET /audit
     │   │       └── internal.py         /internal/rag/search, /internal/rag/generate
     │   │
@@ -324,6 +330,8 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │   ├── transcription_service.py Whisper STT (local, no API)
     │   │   ├── tts_service.py          Edge-TTS synthesis (free, no API)
     │   │   ├── audit_service.py        Write & query audit logs
+    │   │   ├── auto_reply_guardrails.py Channel auto-reply skip/safety rules
+    │   │   ├── voice_call_service.py   Voice call log listing + audio retrieval
     │   │   └── redis_service.py        Token blacklist + cache + rate limiting
     │   │
     │   ├── utils/                       ─── UTILITIES ───
@@ -354,10 +362,11 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │   ├── schemas.py              Article, Search, Index schemas
     │   │   ├── models.py               KnowledgeArticle, ArticleChunk models
     │   │   ├── embeddings.py           Sentence-transformers embeddings
+    │   │   ├── gemini_embeddings.py    Optional Gemini embedding backend
     │   │   ├── chunker.py              Recursive text chunking with overlap
     │   │   ├── retriever.py            Vector search (semantic + hybrid)
     │   │   ├── service.py              Article CRUD + indexing + stats
-    │   │   ├── routes.py               16 API endpoints
+    │   │   ├── routes.py               17 API endpoints
     │   │   ├── tasks.py                Celery indexing tasks
     │   │   ├── pdf_loader.py           PyMuPDF PDF extraction
     │   │   ├── pdf_schemas.py          PDF operation schemas
@@ -386,8 +395,9 @@ DOCKER COMPOSE SERVICES (9 containers):
     │       ├── guidance.py             Rule-based + AI adaptive guidance
     │       ├── timeline.py             UI state timeline tracker
     │       ├── service.py              Orchestration service
-    │       ├── routes.py               14 API endpoints
+    │       ├── routes.py               16 API endpoints (incl. screenshare assist)
     │       ├── tasks.py                Celery background analysis
+    │       ├── video_frames.py         Video frame extraction for screenshare assist
     │       └── providers/              Visual AI providers
     │           ├── base.py             Abstract provider interface
     │           ├── local_basic.py      Tesseract OCR + CLIP + regex rules
@@ -416,7 +426,7 @@ DOCKER COMPOSE SERVICES (9 containers):
     ├── alembic/                         ═══ DATABASE MIGRATIONS ═══
     │   ├── env.py                      Alembic environment
     │   ├── script.py.mako              Migration template
-    │   └── versions/                   Migration scripts (10 revisions)
+    │   └── versions/                   Migration scripts (11 revisions)
     │       ├── 1b1eb6a15952_initial_schema.py
     │       ├── 32cdb2e446fe_add_reply_enum_values.py
     │       ├── 43637c752d26_add_email_reply_fields.py
@@ -426,7 +436,8 @@ DOCKER COMPOSE SERVICES (9 containers):
     │       ├── c3d4e5f6a7b8_add_is_read_to_messages.py
     │       ├── d4e5f6a7b8c9_add_decision_engine_tables.py
     │       ├── e5f6a7b8c9d0_add_rag_knowledge_base_tables.py
-    │       └── f6a7b8c9d0e1_add_visual_ai_tables.py
+    │       ├── f6a7b8c9d0e1_add_visual_ai_tables.py
+    │       └── g7h8i9j0k1l2_add_voice_call_logs.py
     │
     ├── screenshots/                     Screenshot storage
     │   ├── _references/                Reference screen images
@@ -442,6 +453,12 @@ DOCKER COMPOSE SERVICES (9 containers):
         ├── test_visual_ai.py
         ├── test_visual_ai_florence.py
         ├── test_florence_load.py
+        ├── test_auto_reply_guardrails.py
+        ├── test_conversations_client_visibility.py
+        ├── test_visual_ai_screenshare.py
+        ├── test_visual_ai_screenshare_video_endpoint.py
+        ├── test_visual_ai_video_frames.py
+        ├── test_worker_runtime_alignment.py
         └── generate_test_pdfs.py
 
 
@@ -509,6 +526,8 @@ STARTUP SEQUENCE:
   3. API container runs: alembic upgrade head → uvicorn --reload
   4. Celery Worker + Beat + Flower start
   5. WhatsApp Bridge starts (independent Node.js service)
+  6. LiveKit server starts
+  7. Voice agents worker connects to LiveKit
 
 
 ================================================================================
@@ -542,8 +561,8 @@ CONFIGURATION CATEGORIES:
   ├──────────────────────┼───────────────────────────┼────────────────────────┤
   │ JWT                  │ JWT_SECRET_KEY            │ CHANGE-ME-IN-PROD...   │
   │                      │ JWT_ALGORITHM             │ HS256                  │
-  │                      │ JWT_ACCESS_EXPIRE_MIN     │ 15                     │
-  │                      │ JWT_REFRESH_EXPIRE_DAYS   │ 7                      │
+  │                      │ JWT_ACCESS_TOKEN_EXPIRE_MINUTES │ 15              │
+  │                      │ JWT_REFRESH_TOKEN_EXPIRE_DAYS   │ 7               │
   ├──────────────────────┼───────────────────────────┼────────────────────────┤
   │ Celery               │ CELERY_BROKER_URL         │ redis://localhost/2    │
   │                      │ CELERY_RESULT_BACKEND     │ redis://localhost/3    │
@@ -581,6 +600,11 @@ CONFIGURATION CATEGORIES:
   │                      │ VISUAL_CLIP_MODEL         │ clip-ViT-B-32          │
   │                      │ SCREENSHOT_DIR            │ "screenshots"          │
   │                      │ GAP_THRESHOLD_*           │ 0.15 / 0.40 / 0.70    │
+  │                      │ VISUAL_SCREENSHARE_*      │ fps/frames/size limits │
+  ├──────────────────────┼───────────────────────────┼────────────────────────┤
+  │ Channel Auto-Replies │ EMAIL_AUTO_REPLY_ENABLED  │ True                   │
+  │                      │ WHATSAPP_AUTO_REPLY_ENABLED │ True                 │
+  │                      │ AUTO_REPLY_TONE / TOP_K   │ professional / 5       │
   ├──────────────────────┼───────────────────────────┼────────────────────────┤
   │ Voice Agents         │ LIVEKIT_API_KEY/SECRET    │ devkey / secret         │
   │                      │ LIVEKIT_URL               │ ws://localhost:7880    │
@@ -633,7 +657,7 @@ FILE: app/db/models/__init__.py — Central Model Registry
 
   Re-exports ALL models and enums for Alembic auto-detection:
   • User, Conversation, Message, Ticket, Email, AuditLog
-  • GmailCredential, DecisionLog, AgentSkill
+  • GmailCredential, VoiceCallLog, DecisionLog, AgentSkill
   • KnowledgeArticle, ArticleChunk
   • All enums (UserRole, TicketStatus, IntentCategory, etc.)
 
@@ -763,6 +787,7 @@ COMPLETE MODEL CATALOG:
   │ Email               │ emails                     │ db/models/email.py   │
   │ AuditLog            │ audit_logs                 │ db/models/audit.py   │
   │ GmailCredential     │ gmail_credentials          │ db/models/gmail.py   │
+  │ VoiceCallLog        │ voice_call_logs            │ db/models/voice_*.py │
   │ DecisionLog         │ decision_logs              │ decision_engine/     │
   │ AgentSkill          │ agent_skills               │ decision_engine/     │
   │ KnowledgeArticle    │ knowledge_articles         │ rag/models.py        │
@@ -898,6 +923,23 @@ COMPLETE MODEL CATALOG:
   │ last_history_id  │ String(50)             │ Gmail incremental sync     │
   └──────────────────┴────────────────────────┴────────────────────────────┘
 
+─── TABLE: voice_call_logs ───────────────────────────────────────────────
+
+  ┌──────────────────┬────────────────────────┬────────────────────────────┐
+  │ Column           │ Type                   │ Notes                      │
+  ├──────────────────┼────────────────────────┼────────────────────────────┤
+  │ id               │ UUID (PK)              │ v4                         │
+  │ room_name        │ String(255)            │ Indexed, required          │
+  │ room_sid         │ String(255)            │ Nullable, unique           │
+  │ transcript       │ Text                   │ Nullable (stored text)     │
+  │ audio_file_path  │ String(1024)           │ Nullable (WAV file path)   │
+  │ duration_seconds │ Float                  │ Nullable call length       │
+  │ started_at       │ Timestamp TZ           │ Required                   │
+  │ ended_at         │ Timestamp TZ           │ Nullable                   │
+  │ created_at       │ Timestamp              │ Auto-set                   │
+  │ updated_at       │ Timestamp              │ Auto-updated               │
+  └──────────────────┴────────────────────────┴────────────────────────────┘
+
 
 ================================================================================
  12. ENUMERATIONS & CONSTANTS
@@ -1015,6 +1057,17 @@ ALL REQUEST/RESPONSE SCHEMAS:
     TTSResult:             audio_url, filename, duration_estimate, text_length
     VoiceInfo:             name, gender, language
 
+  ── voice_call.py ────────────────────────────────────────────────
+    VoiceCallLogResponse:   voice call metadata + transcript/audio fields
+    VoiceCallLogListResponse: paginated voice call log list
+
+  ── voice_agent.py ───────────────────────────────────────────────
+    VoiceAgentConfig:       runtime/config payload for voice agents
+    VoiceAgentStatusResponse: running, pid, mode, uptime, last exit code
+    VoiceAgentStartRequest: mode (dev/start)
+    VoiceAgentActionResponse: generic action message
+    VoiceAgentLogsResponse: container/process log lines
+
   ── whatsapp.py ──────────────────────────────────────────────────
     WhatsAppSendRequest:   to_number (8-20 chars), message (1-4096)
     WhatsAppReplyRequest:  message (1-4096)
@@ -1105,8 +1158,24 @@ All endpoints are prefixed with: /api/v1 (except /health)
   POST /voice/transcribe                 Any user — audio → text (preview)
   POST /voice/message                    Any user — audio → ticket
   POST /voice/synthesize                 Any user — text → audio (MP3)
-  GET  /voice/download/{filename}        Any user — download audio file
+  GET  /voice/audio/{filename}           Any user — stream generated audio
   GET  /voice/voices                     Any user — list available voices
+
+═══ VOICE CALL LOGS (prefix: /voice-calls) ═══════════════════════════════
+
+  GET  /voice-calls/                     Agent/Admin — list call logs
+  GET  /voice-calls/{call_id}            Agent/Admin — call details
+  GET  /voice-calls/{call_id}/audio      Agent/Admin — stream call WAV
+
+═══ VOICE AGENTS ADMIN (prefix: /voice-agents) ═══════════════════════════
+
+  GET  /voice-agents/config              Admin — read runtime config
+  PUT  /voice-agents/config              Admin — update runtime config
+  GET  /voice-agents/status              Admin — process status
+  POST /voice-agents/start               Admin — start process (dev/start)
+  POST /voice-agents/stop                Admin — stop process
+  GET  /voice-agents/logs                Admin — tail process logs
+  GET  /voice-agents/test-token          Admin — issue test LiveKit JWT
 
 ═══ AUDIT (prefix: /audit) ═════════════════════════════════════════════════
 
@@ -1126,6 +1195,8 @@ All endpoints are prefixed with: /api/v1 (except /health)
   GET  /decision-engine/stats            Agent/Admin — dashboard stats
 
 ═══ RAG KNOWLEDGE BASE (prefix: /rag) ══════════════════════════════════════
+
+  GET   /rag/status                      Agent/Admin — compatibility status
 
   POST  /rag/articles                    Agent/Admin — create article
   GET   /rag/articles                    Agent/Admin — list articles
@@ -1168,13 +1239,15 @@ All endpoints are prefixed with: /api/v1 (except /health)
   GET  /visual-ai/timeline/{conv_id}     Any user — UI state timeline
   POST /visual-ai/analysis/{id}/guidance Any user — adaptive guidance
   POST /visual-ai/process                Any user — full pipeline
+  POST /visual-ai/screenshare/assist     Any user — assist from sampled frames
+  POST /visual-ai/screenshare/assist-video Any user — assist from uploaded video
 
 ═══ INTERNAL (prefix: /internal) ═══════════════════════════════════════════
 
   POST /internal/rag/search              Service key — internal RAG search
   POST /internal/rag/generate            Service key — internal RAG + LLM
 
-  TOTAL: ~80+ API endpoints
+  TOTAL: ~90+ API endpoints
 
 
 ================================================================================
@@ -1228,6 +1301,10 @@ SERVICE CATALOG:
   ├────────────────────────────┼─────────────────────────────────────────────┤
   │ TTSService                 │ synthesize_speech(), list_available_voices()│
   ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ AutoReplyGuardrails        │ channel-specific skip/safety checks         │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ VoiceCallService           │ list_calls(), get_call()                    │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
   │ AuditService               │ log(), list_logs()                          │
   ├────────────────────────────┼─────────────────────────────────────────────┤
   │ RedisService               │ blacklist_token(), is_token_blacklisted(),  │
@@ -1257,6 +1334,7 @@ FILE: app/workers/tasks.py
   TASK: process_email_task (queue: emails, retries: 3)
     • Converts ingested email to a ticket
     • Updates email status through lifecycle: RECEIVED → PROCESSING → CONVERTED
+    • Applies auto-reply guardrails before automatic email replies
     • On failure: marks email as FAILED, retries with 60s backoff
 
   TASK: log_action_task (queue: logging)
@@ -1281,6 +1359,7 @@ FILE: app/workers/tasks.py
   TASK: process_whatsapp_incoming_task (queue: whatsapp, retries: 3)
     • Processes incoming WhatsApp message
     • Find-or-create User by phone number → Conversation → Message
+    • Optionally generates and sends RAG-powered WhatsApp auto-reply
     • Uses WhatsAppSyncService
 
   TASK: record_whatsapp_outbound_task (queue: whatsapp)
@@ -2353,9 +2432,9 @@ HEALTH CHECK:
  END OF DOCUMENT
 ================================================================================
 
-  Total models:          15 database tables
-  Total API endpoints:   ~80+
-  Total services:        12 service classes
+  Total models:          16 database tables
+  Total API endpoints:   ~90+
+  Total services:        13 service modules
   Total Celery tasks:    12 background tasks
   Total Celery queues:   8 dedicated queues
   Total AI providers:    4 LLM + 3 Visual AI
@@ -2365,6 +2444,6 @@ HEALTH CHECK:
 
   Lines of application code: ~15,000+
   Docker services: 9
-  Database migrations: 10
+  Database migrations: 11
 
 ================================================================================

@@ -3,7 +3,7 @@ Google Cloud provider — Cloud Vision API + Vertex AI Multimodal Embeddings + G
 
   - Cloud Vision: TEXT_DETECTION + LABEL_DETECTION (fast, accurate OCR + labels)
   - Vertex AI: multimodal embedding (if available)
-  - Gemini Vision: UI analysis, captioning, element detection via gemini-2.0-flash
+  - Gemini Vision: UI analysis, captioning, element detection via gemini-2.5-flash
 
 Falls back to CLIP for embeddings if Vertex AI multimodal embedding is not available.
 
@@ -41,7 +41,7 @@ _GEMINI_UI_ANALYSIS_PROMPT = """Analyze this UI screenshot for a customer suppor
 Return a JSON object with exactly these fields:
 
 {
-  "caption": "Brief description of what this screen shows",
+  "caption": "One sentence describing the visible page, key controls, and what the user appears to be doing right now",
   "elements": [
     {"type": "BUTTON|INPUT_FIELD|ERROR_MESSAGE|SUCCESS_MESSAGE|LOADING_STATE|NAVIGATION|FORM|MODAL|TABLE|LINK|HEADER|TEXT_BLOCK", "label": "element text or name", "confidence": 0.95}
   ],
@@ -54,7 +54,11 @@ Return a JSON object with exactly these fields:
   "error_text": "the error message text if any, otherwise null"
 }
 
-Be precise and thorough. List ALL visible UI elements. Return ONLY valid JSON, no markdown."""
+Be precise and thorough. Prefer page-specific wording over generic phrases like "screen shows a UI".
+Only describe the frame as blank, unreadable, or obstructed when almost no meaningful content is visible.
+Do not call normal dark-mode interfaces, dark scenes, or video content "blank" just because they are dim.
+If the frame mostly mirrors the support call UI itself, say that clearly in the caption.
+List ALL visible UI elements. Return ONLY valid JSON, no markdown."""
 
 
 class GoogleCloudProvider(BaseVisualProvider):
@@ -125,7 +129,7 @@ class GoogleCloudProvider(BaseVisualProvider):
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
                 json=payload,
             )
             resp.raise_for_status()
@@ -163,7 +167,7 @@ class GoogleCloudProvider(BaseVisualProvider):
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
                 json=payload,
             )
             resp.raise_for_status()

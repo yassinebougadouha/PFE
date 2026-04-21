@@ -32,92 +32,118 @@ class DecisionRule:
     priority: int = 0  # higher priority rules are checked first
 
 
-# ── Decision rule set ─────────────────────────────────────
-# Rules are ordered by priority (highest first).
+@dataclass
+class DecisionRuleConfig:
+    """Runtime toggles for high-impact routing rules."""
+    enforce_critical_escalation: bool = True
+    enforce_security_escalation: bool = True
+    low_confidence_general_suggest: bool = True
 
-DECISION_RULES: list[DecisionRule] = [
-    # ── Critical: always escalate ──
-    DecisionRule(
-        name="critical_risk_always_escalate",
-        confidence_levels=[ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM, ConfidenceLevel.LOW],
-        risk_levels=[RiskLevel.CRITICAL],
-        outcome=DecisionOutcome.ESCALATE_HUMAN,
-        priority=100,
-    ),
 
-    # ── Security: always escalate regardless of confidence ──
-    DecisionRule(
-        name="security_always_escalate",
-        confidence_levels=[ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM, ConfidenceLevel.LOW],
-        risk_levels=[RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL],
-        outcome=DecisionOutcome.ESCALATE_HUMAN,
-        category=IntentCategory.SECURITY,
-        priority=95,
-    ),
+def build_decision_rules(rule_config: DecisionRuleConfig | None = None) -> list[DecisionRule]:
+    """Build decision rules from the current runtime configuration."""
+    config = rule_config or DecisionRuleConfig()
 
-    # ── Low confidence: always escalate ──
-    DecisionRule(
-        name="low_confidence_escalate",
-        confidence_levels=[ConfidenceLevel.LOW],
-        risk_levels=[RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL],
-        outcome=DecisionOutcome.ESCALATE_HUMAN,
-        priority=90,
-    ),
+    rules: list[DecisionRule] = []
 
-    # ── High risk + any confidence: escalate ──
-    DecisionRule(
-        name="high_risk_escalate",
-        confidence_levels=[ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM],
-        risk_levels=[RiskLevel.HIGH],
-        outcome=DecisionOutcome.ESCALATE_HUMAN,
-        priority=85,
-    ),
+    if config.enforce_critical_escalation:
+        rules.append(
+            DecisionRule(
+                name="critical_risk_always_escalate",
+                confidence_levels=[ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM, ConfidenceLevel.LOW],
+                risk_levels=[RiskLevel.CRITICAL],
+                outcome=DecisionOutcome.ESCALATE_HUMAN,
+                priority=100,
+            )
+        )
 
-    # ── High confidence + low risk: auto-resolve ──
-    DecisionRule(
-        name="high_confidence_low_risk_auto_resolve",
-        confidence_levels=[ConfidenceLevel.HIGH],
-        risk_levels=[RiskLevel.LOW],
-        outcome=DecisionOutcome.AUTO_RESOLVE,
-        priority=70,
-    ),
+    if config.enforce_security_escalation:
+        rules.append(
+            DecisionRule(
+                name="security_always_escalate",
+                confidence_levels=[ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM, ConfidenceLevel.LOW],
+                risk_levels=[RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL],
+                outcome=DecisionOutcome.ESCALATE_HUMAN,
+                category=IntentCategory.SECURITY,
+                priority=95,
+            )
+        )
 
-    # ── High confidence + medium risk: suggest response ──
-    DecisionRule(
-        name="high_confidence_medium_risk_suggest",
-        confidence_levels=[ConfidenceLevel.HIGH],
-        risk_levels=[RiskLevel.MEDIUM],
-        outcome=DecisionOutcome.SUGGEST_RESPONSE,
-        priority=60,
-    ),
+    if config.low_confidence_general_suggest:
+        rules.append(
+            DecisionRule(
+                name="low_confidence_low_risk_general_suggest",
+                confidence_levels=[ConfidenceLevel.LOW],
+                risk_levels=[RiskLevel.LOW],
+                outcome=DecisionOutcome.SUGGEST_RESPONSE,
+                category=IntentCategory.GENERAL,
+                priority=93,
+            )
+        )
 
-    # ── Medium confidence + low risk: suggest response ──
-    DecisionRule(
-        name="medium_confidence_low_risk_suggest",
-        confidence_levels=[ConfidenceLevel.MEDIUM],
-        risk_levels=[RiskLevel.LOW],
-        outcome=DecisionOutcome.SUGGEST_RESPONSE,
-        priority=50,
-    ),
+    rules.extend(
+        [
+            DecisionRule(
+                name="low_confidence_low_risk_clarify",
+                confidence_levels=[ConfidenceLevel.LOW],
+                risk_levels=[RiskLevel.LOW],
+                outcome=DecisionOutcome.CLARIFY,
+                priority=92,
+            ),
+            DecisionRule(
+                name="low_confidence_escalate",
+                confidence_levels=[ConfidenceLevel.LOW],
+                risk_levels=[RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL],
+                outcome=DecisionOutcome.ESCALATE_HUMAN,
+                priority=90,
+            ),
+            DecisionRule(
+                name="high_risk_escalate",
+                confidence_levels=[ConfidenceLevel.HIGH, ConfidenceLevel.MEDIUM],
+                risk_levels=[RiskLevel.HIGH],
+                outcome=DecisionOutcome.ESCALATE_HUMAN,
+                priority=85,
+            ),
+            DecisionRule(
+                name="high_confidence_low_risk_auto_resolve",
+                confidence_levels=[ConfidenceLevel.HIGH],
+                risk_levels=[RiskLevel.LOW],
+                outcome=DecisionOutcome.AUTO_RESOLVE,
+                priority=70,
+            ),
+            DecisionRule(
+                name="high_confidence_medium_risk_suggest",
+                confidence_levels=[ConfidenceLevel.HIGH],
+                risk_levels=[RiskLevel.MEDIUM],
+                outcome=DecisionOutcome.SUGGEST_RESPONSE,
+                priority=60,
+            ),
+            DecisionRule(
+                name="medium_confidence_low_risk_suggest",
+                confidence_levels=[ConfidenceLevel.MEDIUM],
+                risk_levels=[RiskLevel.LOW],
+                outcome=DecisionOutcome.SUGGEST_RESPONSE,
+                priority=50,
+            ),
+            DecisionRule(
+                name="medium_confidence_medium_risk_clarify",
+                confidence_levels=[ConfidenceLevel.MEDIUM],
+                risk_levels=[RiskLevel.MEDIUM],
+                outcome=DecisionOutcome.CLARIFY,
+                priority=40,
+            ),
+        ]
+    )
 
-    # ── Medium confidence + medium risk: clarify ──
-    DecisionRule(
-        name="medium_confidence_medium_risk_clarify",
-        confidence_levels=[ConfidenceLevel.MEDIUM],
-        risk_levels=[RiskLevel.MEDIUM],
-        outcome=DecisionOutcome.CLARIFY,
-        priority=40,
-    ),
-]
-
-# Sort rules by priority (descending)
-DECISION_RULES.sort(key=lambda r: r.priority, reverse=True)
+    rules.sort(key=lambda r: r.priority, reverse=True)
+    return rules
 
 
 def apply_rules(
     confidence_level: ConfidenceLevel,
     risk_level: RiskLevel,
     category: IntentCategory,
+    rule_config: DecisionRuleConfig | None = None,
 ) -> tuple[DecisionOutcome, list[str]]:
     """
     Apply the decision rule set to determine the outcome.
@@ -127,7 +153,7 @@ def apply_rules(
     """
     matched_rules: list[str] = []
 
-    for rule in DECISION_RULES:
+    for rule in build_decision_rules(rule_config):
         # Check category constraint
         if rule.category is not None and rule.category != category:
             continue

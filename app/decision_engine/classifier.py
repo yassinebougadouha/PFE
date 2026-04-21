@@ -179,7 +179,12 @@ def _score_category(text: str, rule: CategoryRule) -> tuple[float, list[str]]:
     return score, matched
 
 
-def classify_text(text: str, subject: str = "") -> ClassificationResult:
+def classify_text(
+    text: str,
+    subject: str = "",
+    high_confidence_threshold: float = 0.7,
+    medium_confidence_threshold: float = 0.4,
+) -> ClassificationResult:
     """
     Classify text into an intent category using keyword + pattern matching.
 
@@ -231,9 +236,9 @@ def classify_text(text: str, subject: str = "") -> ClassificationResult:
     confidence = round(min(max(confidence, 0.05), 0.99), 3)
 
     # Determine confidence level
-    if confidence >= 0.7:
+    if confidence >= high_confidence_threshold:
         level = ConfidenceLevel.HIGH
-    elif confidence >= 0.4:
+    elif confidence >= medium_confidence_threshold:
         level = ConfidenceLevel.MEDIUM
     else:
         level = ConfidenceLevel.LOW

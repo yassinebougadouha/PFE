@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -221,3 +221,69 @@ class GuidanceResponse(BaseModel):
     suggested_actions: list[str] = []
     gap_result: Optional[GapResult] = None
     confidence: float = 0.0
+
+
+# ═══════════════════════════════════════════════════════════
+#  Screenshare Assistance schemas
+# ═══════════════════════════════════════════════════════════
+
+class ScreenShareFinalFrameSummary(BaseModel):
+    provider: str
+    caption: str = ""
+    ocr_text_preview: str = ""
+    element_count: int = 0
+    labels: list[str] = []
+
+
+class ScreenShareAssistResponse(BaseModel):
+    source_fps: float
+    target_fps: float
+    uploaded_frames: int
+    processed_frames: int
+    embedding_backend: str
+    embedding_dimension: int
+    avg_transition_score: float
+    max_transition_score: float
+    reference_similarity: Optional[float] = None
+    final_frame: ScreenShareFinalFrameSummary
+    assistance_hints: list[str] = []
+
+
+class ScreenShareRealtimeChunkResponse(ScreenShareAssistResponse):
+    session_id: str
+    chunk_index: int
+
+
+# ═══════════════════════════════════════════════════════════
+#  Troubleshooting Wizard schemas
+# ═══════════════════════════════════════════════════════════
+
+class TroubleshootingWizardRequest(BaseModel):
+    goal: str = Field(..., min_length=5, max_length=240)
+    issue_summary: Optional[str] = Field(None, max_length=1000)
+    observed_screen_caption: Optional[str] = Field(None, max_length=1000)
+    observed_text: Optional[str] = Field(None, max_length=4000)
+    user_actions_attempted: list[str] = Field(default_factory=list)
+    context_hints: list[str] = Field(default_factory=list)
+    max_steps: int = Field(5, ge=3, le=8)
+
+
+class TroubleshootingWizardStep(BaseModel):
+    step_number: int = Field(..., ge=1)
+    title: str
+    why: str
+    instructions: list[str] = Field(default_factory=list)
+    expected_signal: str
+    if_not_seen: str
+
+
+class TroubleshootingWizardResponse(BaseModel):
+    issue_summary: str
+    diagnosis: str
+    risk_level: Literal["low", "medium", "high"] = "medium"
+    estimated_time_minutes: int = 10
+    steps: list[TroubleshootingWizardStep] = Field(default_factory=list)
+    escalation_hint: str
+    provider: str = "rule-engine"
+    model: str = "deterministic-v1"
+    generated_at: datetime = Field(default_factory=datetime.utcnow)

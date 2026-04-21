@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator, Optional
 
+from httpx import HTTPStatusError
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -64,6 +66,20 @@ def get_provider(provider: Optional[AIProvider] = None) -> BaseProvider:
     return cls()
 
 
+def _provider_order(preferred: Optional[AIProvider] = None) -> list[AIProvider]:
+    """Build provider try-order: preferred/default first, then the rest."""
+    ordered: list[AIProvider] = []
+
+    first = preferred or _get_default_provider()
+    ordered.append(first)
+
+    for provider in _PROVIDERS.keys():
+        if provider not in ordered:
+            ordered.append(provider)
+
+    return ordered
+
+
 # ═══════════════════════════════════════════════════════════
 #  Service class
 # ═══════════════════════════════════════════════════════════
@@ -79,6 +95,63 @@ class ResponseGenerationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.retriever = VectorRetriever(db)
+
+    async def _generate_with_provider_failover(
+        self,
+        request: GenerateRequest,
+        chunks: list[dict],
+    ) -> dict:
+        """Try generation across configured providers until one succeeds."""
+        attempts: list[str] = []
+        last_http_error: HTTPStatusError | None = None
+        last_error: Exception | None = None
+
+        for provider_enum in _provider_order(request.provider):
+            provider = get_provider(provider_enum)
+            if not provider._is_configured:
+                continue
+
+            try:
+                return await provider.generate_response(
+                    query=request.query,
+                    channel=request.channel,
+                    tone=request.tone,
+                    rag_context=chunks,
+                    conversation_history=request.conversation_history,
+                    model=None,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    language=request.language,
+                    customer_name=request.customer_name,
+                    agent_name=request.agent_name,
+                )
+            except HTTPStatusError as exc:
+                attempts.append(f"{provider_enum.value}:{exc.response.status_code}")
+                last_http_error = exc
+                last_error = exc
+                logger.warning(
+                    "Provider %s failed with HTTP %s, trying next provider",
+                    provider_enum.value,
+                    exc.response.status_code,
+                )
+            except Exception as exc:
+                attempts.append(f"{provider_enum.value}:{exc.__class__.__name__}")
+                last_error = exc
+                logger.warning(
+                    "Provider %s failed (%s), trying next provider",
+                    provider_enum.value,
+                    exc.__class__.__name__,
+                )
+
+        if last_http_error is not None:
+            raise last_http_error
+
+        if last_error is not None:
+            raise RuntimeError(
+                "All configured LLM providers failed: " + ", ".join(attempts)
+            ) from last_error
+
+        raise RuntimeError("No LLM provider is configured. Set at least one API key.")
 
     # ── RAG context retrieval ───────────────────────────
 
@@ -126,23 +199,8 @@ class ResponseGenerationService:
             category=request.category,
         )
 
-        # 2. Get the provider
-        provider = get_provider(request.provider)
-
-        # 3. Call LLM
-        result = await provider.generate_response(
-            query=request.query,
-            channel=request.channel,
-            tone=request.tone,
-            rag_context=chunks,
-            conversation_history=request.conversation_history,
-            model=None,  # use provider default
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            language=request.language,
-            customer_name=request.customer_name,
-            agent_name=request.agent_name,
-        )
+        # 2. Call LLM with provider failover
+        result = await self._generate_with_provider_failover(request=request, chunks=chunks)
 
         raw_response = result["content"]
 
@@ -153,6 +211,7 @@ class ResponseGenerationService:
             customer_name=request.customer_name,
             agent_name=request.agent_name,
             sources=[s.model_dump() for s in sources] if request.include_sources else None,
+            language=request.language,
         )
 
         return GenerateResponse(
@@ -220,19 +279,7 @@ class ResponseGenerationService:
             category=request.category,
         )
 
-        provider = get_provider(request.provider)
-        result = await provider.generate_response(
-            query=request.query,
-            channel=request.channel,
-            tone=request.tone,
-            rag_context=chunks,
-            conversation_history=request.conversation_history,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            language=request.language,
-            customer_name=request.customer_name,
-            agent_name=request.agent_name,
-        )
+        result = await self._generate_with_provider_failover(request=request, chunks=chunks)
 
         raw_response = result["content"]
 
@@ -245,6 +292,7 @@ class ResponseGenerationService:
                 customer_name=request.customer_name,
                 agent_name=request.agent_name,
                 sources=[s.model_dump() for s in sources],
+                language=request.language,
             )
             previews.append(ChannelPreview(channel=ch, formatted_response=formatted))
 

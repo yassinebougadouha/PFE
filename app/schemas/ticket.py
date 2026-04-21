@@ -16,6 +16,8 @@ class TicketCreate(BaseModel):
     description: str = Field(..., min_length=1)
     priority: TicketPriority = TicketPriority.MEDIUM
     channel_source: ChannelType = ChannelType.TICKET
+    conversation_id: Optional[uuid.UUID] = None
+    source_voice_call_id: Optional[uuid.UUID] = None
 
 
 class TicketUpdate(BaseModel):
@@ -25,6 +27,13 @@ class TicketUpdate(BaseModel):
     priority: Optional[TicketPriority] = None
     assigned_agent_id: Optional[uuid.UUID] = None
     escalation_flag: Optional[bool] = None
+    resolution_note: Optional[str] = None
+    source_voice_call_id: Optional[uuid.UUID] = None
+
+
+class TicketStatusUpdate(BaseModel):
+    status: TicketStatus
+    resolution_note: Optional[str] = Field(None, min_length=5)
 
 
 class TicketResponse(BaseModel):
@@ -35,10 +44,14 @@ class TicketResponse(BaseModel):
     priority: TicketPriority
     channel_source: ChannelType
     escalation_flag: bool
+    resolution_note: Optional[str] = None
     creator_id: uuid.UUID
     assigned_agent_id: Optional[uuid.UUID]
     source_email_id: Optional[uuid.UUID]
     conversation_id: Optional[uuid.UUID]
+    source_voice_call_id: Optional[uuid.UUID]
+    solved_by_id: Optional[uuid.UUID]
+    resolved_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
 
@@ -48,3 +61,12 @@ class TicketResponse(BaseModel):
 class TicketListResponse(BaseModel):
     tickets: list[TicketResponse]
     total: int
+
+
+class TicketTotalsResponse(BaseModel):
+    total: int
+    open: int
+    in_progress: int
+    escalated: int
+    resolved: int
+    closed: int

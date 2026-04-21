@@ -2,11 +2,7 @@
 User model — supports CLIENT, AGENT, ADMIN roles.
 """
 
-import uuid
-from datetime import datetime, timezone
-
-from sqlalchemy import String, Enum, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, String, Enum, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, SoftDeleteMixin, UUIDPrimaryKeyMixin
@@ -33,6 +29,47 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         default=UserStatus.ACTIVE,
         nullable=False,
     )
+    can_reply_conversations: Mapped[bool] = mapped_column(
+        default=True,
+        nullable=False,
+    )
+    can_reply_whatsapp: Mapped[bool] = mapped_column(
+        default=True,
+        nullable=False,
+    )
+    is_vip: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+    )
+    teams_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    teams_webhook_url: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+    timezone: Mapped[str] = mapped_column(
+        String(64),
+        default="UTC",
+        nullable=False,
+    )
+    locale: Mapped[str] = mapped_column(
+        String(16),
+        default="en",
+        nullable=False,
+    )
+    must_change_password: Mapped[bool] = mapped_column(
+        default=False,
+        nullable=False,
+    )
+    profile_completed: Mapped[bool] = mapped_column(
+        default=False,
+        nullable=False,
+    )
 
     # ── Relationships ──────────────────────────────
     conversations = relationship("Conversation", back_populates="user", lazy="selectin")
@@ -43,6 +80,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     created_tickets = relationship(
         "Ticket", back_populates="creator", foreign_keys="Ticket.creator_id", lazy="selectin"
     )
+    solved_tickets = relationship(
+        "Ticket", back_populates="solved_by", foreign_keys="Ticket.solved_by_id", lazy="selectin"
+    )
+    notifications = relationship("Notification", back_populates="user", lazy="selectin")
 
     __table_args__ = (
         Index("ix_users_email_active", "email", "is_deleted"),

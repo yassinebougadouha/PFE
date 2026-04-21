@@ -13,6 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from httpx import HTTPStatusError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -59,6 +60,12 @@ async def generate_response(
     try:
         service = ResponseGenerationService(db)
         return await service.generate(body)
+    except HTTPStatusError as exc:
+        # Provider quota / transient upstream failures should not surface as 500.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Upstream provider error: {exc.response.status_code}",
+        )
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -136,6 +143,11 @@ async def multi_channel_preview(
     try:
         service = ResponseGenerationService(db)
         return await service.generate_multi_channel_preview(body)
+    except HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Upstream provider error: {exc.response.status_code}",
+        )
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

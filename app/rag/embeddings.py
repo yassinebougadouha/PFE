@@ -1,8 +1,9 @@
 """
 Embedding generation service for the RAG knowledge base.
 
-Uses sentence-transformers to produce dense vector embeddings.
-Model: all-MiniLM-L6-v2 (384 dimensions, fast, multilingual-capable).
+Supports two backends:
+    - Local sentence-transformers (default)
+    - Gemini Embeddings API (toggle via USE_GEMINI_EMBEDDINGS)
 """
 
 from __future__ import annotations
@@ -10,12 +11,14 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+import httpx
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+GEMINI_EMBEDDING_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # ── Singleton model cache ─────────────────────────────────
 _model: Optional[SentenceTransformer] = None
@@ -36,13 +39,82 @@ def _get_model() -> SentenceTransformer:
     return _model
 
 
+def _use_gemini_embeddings() -> bool:
+    return bool(get_settings().USE_GEMINI_EMBEDDINGS)
+
+
+def _normalize_vector(vector: list[float]) -> list[float]:
+    """Normalize vector to unit length to preserve cosine-similarity quality."""
+    arr = np.array(vector, dtype=np.float32)
+    norm = np.linalg.norm(arr)
+    if norm == 0:
+        return arr.tolist()
+    return (arr / norm).tolist()
+
+
+def _extract_embedding_values(item: dict) -> list[float]:
+    """Handle Gemini response variants: {values:[...]} or {embedding:{values:[...]}}."""
+    if "values" in item and isinstance(item["values"], list):
+        return [float(v) for v in item["values"]]
+
+    nested = item.get("embedding")
+    if isinstance(nested, dict) and isinstance(nested.get("values"), list):
+        return [float(v) for v in nested["values"]]
+
+    raise RuntimeError("Unexpected Gemini embedding payload shape")
+
+
+def _embed_with_gemini(texts: list[str], task_type: str) -> list[list[float]]:
+    """Embed texts via Gemini API in one call."""
+    settings = get_settings()
+    api_key = (settings.GEMINI_API_KEY or "").strip()
+    if not api_key:
+        raise RuntimeError("USE_GEMINI_EMBEDDINGS=True but GEMINI_API_KEY is not configured")
+
+    model_name = (settings.GEMINI_EMBEDDING_MODEL or "gemini-embedding-2-preview").strip()
+    model_path = model_name if model_name.startswith("models/") else f"models/{model_name}"
+    url = f"{GEMINI_EMBEDDING_BASE_URL}/{model_name}:embedContent?key={api_key}"
+
+    payload = {
+        "model": model_path,
+        "contents": texts,
+        "taskType": task_type,
+        "outputDimensionality": int(settings.GEMINI_EMBEDDING_DIMENSION),
+    }
+
+    with httpx.Client(timeout=60) as client:
+        resp = client.post(url, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+    if isinstance(data.get("embeddings"), list):
+        vectors = [_extract_embedding_values(item) for item in data["embeddings"]]
+    elif isinstance(data.get("embedding"), dict):
+        vectors = [_extract_embedding_values(data)]
+    else:
+        raise RuntimeError(f"Gemini returned no embeddings: {data}")
+
+    if len(vectors) != len(texts):
+        raise RuntimeError(
+            f"Gemini embedding count mismatch: expected {len(texts)}, got {len(vectors)}"
+        )
+
+    return [_normalize_vector(v) for v in vectors]
+
+
 def get_embedding_dimension() -> int:
     """Return the embedding dimension of the configured model."""
+    if _use_gemini_embeddings():
+        return int(get_settings().GEMINI_EMBEDDING_DIMENSION)
     return _get_model().get_sentence_embedding_dimension()
 
 
 def embed_text(text: str) -> list[float]:
     """Generate an embedding vector for a single text string."""
+    if _use_gemini_embeddings():
+        task_type = get_settings().GEMINI_EMBEDDING_QUERY_TASK_TYPE
+        return _embed_with_gemini([text], task_type=task_type)[0]
+
     model = _get_model()
     embedding = model.encode(text, normalize_embeddings=True)
     return embedding.tolist()
@@ -61,6 +133,10 @@ def embed_texts(texts: list[str], batch_size: int = 64) -> list[list[float]]:
     """
     if not texts:
         return []
+
+    if _use_gemini_embeddings():
+        task_type = get_settings().GEMINI_EMBEDDING_DOCUMENT_TASK_TYPE
+        return _embed_with_gemini(texts, task_type=task_type)
 
     model = _get_model()
     embeddings = model.encode(
@@ -86,4 +162,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 
 def get_model_name() -> str:
     """Return the name of the configured embedding model."""
-    return get_settings().RAG_EMBEDDING_MODEL
+    settings = get_settings()
+    if settings.USE_GEMINI_EMBEDDINGS:
+        return f"gemini:{settings.GEMINI_EMBEDDING_MODEL}"
+    return settings.RAG_EMBEDDING_MODEL

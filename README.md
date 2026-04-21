@@ -139,6 +139,10 @@ docker compose up --build -d
 # Swagger: http://localhost:8000/docs
 # ReDoc:   http://localhost:8000/redoc
 # Flower:  http://localhost:5555
+
+# API container runs in stable mode by default (no Uvicorn reload).
+# Optional hot reload in Docker:
+# API_RELOAD=true docker compose up --build -d api
 ```
 
 ### Option 2: Local development
@@ -172,6 +176,19 @@ celery -A app.workers.celery_app beat --loglevel=info
 ```
 
 ## API Endpoints (57+ routes)
+
+## Notification Deep-Link Conventions
+
+Use `action_url` in notifications to deep-link users directly into the right workspace context.
+
+- Conversations deep link: `/conversations?user=<user_id>&conversation=<conversation_id>`
+- WhatsApp deep link: `/whatsapp?conversation=<conversation_id>`
+
+Notes:
+
+- `conversation` should be the exact backend conversation UUID.
+- Keep links relative (start with `/`) so the frontend router can open them in-app.
+- When both list filters and `conversation` are present, UI should prioritize selecting the exact conversation.
 
 ### Health (`/`)
 | Method | Path | Description |

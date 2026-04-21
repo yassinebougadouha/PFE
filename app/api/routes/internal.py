@@ -15,6 +15,7 @@ import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from httpx import HTTPStatusError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -23,6 +24,11 @@ from app.rag.retriever import VectorRetriever
 from app.rag.schemas import SearchRequest, SearchResponse
 from app.rag.response_providers.service import ResponseGenerationService
 from app.rag.response_providers.schemas import GenerateRequest, GenerateResponse
+from app.schemas.support_call_screen_context import (
+    SupportCallScreenContextClearResponse,
+    SupportCallScreenContextSnapshotResponse,
+)
+from app.services.support_call_screen_context import support_call_screen_context_store
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -96,6 +102,11 @@ async def internal_rag_generate(
     try:
         service = ResponseGenerationService(db)
         return await service.generate(body)
+    except HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Upstream provider error: {exc.response.status_code}",
+        )
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -107,3 +118,35 @@ async def internal_rag_generate(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Generation failed: {exc}",
         )
+
+
+# ═══════════════════════════════════════════════════════════
+#  Support-call live screen context (for voice agents)
+# ═══════════════════════════════════════════════════════════
+
+@router.get(
+    "/support-call-screen-context/{room_name}",
+    response_model=SupportCallScreenContextSnapshotResponse,
+    summary="Get latest support-call screen-sharing context",
+    description="Returns the latest live screen-analysis context for a support-call room.",
+)
+async def internal_get_support_call_screen_context(
+    room_name: str,
+    _key: ServiceKey,
+) -> SupportCallScreenContextSnapshotResponse:
+    snapshot = support_call_screen_context_store.get_snapshot(room_name)
+    return SupportCallScreenContextSnapshotResponse(**snapshot)
+
+
+@router.delete(
+    "/support-call-screen-context/{room_name}",
+    response_model=SupportCallScreenContextClearResponse,
+    summary="Clear support-call screen-sharing context",
+    description="Clears cached live screen-analysis context for a support-call room.",
+)
+async def internal_clear_support_call_screen_context(
+    room_name: str,
+    _key: ServiceKey,
+) -> SupportCallScreenContextClearResponse:
+    cleared = support_call_screen_context_store.clear(room_name)
+    return SupportCallScreenContextClearResponse(room_name=room_name, cleared=cleared)

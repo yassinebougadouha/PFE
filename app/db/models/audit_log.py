@@ -36,4 +36,11 @@ class AuditLog(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_audit_logs_action_resource", "action", "resource_type"),
         Index("ix_audit_logs_created", "created_at"),
+        Index(
+            "ix_audit_logs_action_resource_created_user",
+            "action",
+            "resource_type",
+            "created_at",
+            "user_id",
+        ),
     )

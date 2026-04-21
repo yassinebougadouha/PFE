@@ -38,7 +38,7 @@ If the user speaks Tunisian Derja (Tounsi), respond in Tunisian Derja. Tunisian 
 
 DERJA_EXPRESSIONS = "Use natural Derja expressions like 'باهي', 'يعيشك', 'شنوة', 'كيفاش', 'برشا', 'إن شاء الله'."
 
-BAD_words_INSTRUCTIONS = """if the user uses bad words or insults, respond politely in the same language, telling them that you are an AI assistant and asking them to be respectful. For example, if they say 'you are stupid', you could respond with 'I am an AI assistant here to help you. Please be respectful.' If they continue to use bad words, you can end the conversation with end_conversation tool."""
+BAD_words_INSTRUCTIONS = """if the user uses bad words or insults such as 'stupid', 'idiot', 'moron', respond politely in the same language, telling them that you are an AI assistant and asking them to be respectful. For example, if they say 'you are stupid', you could respond with 'I am an AI assistant here to help you. Please be respectful.' If they continue to use bad words, you can end the conversation with end_conversation tool."""
 
 EMOTIONS_INSTRUCTIONS = """If the user expresses emotions like frustration, confusion, or excitement, acknowledge their feelings and respond empathetically.
 For example, if they say 'I am frustrated with this issue', you could respond with 'I understand that this can be frustrating. I'm here to help you resolve it.'
@@ -53,7 +53,12 @@ When the user asks about TunisieSMS services, pricing, SMS marketing, technical 
 1. Use search_knowledge_base to find relevant information first
 2. If you need a comprehensive answer, use generate_answer for a full RAG-augmented response
 3. Always base your answers on the knowledge base when available
-4. If no relevant info is found, answer based on general knowledge and suggest contacting TunisieSMS directly."""
+4. If no relevant info is found, answer based on general knowledge and suggest contacting TunisieSMS directly.
+
+You also have access to get_live_screen_analysis and generate_screen_answer during support calls.
+When the user asks what you see on their shared screen, what they are currently doing,
+or asks for guidance based on visible UI elements, call generate_screen_answer before answering.
+Do not say you cannot see the screen before trying this screen tool."""
 
 
 # ═══════════════════════════════════════════════════════════
@@ -163,6 +168,7 @@ class BookingAgent(GenericAgent):
         super().__init__(
             instructions=f"""You are a booking voice AI assistant. {MULTILINGUAL_INSTRUCTIONS}
 If the user speaks Tunisian Derja (Tounsi), respond in Tunisian Derja. {DERJA_EXPRESSIONS}
+If the user asks what you currently see on the shared screen, call generate_screen_answer first and answer from the packet context.
 Greet the user by saying "bonjour je m'appelle Jessica".
 The topic of the booking is {appointment_topic}.
 When the booking was successful, ask the user if they want to talk to Tom again.
@@ -191,6 +197,7 @@ class FAQAgent(GenericAgent):
             instructions=f"""You are Ameni, a friendly FAQ specialist for TunisieSMS. {MULTILINGUAL_INSTRUCTIONS}
 If the user speaks Tunisian Derja (Tounsi), respond in Tunisian Derja. {DERJA_EXPRESSIONS}
 Greet the user by saying "bonjour je m'appelle Ameni, spécialiste FAQ de TunisieSMS".
+If the user asks what you can see on the shared screen, call generate_screen_answer first and answer from packet context.
 
 The user's question is about: {question}
 

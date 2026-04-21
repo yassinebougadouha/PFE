@@ -1,7 +1,7 @@
 """
 Voice routes — STT (speech-to-text) and TTS (text-to-speech).
 
-STT: upload audio → Whisper transcribes → text is processed like any other message.
+STT: upload audio → Gemini transcribes → text is processed like any other message.
 TTS: supply text → edge-tts synthesizes → MP3 stream returned.
 """
 
@@ -68,7 +68,7 @@ async def transcribe_audio(
     _: User = Depends(get_current_user),
 ):
     """
-    Transcribe an audio file to text using Whisper.
+    Transcribe an audio file to text using Gemini.
     Returns the raw transcription without creating any records.
     Useful for preview before submitting a voice message.
     """
@@ -81,7 +81,11 @@ async def transcribe_audio(
             detail=f"Audio file too large. Maximum size: {MAX_AUDIO_SIZE // (1024*1024)} MB",
         )
 
-    result = await save_upload_and_transcribe(content, file.filename or "audio.wav")
+    result = await save_upload_and_transcribe(
+        content,
+        file.filename or "audio.wav",
+        content_type=file.content_type,
+    )
 
     if not result["text"]:
         raise HTTPException(
@@ -117,7 +121,11 @@ async def submit_voice_message(
         )
 
     # Transcribe
-    result = await save_upload_and_transcribe(content, file.filename or "audio.wav")
+    result = await save_upload_and_transcribe(
+        content,
+        file.filename or "audio.wav",
+        content_type=file.content_type,
+    )
 
     if not result["text"]:
         raise HTTPException(
@@ -246,11 +254,12 @@ async def get_voices(
 
 def _validate_audio_file(file: UploadFile) -> None:
     """Validate the uploaded audio file type."""
-    content_type = file.content_type or ""
-    if content_type and content_type not in ALLOWED_AUDIO_TYPES:
+    raw_content_type = (file.content_type or "").strip().lower()
+    normalized_content_type = raw_content_type.split(";", 1)[0].strip()
+    if normalized_content_type and normalized_content_type not in ALLOWED_AUDIO_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported audio format: {content_type}. "
+            detail=f"Unsupported audio format: {file.content_type or normalized_content_type}. "
                    f"Accepted: wav, mp3, webm, ogg, flac, m4a",
         )
 

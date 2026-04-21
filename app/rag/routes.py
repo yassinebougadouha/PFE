@@ -43,6 +43,7 @@ from app.rag.pdf_schemas import (
 from app.rag.service import KnowledgeBaseService
 from app.rag.pdf_service import PDFIngestionService
 from app.rag.retriever import VectorRetriever
+from app.rag.response_providers.service import ResponseGenerationService
 from app.core.config import get_settings
 
 router = APIRouter(prefix="/rag", tags=["Knowledge Base (RAG)"])
@@ -51,6 +52,30 @@ router = APIRouter(prefix="/rag", tags=["Knowledge Base (RAG)"])
 DB = Annotated[AsyncSession, Depends(get_db)]
 AgentOrAdmin = Annotated[User, Depends(require_agent_or_admin)]
 Admin = Annotated[User, Depends(require_admin)]
+
+
+@router.get(
+    "/status",
+    summary="Compatibility RAG provider status",
+)
+async def rag_status_compat(
+    user: AgentOrAdmin,
+):
+    """
+    Compatibility endpoint for older frontend clients that call /rag/status.
+    New clients should use /rag/generate/providers.
+    """
+    statuses = await ResponseGenerationService.get_providers_status()
+    default_provider = statuses.default_provider.value
+    default_entry = next(
+        (p for p in statuses.providers if p.provider == statuses.default_provider),
+        None,
+    )
+    return {
+        "provider": default_provider,
+        "status": "active" if (default_entry and default_entry.is_configured) else "not-configured",
+        "model": default_entry.default_model if default_entry else None,
+    }
 
 
 # ═══════════════════════════════════════════════════════════

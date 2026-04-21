@@ -15,7 +15,7 @@ Both functions degrade gracefully if the backend API is unreachable.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -182,6 +182,64 @@ async def generate_rag_response(
     except Exception as exc:
         logger.warning("RAG bridge: unexpected error — %s", exc)
         return None
+
+
+# ═══════════════════════════════════════════════════════════
+#  Support-call live screen context
+# ═══════════════════════════════════════════════════════════
+
+async def get_support_call_screen_context(room_name: str) -> Optional[dict[str, Any]]:
+    """Fetch latest live screen-analysis context for a support-call room."""
+    normalized_room = room_name.strip()
+    if not normalized_room:
+        return None
+
+    url = f"{_base_url()}/api/v1/internal/support-call-screen-context/{normalized_room}"
+
+    try:
+        client = _get_client()
+        resp = await client.get(url, headers=_headers())
+        resp.raise_for_status()
+        data = resp.json()
+        logger.debug(
+            "Support-call screen context: room=%s has_context=%s age=%.2fs",
+            normalized_room,
+            bool(data.get("has_context")),
+            float(data.get("age_seconds") or 0.0),
+        )
+        return data
+
+    except httpx.ConnectError:
+        logger.warning("Support-call context bridge: backend unreachable at %s", _base_url())
+        return None
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Support-call context bridge: HTTP %d — %s",
+            exc.response.status_code,
+            exc.response.text[:200],
+        )
+        return None
+    except Exception as exc:
+        logger.warning("Support-call context bridge: unexpected error — %s", exc)
+        return None
+
+
+async def clear_support_call_screen_context(room_name: str) -> bool:
+    """Clear cached live screen-analysis context for a support-call room."""
+    normalized_room = room_name.strip()
+    if not normalized_room:
+        return False
+
+    url = f"{_base_url()}/api/v1/internal/support-call-screen-context/{normalized_room}"
+
+    try:
+        client = _get_client()
+        resp = await client.delete(url, headers=_headers())
+        resp.raise_for_status()
+        data = resp.json()
+        return bool(data.get("cleared"))
+    except Exception:
+        return False
 
 
 # ═══════════════════════════════════════════════════════════

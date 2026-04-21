@@ -29,6 +29,7 @@ class OpenAIProvider(BaseProvider):
     def __init__(self) -> None:
         settings = get_settings()
         self.api_key: str = getattr(settings, "OPENAI_API_KEY", "")
+        self.default_model = getattr(settings, "OPENAI_RESPONSE_MODEL", self.default_model) or self.default_model
 
     @property
     def _is_configured(self) -> bool:

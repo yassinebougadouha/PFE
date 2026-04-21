@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 CHANNEL_INSTRUCTIONS: dict[ResponseChannel, str] = {
     ResponseChannel.CHAT: (
         "You are a live-chat support agent. Keep answers concise (2-4 paragraphs max). "
-        "Use short sentences and bullet points where helpful. "
-        "Be conversational but professional."
+        "Write like a direct live-chat reply, not an email. "
+        "Use short sentences and only use bullet points when they add clarity. "
+        "Be conversational but professional. "
+        "Do not start with hello/hi/bonjour or address the customer by name. "
+        "Do not end with a sign-off, closing formula, signature, team label, or agent name."
     ),
     ResponseChannel.EMAIL: (
         "You are composing a professional support email. "
@@ -103,11 +106,31 @@ class BaseProvider(abc.ABC):
         ]
 
         if language:
-            parts += ["", f"## Language", f"Respond in {language}."]
+            lang = language.strip().lower()
+            if lang in {"fr", "french"}:
+                lang_rule = (
+                    "Respond strictly in French only. Do not include English sentences, "
+                    "English greetings, or English sign-offs."
+                )
+            elif lang in {"en", "english"}:
+                lang_rule = (
+                    "Respond strictly in English only. Do not include French sentences, "
+                    "French greetings, or French sign-offs."
+                )
+            elif lang in {"ar", "arabic"}:
+                lang_rule = (
+                    "Respond strictly in Arabic only. Do not include English or French sentences."
+                )
+            else:
+                lang_rule = f"Respond strictly in {language}."
 
-        if customer_name:
+            parts += ["", "## Language", lang_rule]
+
+        include_identity_hints = channel != ResponseChannel.CHAT
+
+        if include_identity_hints and customer_name:
             parts += ["", f"## Customer name: {customer_name}"]
-        if agent_name:
+        if include_identity_hints and agent_name:
             parts += [f"## Agent name (for sign-off): {agent_name}"]
 
         # RAG context — inject knowledge base chunks
@@ -122,10 +145,18 @@ class BaseProvider(abc.ABC):
                 "If the context doesn't contain enough information, say so clearly."
             )
         else:
-            parts.append(
-                "\nNo knowledge base context was found. Answer based on general knowledge "
-                "and clearly indicate that no specific documentation was found."
-            )
+            if channel == ResponseChannel.CHAT:
+                parts.append(
+                    "\nNo knowledge base context was found. Answer naturally from the "
+                    "conversation and any attachment-analysis context that was provided. "
+                    "Do not mention missing documentation unless the customer explicitly "
+                    "asks for sources or references."
+                )
+            else:
+                parts.append(
+                    "\nNo knowledge base context was found. Answer based on general knowledge "
+                    "and clearly indicate that no specific documentation was found."
+                )
 
         return "\n".join(parts)
 

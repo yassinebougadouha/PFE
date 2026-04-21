@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, String, Text, Enum, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -33,6 +33,9 @@ class Email(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     gmail_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     gmail_thread_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     is_outbound: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    is_starred: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    labels: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
 
     # Self-referential: reply points to the original email
     in_reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -50,4 +53,6 @@ class Email(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_emails_sender_status", "sender_address", "status"),
         Index("ix_emails_gmail_thread", "gmail_thread_id"),
+        Index("ix_emails_read_starred", "is_read", "is_starred"),
+        Index("ix_emails_outbound_created_replied_by", "is_outbound", "created_at", "replied_by_id"),
     )

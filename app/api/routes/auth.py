@@ -14,6 +14,7 @@ from app.schemas.auth import TokenPair, TokenRefreshRequest
 from app.schemas.user import UserLogin, UserCreate, UserResponse
 from app.schemas.common import MessageOut
 from app.services.auth_service import AuthService
+from app.services.settings_service import SettingsService
 from app.services.user_service import UserService
 from app.services.audit_service import AuditService
 from app.db.models.user import User
@@ -29,6 +30,27 @@ async def register(
 ):
     """Register a new user account."""
     user_service = UserService(db)
+    settings_service = SettingsService(db)
+    settings = await settings_service.get_all_settings()
+
+    if not settings["allow_registration"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "registration_disabled",
+                "message": "Registration is currently disabled by an administrator.",
+            },
+        )
+
+    try:
+        user_service.validate_password_policy(
+            payload.password,
+            min_password_length=int(settings["min_password_length"]),
+            password_complexity=bool(settings["password_complexity"]),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     try:
         user = await user_service.create_user(payload)
     except ValueError as e:
@@ -57,13 +79,18 @@ async def login(
 ):
     """Authenticate user and return JWT tokens."""
     auth_service = AuthService(db, redis)
+    settings_service = SettingsService(db)
     user = await auth_service.authenticate(payload.email, payload.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
-    tokens = auth_service.generate_tokens(user)
+    app_settings = await settings_service.get_all_settings()
+    tokens = auth_service.generate_tokens(
+        user,
+        access_token_minutes=int(app_settings["session_timeout"]),
+    )
 
     # Audit
     audit = AuditService(db)
@@ -87,7 +114,12 @@ async def refresh_token(
 ):
     """Refresh an expired access token."""
     auth_service = AuthService(db, redis)
-    tokens = await auth_service.refresh_tokens(payload.refresh_token)
+    settings_service = SettingsService(db)
+    app_settings = await settings_service.get_all_settings()
+    tokens = await auth_service.refresh_tokens(
+        payload.refresh_token,
+        access_token_minutes=int(app_settings["session_timeout"]),
+    )
     if not tokens:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

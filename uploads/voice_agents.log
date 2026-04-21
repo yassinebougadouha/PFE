@@ -1,0 +1,18 @@
+
+
+[2026-03-23T18:55:19.621277+00:00] Starting voice agents in 'start' mode
+Traceback (most recent call last):
+  File "/app/run_voice_agents.py", line 10, in <module>
+    from voice_agents.server import main
+  File "/app/voice_agents/server.py", line 25, in <module>
+    from livekit import agents, rtc
+ModuleNotFoundError: No module named 'livekit'
+
+
+[2026-03-23T19:09:22.138126+00:00] Starting voice agents in 'start' mode
+Traceback (most recent call last):
+  File "/app/run_voice_agents.py", line 10, in <module>
+    from voice_agents.server import main
+  File "/app/voice_agents/server.py", line 25, in <module>
+    from livekit import agents, rtc
+ModuleNotFoundError: No module named 'livekit'

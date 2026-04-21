@@ -17,7 +17,8 @@ Endpoints:
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Optional
+from datetime import datetime, timezone
+from typing import Any, Annotated, Optional
 
 from fastapi import (
     APIRouter, Depends, HTTPException, Query,
@@ -41,8 +42,16 @@ from app.visual_ai.schemas import (
     TimelineResponse,
     GuidanceRequest,
     GuidanceResponse,
+    ScreenShareAssistResponse,
+    ScreenShareRealtimeChunkResponse,
+    TroubleshootingWizardRequest,
+    TroubleshootingWizardResponse,
+    TroubleshootingWizardStep,
 )
+from app.schemas.support_call_screen_context import SupportCallScreenContextIngestRequest
+from app.services.support_call_screen_context import support_call_screen_context_store
 from app.visual_ai.service import VisualAIService
+from app.visual_ai.video_frames import extract_frames_from_video_bytes
 
 router = APIRouter(prefix="/visual-ai", tags=["Visual AI"])
 
@@ -51,6 +60,256 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 AnyUser = Annotated[User, Depends(require_any_authenticated)]
 AgentOrAdmin = Annotated[User, Depends(require_agent_or_admin)]
 Admin = Annotated[User, Depends(require_admin)]
+
+
+def _caption_suggests_visible_content(caption: str | None) -> bool:
+    normalized = (caption or "").strip().lower()
+    if not normalized:
+        return False
+
+    low_signal_markers = [
+        "black image",
+        "blank image",
+        "blank screen",
+        "nothing visible",
+        "no visible content",
+        "no discernible content",
+        "fully obscured",
+        "entirely obscured",
+    ]
+    return not any(marker in normalized for marker in low_signal_markers)
+
+
+def _get_preferred_screen_analysis_hint(
+    hints: list[str] | None,
+    caption: str | None,
+) -> str:
+    if not hints:
+        return ""
+
+    low_signal_frame_warning = next(
+        (
+            hint
+            for hint in hints
+            if (hint or "").strip().lower().startswith("the shared frame looks blank")
+            or (hint or "").strip().lower().startswith("the shared frame looks unreadable")
+        ),
+        None,
+    )
+
+    preferred_hint = next(
+        (
+            hint
+            for hint in hints
+            if (hint or "").strip()
+            and not (hint or "").strip().lower().startswith("processed ")
+            and not (hint or "").strip().lower().startswith("average ui transition score:")
+            and (hint or "").strip().lower() != (low_signal_frame_warning or "").strip().lower()
+        ),
+        None,
+    )
+
+    if preferred_hint:
+        return preferred_hint.strip()
+
+    if low_signal_frame_warning and _caption_suggests_visible_content(caption):
+        return ""
+
+    return (hints[0] or "").strip()
+
+
+def _build_support_call_analysis_text(result: dict[str, Any]) -> tuple[str, str | None, list[str]]:
+    final_frame = result.get("final_frame") or {}
+    caption = (final_frame.get("caption") or "").strip() or None
+    hints = [
+        hint.strip()
+        for hint in (result.get("assistance_hints") or [])
+        if isinstance(hint, str) and hint.strip()
+    ]
+    preferred_hint = _get_preferred_screen_analysis_hint(hints, caption)
+
+    if caption:
+        summary = f"The user is doing: {caption}"
+    else:
+        summary = "The user is interacting with the app interface."
+
+    analysis_text = f"{summary} {preferred_hint}".strip() if preferred_hint else summary
+    return analysis_text, caption, hints
+
+
+def _maybe_publish_support_call_context(
+    *,
+    room_name: str | None,
+    result: dict[str, Any],
+    capture_mode: str,
+    frame_number: int | None,
+    chunk_index: int | None,
+) -> None:
+    if not isinstance(room_name, str):
+        return
+
+    normalized_room = room_name.strip()
+    if not normalized_room:
+        return
+
+    analysis_text, caption, hints = _build_support_call_analysis_text(result)
+    if not analysis_text.strip():
+        return
+
+    payload = SupportCallScreenContextIngestRequest(
+        analysis_text=analysis_text,
+        caption=caption,
+        assistance_hints=hints,
+        frame_number=frame_number,
+        capture_mode=capture_mode,
+        recorded_at=datetime.now(timezone.utc),
+        session_id=normalized_room,
+        chunk_index=chunk_index,
+    )
+    support_call_screen_context_store.upsert(normalized_room, payload)
+
+
+def _compact_line(text: str | None, *, default: str = "", limit: int = 240) -> str:
+    compact = " ".join((text or "").split()).strip()
+    if not compact:
+        compact = default
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
+
+
+def _clean_string_list(values: list[str] | None, *, max_items: int = 8) -> list[str]:
+    if not values:
+        return []
+
+    cleaned: list[str] = []
+    for value in values:
+        item = _compact_line(value, default="", limit=180)
+        if not item:
+            continue
+        if item in cleaned:
+            continue
+        cleaned.append(item)
+        if len(cleaned) >= max_items:
+            break
+    return cleaned
+
+
+def _infer_wizard_risk_level(*, issue_summary: str, observed_text: str, attempted_actions: list[str]) -> str:
+    signal = " ".join([issue_summary, observed_text, " ".join(attempted_actions)]).lower()
+
+    high_markers = {
+        "error",
+        "exception",
+        "fail",
+        "failed",
+        "timeout",
+        "denied",
+        "forbidden",
+        "payment declined",
+        "security",
+        "locked",
+    }
+    if any(marker in signal for marker in high_markers):
+        return "high"
+
+    medium_markers = {
+        "not working",
+        "stuck",
+        "cannot",
+        "unable",
+        "incorrect",
+        "mismatch",
+    }
+    if len(attempted_actions) >= 2 or any(marker in signal for marker in medium_markers):
+        return "medium"
+
+    return "low"
+
+
+def _build_troubleshooting_steps(
+    *,
+    issue_summary: str,
+    goal: str,
+    observed_caption: str,
+    attempted_actions: list[str],
+    context_hints: list[str],
+    max_steps: int,
+) -> list[TroubleshootingWizardStep]:
+    attempted_text = ", ".join(attempted_actions) if attempted_actions else "no prior actions captured"
+    hints_text = ", ".join(context_hints[:3]) if context_hints else "no extra context hints"
+
+    steps_data = [
+        {
+            "title": "Align on the exact target flow",
+            "why": "Misaligned goals are a common source of repeated troubleshooting loops.",
+            "instructions": [
+                f"Confirm the user goal in one sentence: {goal}.",
+                f"Restate the observed issue: {issue_summary}.",
+                "Keep the user on the relevant page before trying fixes.",
+            ],
+            "expected_signal": "Agent and user agree on one reproducible issue path.",
+            "if_not_seen": "Pause remediation and clarify the expected outcome before continuing.",
+        },
+        {
+            "title": "Validate visible UI state",
+            "why": "Current screen state determines whether remediation should target navigation, data entry, or backend state.",
+            "instructions": [
+                f"Use caption evidence: {observed_caption}.",
+                f"Cross-check with context hints: {hints_text}.",
+                "Ask the user to keep the problem area visible while you inspect cues.",
+            ],
+            "expected_signal": "UI cues match the stage where the issue is expected to occur.",
+            "if_not_seen": "Navigate back to the last confirmed good step and re-open this flow.",
+        },
+        {
+            "title": "Verify prerequisites before retry",
+            "why": "Many failures come from missing permissions, stale sessions, or incomplete required fields.",
+            "instructions": [
+                "Check account/session status and required input fields.",
+                "Confirm environment assumptions (role, workspace, selected item).",
+                f"Record what has already been attempted: {attempted_text}.",
+            ],
+            "expected_signal": "All prerequisites are validated and documented.",
+            "if_not_seen": "Fix prerequisite gaps first, then retry the user flow.",
+        },
+        {
+            "title": "Apply the smallest corrective action",
+            "why": "Small, isolated fixes reduce side effects and make root cause easier to confirm.",
+            "instructions": [
+                "Perform one controlled fix (refresh, field correction, or targeted configuration update).",
+                "Avoid batching multiple changes in a single attempt.",
+                "Immediately retry the failing step after each change.",
+            ],
+            "expected_signal": "Issue either resolves or changes in a way that narrows the diagnosis.",
+            "if_not_seen": "Roll back to known-good state and escalate with captured evidence.",
+        },
+        {
+            "title": "Confirm outcome and customer impact",
+            "why": "A technical fix is only complete when user impact is verified.",
+            "instructions": [
+                "Ask the user to repeat the original action end-to-end.",
+                "Confirm expected result and note any residual friction.",
+                "Capture concise proof points for the support record.",
+            ],
+            "expected_signal": "User can complete the target flow without the original blocker.",
+            "if_not_seen": "Create a linked escalation ticket with summary and reproduction notes.",
+        },
+    ]
+
+    steps: list[TroubleshootingWizardStep] = []
+    for index, item in enumerate(steps_data[:max_steps], start=1):
+        steps.append(
+            TroubleshootingWizardStep(
+                step_number=index,
+                title=item["title"],
+                why=item["why"],
+                instructions=item["instructions"],
+                expected_signal=item["expected_signal"],
+                if_not_seen=item["if_not_seen"],
+            )
+        )
+    return steps
 
 
 # ═══════════════════════════════════════════════════════════
@@ -388,6 +647,71 @@ async def generate_guidance(
     return guidance
 
 
+@router.post(
+    "/troubleshooting/wizard",
+    response_model=TroubleshootingWizardResponse,
+    summary="Generate a step-by-step troubleshooting wizard",
+)
+async def generate_troubleshooting_wizard(
+    payload: TroubleshootingWizardRequest,
+    user: AnyUser,
+):
+    """Generate a guided troubleshooting sequence from current visual context."""
+    del user
+
+    issue_summary = _compact_line(payload.issue_summary, default=payload.goal, limit=500)
+    observed_caption = _compact_line(
+        payload.observed_screen_caption,
+        default="Current screen state is partially known.",
+        limit=500,
+    )
+    observed_text = _compact_line(payload.observed_text, default="", limit=1500)
+    attempted_actions = _clean_string_list(payload.user_actions_attempted, max_items=6)
+    context_hints = _clean_string_list(payload.context_hints, max_items=6)
+
+    risk_level = _infer_wizard_risk_level(
+        issue_summary=issue_summary,
+        observed_text=observed_text,
+        attempted_actions=attempted_actions,
+    )
+    steps = _build_troubleshooting_steps(
+        issue_summary=issue_summary,
+        goal=_compact_line(payload.goal, default="Resolve the support issue", limit=240),
+        observed_caption=observed_caption,
+        attempted_actions=attempted_actions,
+        context_hints=context_hints,
+        max_steps=payload.max_steps,
+    )
+
+    diagnosis = _compact_line(
+        f"Likely friction in the '{payload.goal}' workflow. "
+        f"Observed state: {observed_caption}. "
+        f"Issue focus: {issue_summary}.",
+        default="The issue requires guided validation across UI state and user workflow.",
+        limit=700,
+    )
+
+    escalation_hint = (
+        "Escalate with screenshot evidence, observed error text, and attempted actions "
+        "if the issue persists after completing the wizard steps."
+    )
+
+    estimated_time_minutes = len(steps) * 3
+    if risk_level == "medium":
+        estimated_time_minutes += 2
+    elif risk_level == "high":
+        estimated_time_minutes += 4
+
+    return TroubleshootingWizardResponse(
+        issue_summary=issue_summary,
+        diagnosis=diagnosis,
+        risk_level=risk_level,
+        estimated_time_minutes=estimated_time_minutes,
+        steps=steps,
+        escalation_hint=escalation_hint,
+    )
+
+
 # ═══════════════════════════════════════════════════════════
 #  Full Pipeline Endpoint
 # ═══════════════════════════════════════════════════════════
@@ -476,3 +800,265 @@ async def process_screenshot(
         response["guidance"] = result["guidance"]
 
     return response
+
+
+@router.post(
+    "/screenshare/assist",
+    response_model=ScreenShareAssistResponse,
+    summary="Screenshare assistance from low-FPS sampled frames",
+)
+async def screenshare_assist(
+    db: DB,
+    user: AnyUser,
+    frames: list[UploadFile] = File(..., description="Ordered frame images from screen recording"),
+    consent: bool = Form(..., description="User must consent to screen recording analysis"),
+    source_fps: float = Form(8.0, description="Original capture FPS before downsampling"),
+    target_fps: float = Form(1.0, description="Low FPS to process for assistance"),
+    provider: Optional[str] = Form(None, description="Provider for OCR/UI analysis"),
+    reference_key: Optional[str] = Form(None, description="Optional reference screen key"),
+    use_gemini_embeddings: Optional[bool] = Form(None, description="Override embedding toggle for this request"),
+    support_call_room_name: Optional[str] = Form(
+        None,
+        description="Optional support-call room name to publish live context for voice agents",
+    ),
+    frame_number: Optional[int] = Form(None, ge=1, description="Frame number for voice-agent context publishing"),
+    chunk_index: Optional[int] = Form(None, ge=1, description="Chunk/frame sequence number for voice-agent context"),
+):
+    """Accept frame sequence, downsample to low FPS, embed, and return assistance hints."""
+    if not consent:
+        raise HTTPException(status_code=400, detail="Screen recording analysis requires user consent")
+
+    if source_fps <= 0 or target_fps <= 0:
+        raise HTTPException(status_code=400, detail="source_fps and target_fps must be positive")
+
+    allowed_types = {"image/png", "image/jpeg", "image/webp", "image/bmp"}
+    frame_payload: list[tuple[bytes, str]] = []
+    for frame in frames:
+        mime_type = (frame.content_type or "image/png").lower()
+        if mime_type not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported frame type: {mime_type}",
+            )
+        data = await frame.read()
+        if not data:
+            continue
+        frame_payload.append((data, mime_type))
+
+    if not frame_payload:
+        raise HTTPException(status_code=400, detail="No non-empty frames provided")
+
+    svc = VisualAIService(db)
+    try:
+        result = await svc.analyze_screenshare_frames(
+            frames=frame_payload,
+            source_fps=source_fps,
+            target_fps=target_fps,
+            provider_name=provider,
+            reference_key=reference_key,
+            use_gemini_embeddings=use_gemini_embeddings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _maybe_publish_support_call_context(
+        room_name=support_call_room_name,
+        result=result,
+        capture_mode="frame",
+        frame_number=frame_number or chunk_index,
+        chunk_index=chunk_index,
+    )
+
+    return result
+
+
+@router.post(
+    "/screenshare/assist-video",
+    response_model=ScreenShareAssistResponse,
+    summary="Screenshare assistance from a single uploaded video",
+)
+async def screenshare_assist_video(
+    db: DB,
+    user: AnyUser,
+    file: UploadFile = File(..., description="Screen recording video"),
+    consent: bool = Form(..., description="User must consent to screen recording analysis"),
+    target_fps: Optional[float] = Form(None, description="Low FPS to process for assistance"),
+    provider: Optional[str] = Form(None, description="Provider for OCR/UI analysis"),
+    reference_key: Optional[str] = Form(None, description="Optional reference screen key"),
+    use_gemini_embeddings: Optional[bool] = Form(None, description="Override embedding toggle for this request"),
+    support_call_room_name: Optional[str] = Form(
+        None,
+        description="Optional support-call room name to publish live context for voice agents",
+    ),
+    chunk_index: Optional[int] = Form(None, ge=1, description="Video chunk sequence number for voice-agent context"),
+):
+    """Accept a video, extract low-FPS frames server-side, and run screenshare assistance."""
+    if not consent:
+        raise HTTPException(status_code=400, detail="Screen recording analysis requires user consent")
+
+    allowed_video_types = {
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+        "video/x-matroska",
+    }
+    mime_type = (file.content_type or "").lower()
+    if mime_type not in allowed_video_types:
+        raise HTTPException(status_code=400, detail=f"Unsupported video type: {mime_type}")
+
+    video_bytes = await file.read()
+    if not video_bytes:
+        raise HTTPException(status_code=400, detail="Empty video file")
+
+    from app.core.config import get_settings
+    settings = get_settings()
+    max_bytes = int(settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB) * 1024 * 1024
+    if len(video_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Video file too large: {len(video_bytes)} bytes exceeds max "
+                f"{settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB} MB"
+            ),
+        )
+
+    effective_target_fps = target_fps if target_fps is not None else settings.VISUAL_SCREENSHARE_TARGET_FPS
+    if effective_target_fps <= 0:
+        raise HTTPException(status_code=400, detail="target_fps must be positive")
+
+    try:
+        frames, source_fps = extract_frames_from_video_bytes(
+            video_bytes,
+            mime_type=mime_type,
+            target_fps=effective_target_fps,
+            max_frames=settings.VISUAL_SCREENSHARE_MAX_FRAMES,
+            max_duration_seconds=settings.VISUAL_SCREENSHARE_MAX_VIDEO_DURATION_SECONDS,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    svc = VisualAIService(db)
+    try:
+        result = await svc.analyze_screenshare_frames(
+            frames=frames,
+            source_fps=source_fps,
+            target_fps=effective_target_fps,
+            provider_name=provider,
+            reference_key=reference_key,
+            use_gemini_embeddings=use_gemini_embeddings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _maybe_publish_support_call_context(
+        room_name=support_call_room_name,
+        result=result,
+        capture_mode="chunk",
+        frame_number=chunk_index,
+        chunk_index=chunk_index,
+    )
+
+    return result
+
+
+@router.post(
+    "/screenshare/assist-realtime-chunk",
+    response_model=ScreenShareRealtimeChunkResponse,
+    summary="Realtime screenshare assistance from a short video chunk",
+)
+async def screenshare_assist_realtime_chunk(
+    db: DB,
+    user: AnyUser,
+    consent: bool = Form(..., description="User must consent to screen recording analysis"),
+    session_id: str = Form(..., description="Client-side screenshare session id"),
+    chunk_index: int = Form(1, ge=1, description="1-based chunk sequence number"),
+    target_fps: Optional[float] = Form(None, description="Low FPS to process for assistance"),
+    provider: Optional[str] = Form(None, description="Provider for OCR/UI analysis"),
+    reference_key: Optional[str] = Form(None, description="Optional reference screen key"),
+    use_gemini_embeddings: Optional[bool] = Form(None, description="Override embedding toggle for this request"),
+    support_call_room_name: Optional[str] = Form(
+        None,
+        description="Optional support-call room name to publish live context for voice agents",
+    ),
+    file: Optional[UploadFile] = File(None, description="Screen recording chunk video"),
+    video: Optional[UploadFile] = File(None, description="Alias for screen recording chunk video"),
+):
+    """Accept a short screenshare chunk and return a realtime analysis packet."""
+    if not consent:
+        raise HTTPException(status_code=400, detail="Screen recording analysis requires user consent")
+
+    if not session_id.strip():
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    upload = file or video
+    if upload is None:
+        raise HTTPException(status_code=400, detail="No video chunk was uploaded")
+
+    allowed_video_types = {
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+        "video/x-matroska",
+    }
+    mime_type = (upload.content_type or "").lower()
+    if mime_type not in allowed_video_types:
+        raise HTTPException(status_code=400, detail=f"Unsupported video type: {mime_type}")
+
+    video_bytes = await upload.read()
+    if not video_bytes:
+        raise HTTPException(status_code=400, detail="Empty video file")
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    max_bytes = int(settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB) * 1024 * 1024
+    if len(video_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Video file too large: {len(video_bytes)} bytes exceeds max "
+                f"{settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB} MB"
+            ),
+        )
+
+    effective_target_fps = target_fps if target_fps is not None else settings.VISUAL_SCREENSHARE_TARGET_FPS
+    if effective_target_fps <= 0:
+        raise HTTPException(status_code=400, detail="target_fps must be positive")
+
+    try:
+        frames, source_fps = extract_frames_from_video_bytes(
+            video_bytes,
+            mime_type=mime_type,
+            target_fps=effective_target_fps,
+            max_frames=settings.VISUAL_SCREENSHARE_MAX_FRAMES,
+            max_duration_seconds=settings.VISUAL_SCREENSHARE_MAX_VIDEO_DURATION_SECONDS,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    svc = VisualAIService(db)
+    try:
+        result = await svc.analyze_screenshare_frames(
+            frames=frames,
+            source_fps=source_fps,
+            target_fps=effective_target_fps,
+            provider_name=provider,
+            reference_key=reference_key,
+            use_gemini_embeddings=use_gemini_embeddings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    _maybe_publish_support_call_context(
+        room_name=support_call_room_name,
+        result=result,
+        capture_mode="chunk",
+        frame_number=chunk_index,
+        chunk_index=chunk_index,
+    )
+
+    return {
+        **result,
+        "session_id": session_id,
+        "chunk_index": chunk_index,
+    }

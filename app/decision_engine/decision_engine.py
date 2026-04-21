@@ -19,7 +19,8 @@ from app.db.models.ticket import Ticket
 from app.db.models.enums import TicketStatus, TicketPriority
 from app.decision_engine.classifier import classify_text
 from app.decision_engine.scorer import assess_risk
-from app.decision_engine.rules import apply_rules
+from app.decision_engine.rules import apply_rules, DecisionRuleConfig
+from app.decision_engine.config import load_runtime_config, DecisionEngineRuntimeConfig
 from app.decision_engine.router_engine import find_best_agent
 from app.decision_engine.response_suggester import get_response_suggestions
 from app.decision_engine.escalation import build_escalation_package
@@ -66,10 +67,19 @@ async def analyze_ticket(
     """
     logger.info(f"Analyzing ticket {ticket.id}: {ticket.subject}")
 
+    runtime_config = await load_runtime_config(db)
+    rule_config = DecisionRuleConfig(
+        enforce_critical_escalation=runtime_config.enforce_critical_escalation,
+        enforce_security_escalation=runtime_config.enforce_security_escalation,
+        low_confidence_general_suggest=runtime_config.low_confidence_general_suggest,
+    )
+
     # ── Step 1: Classify intent ───────────────────────
     classification: ClassificationResult = classify_text(
         text=ticket.description,
         subject=ticket.subject,
+        high_confidence_threshold=runtime_config.confidence_high_threshold,
+        medium_confidence_threshold=runtime_config.confidence_medium_threshold,
     )
     logger.info(
         f"Classification: {classification.intent_category.value} "
@@ -84,6 +94,11 @@ async def analyze_ticket(
         classification=classification,
         existing_priority=ticket.priority,
         has_escalation_flag=ticket.escalation_flag,
+        critical_threshold=runtime_config.risk_critical_threshold,
+        high_threshold=runtime_config.risk_high_threshold,
+        medium_threshold=runtime_config.risk_medium_threshold,
+        low_confidence_risk_boost=runtime_config.low_confidence_risk_boost,
+        medium_confidence_risk_boost=runtime_config.medium_confidence_risk_boost,
     )
     logger.info(
         f"Risk: score={risk.risk_score:.3f}, level={risk.risk_level.value}, "
@@ -95,6 +110,7 @@ async def analyze_ticket(
         confidence_level=classification.confidence_level,
         risk_level=risk.risk_level,
         category=classification.intent_category,
+        rule_config=rule_config,
     )
     logger.info(f"Decision outcome: {outcome.value} (rules: {matched_rules})")
 
@@ -199,21 +215,53 @@ async def analyze_ticket(
     )
 
 
-def analyze_text_only(text: str, subject: str = "") -> DecisionResult:
+def analyze_text_only(
+    text: str,
+    subject: str = "",
+    runtime_config: DecisionEngineRuntimeConfig | None = None,
+) -> DecisionResult:
     """
     Analyze free text without a ticket (no DB operations).
     Useful for preview / testing classification.
     """
-    classification = classify_text(text=text, subject=subject)
+    config = runtime_config or DecisionEngineRuntimeConfig(
+        confidence_high_threshold=0.7,
+        confidence_medium_threshold=0.4,
+        risk_critical_threshold=0.7,
+        risk_high_threshold=0.5,
+        risk_medium_threshold=0.3,
+        low_confidence_risk_boost=0.08,
+        medium_confidence_risk_boost=0.03,
+        enforce_security_escalation=True,
+        enforce_critical_escalation=True,
+        low_confidence_general_suggest=True,
+    )
+
+    classification = classify_text(
+        text=text,
+        subject=subject,
+        high_confidence_threshold=config.confidence_high_threshold,
+        medium_confidence_threshold=config.confidence_medium_threshold,
+    )
     risk = assess_risk(
         text=text,
         subject=subject,
         classification=classification,
+        critical_threshold=config.risk_critical_threshold,
+        high_threshold=config.risk_high_threshold,
+        medium_threshold=config.risk_medium_threshold,
+        low_confidence_risk_boost=config.low_confidence_risk_boost,
+        medium_confidence_risk_boost=config.medium_confidence_risk_boost,
     )
     outcome, matched_rules = apply_rules(
         confidence_level=classification.confidence_level,
         risk_level=risk.risk_level,
         category=classification.intent_category,
+        rule_config=DecisionRuleConfig(
+            enforce_critical_escalation=config.enforce_critical_escalation,
+            enforce_security_escalation=config.enforce_security_escalation,
+            low_confidence_general_suggest=config.low_confidence_general_suggest,
+        ),
     )
     suggestions = get_response_suggestions(
         category=classification.intent_category,

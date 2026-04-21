@@ -23,16 +23,17 @@ class GeminiProvider(BaseProvider):
     """Google Gemini provider using the REST API (no SDK dependency)."""
 
     provider = AIProvider.GEMINI
-    default_model = "gemini-2.0-flash"
+    default_model = "gemini-2.5-flash-lite"
     available_models = [
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash-lite",
     ]
 
     def __init__(self) -> None:
         settings = get_settings()
         self.api_key: str = getattr(settings, "GEMINI_API_KEY", "")
+        self.default_model = getattr(settings, "GEMINI_RESPONSE_MODEL", self.default_model) or self.default_model
 
     @property
     def _is_configured(self) -> bool:

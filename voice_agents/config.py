@@ -47,6 +47,10 @@ class VoiceAgentSettings:
     backend_api_url: str = "http://localhost:8000"
     internal_service_key: str = "change-me-internal-key"
 
+    # ── Recording & Transcript ───────────────────────────
+    voice_recordings_dir: str = "recordings"
+    database_url: str = ""
+
 
 def _bool(val: str | None) -> bool:
     return (val or "").strip().lower() in ("true", "1", "yes")
@@ -61,6 +65,10 @@ def get_voice_settings() -> VoiceAgentSettings:
     # Try loading from both .env files (project root + voice-agents-specific)
     load_dotenv(".env", override=False)
     load_dotenv(".env.local", override=True)
+
+    # Avoid SDK ambiguity warnings when both keys are present.
+    if os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
+        os.environ.pop("GEMINI_API_KEY", None)
 
     # Ensure GOOGLE_API_KEY is set for the Google SDK if only GEMINI_API_KEY is defined
     if not os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
@@ -80,4 +88,6 @@ def get_voice_settings() -> VoiceAgentSettings:
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         backend_api_url=os.getenv("BACKEND_API_URL", "http://localhost:8000"),
         internal_service_key=os.getenv("INTERNAL_SERVICE_KEY", "change-me-internal-key"),
+        voice_recordings_dir=os.getenv("VOICE_RECORDINGS_DIR", "recordings"),
+        database_url=os.getenv("DATABASE_URL", ""),
     )

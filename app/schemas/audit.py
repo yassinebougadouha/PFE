@@ -29,3 +29,7 @@ class AuditLogResponse(BaseModel):
 class AuditLogListResponse(BaseModel):
     logs: list[AuditLogResponse]
     total: int
+
+
+class AuditClearRequest(BaseModel):
+    confirmation: str

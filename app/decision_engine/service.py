@@ -36,19 +36,26 @@ class DecisionService:
 
     async def get_decision_history(
         self,
-        ticket_id: uuid.UUID,
+        ticket_id: Optional[uuid.UUID] = None,
         skip: int = 0,
         limit: int = 20,
     ) -> DecisionHistoryResponse:
-        """Get all decision logs for a ticket."""
-        count_q = select(func.count(DecisionLog.id)).where(
-            DecisionLog.ticket_id == ticket_id,
-        )
+        """Get decision logs, optionally filtered by ticket."""
+        filters = []
+        if ticket_id is not None:
+            filters.append(DecisionLog.ticket_id == ticket_id)
+
+        count_q = select(func.count(DecisionLog.id))
+        if filters:
+            count_q = count_q.where(and_(*filters))
         total = (await self.db.execute(count_q)).scalar() or 0
 
+        query = select(DecisionLog)
+        if filters:
+            query = query.where(and_(*filters))
+
         query = (
-            select(DecisionLog)
-            .where(DecisionLog.ticket_id == ticket_id)
+            query
             .order_by(DecisionLog.created_at.desc())
             .offset(skip)
             .limit(limit)

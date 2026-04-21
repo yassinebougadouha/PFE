@@ -7,6 +7,6 @@ Usage:
     python run_voice_agents.py start      # production (requires LiveKit server)
 """
 
-from voice_agents.server import main
-
-main()
+if __name__ == "__main__":
+    from voice_agents.server import main
+    main()

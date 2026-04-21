@@ -10,10 +10,12 @@ Instantiated per-request in route handlers:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Optional
 
+import numpy as np
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -31,8 +33,141 @@ from app.visual_ai.screenshot_store import save_screenshot, read_screenshot
 from app.visual_ai.gap_detector import detect_gap
 from app.visual_ai import timeline as timeline_mod
 from app.visual_ai import guidance as guidance_mod
+from app.visual_ai.gemini_embeddings import embed_image_with_gemini
 
 logger = logging.getLogger(__name__)
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    a_arr = np.array(a, dtype=np.float32)
+    b_arr = np.array(b, dtype=np.float32)
+    if a_arr.size == 0 or b_arr.size == 0:
+        return 0.0
+    denom = np.linalg.norm(a_arr) * np.linalg.norm(b_arr)
+    if denom == 0:
+        return 0.0
+    return float(np.dot(a_arr, b_arr) / denom)
+
+
+def _mean_embedding(vectors: list[list[float]]) -> list[float]:
+    if not vectors:
+        return []
+    arr = np.array(vectors, dtype=np.float32)
+    mean_vec = arr.mean(axis=0)
+    norm = np.linalg.norm(mean_vec)
+    if norm == 0:
+        return mean_vec.tolist()
+    return (mean_vec / norm).tolist()
+
+
+def _truncate_single_line(text: str, limit: int = 160) -> str:
+    compact = " ".join((text or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1].rstrip() + "…"
+
+
+def _frame_looks_uninformative(
+    *,
+    caption: str,
+    ocr_text: str,
+    labels: list[str],
+    element_count: int,
+) -> bool:
+    """
+    Detect truly blank/unreadable frames based on EXPLICIT provider signals.
+    
+    Only mark as uninformative if:
+    1. Caption explicitly says frame is blank/dark/obstructed
+    2. AND there's no contradicting content signal (text, labels, elements)
+    
+    Do NOT infer "blank" from missing caption alone—that's likely a timeout
+    or temporary analysis failure, not a blank frame.
+    """
+    normalized = (caption or "").strip().lower()
+    has_visible_content_signal = bool((ocr_text or "").strip()) or bool(labels) or element_count > 0
+    
+    # If caption is empty, don't assume the frame is blank (likely a timeout)
+    if not normalized:
+        return False
+    
+    # Caption explicitly says frame is blank
+    blank_markers = (
+        "completely black",
+        "black image",
+        "blank image",
+        "blank screen",
+        "nothing visible",
+        "no visible content",
+        "no discernible content",
+        "entirely obscured",
+        "fully obscured",
+    )
+    if any(marker in normalized for marker in blank_markers):
+        # But trust content signals over caption
+        return not has_visible_content_signal
+    
+    # Caption explicitly says frame is unreadable/dark
+    unreadable_markers = (
+        "dark image",
+        "dark screen",
+        "too dark to read",
+        "badly occluded",
+        "obstructed",
+    )
+    if any(marker in normalized for marker in unreadable_markers):
+        return not has_visible_content_signal
+    
+    # No explicit blank/dark signal in caption → frame looks informative
+    return False
+
+
+def _build_screenshare_assistance_hints(
+    *,
+    final_caption: str,
+    final_ocr_text: str,
+    final_labels: list[str],
+    final_element_count: int,
+    processed_frames: int,
+    uploaded_frames: int,
+    avg_transition: float,
+    max_transition: float,
+    ref_similarity: Optional[float],
+) -> list[str]:
+    hints: list[str] = []
+
+    if _frame_looks_uninformative(
+        caption=final_caption,
+        ocr_text=final_ocr_text,
+        labels=final_labels,
+        element_count=final_element_count,
+    ):
+        hints.append(
+            "The shared frame looks blank or obstructed. Keep the target app visible and avoid sharing the live call page itself."
+        )
+
+    preview_text = _truncate_single_line(final_ocr_text, limit=140)
+    if preview_text:
+        hints.append(f"Visible text includes: {preview_text}.")
+    elif final_labels:
+        label_preview = ", ".join(label for label in final_labels[:4] if label)
+        if label_preview:
+            hints.append(f"Visible interface cues include: {label_preview}.")
+    elif final_element_count > 0:
+        hints.append(
+            f"Detected about {final_element_count} visible interface element"
+            f"{'' if final_element_count == 1 else 's'} in the latest frame."
+        )
+
+    if max_transition > 0.45:
+        hints.append("A noticeable UI change just happened, so the user may be navigating or opening a new step.")
+
+    if ref_similarity is not None:
+        hints.append(f"Reference similarity: {ref_similarity:.3f}.")
+
+    hints.append(f"Processed {processed_frames} low-FPS frames (from {uploaded_frames} uploaded).")
+    hints.append(f"Average UI transition score: {avg_transition:.3f}.")
+    return hints
 
 
 class VisualAIService:
@@ -476,3 +611,226 @@ class VisualAIService:
             )
 
         return guidance_mod.generate_rule_guidance(gap_result)
+
+    # ══════════════════════════════════════════════════════
+    #  Screenshare Assistance (low-FPS frame sequence)
+    # ══════════════════════════════════════════════════════
+
+    @staticmethod
+    def sample_frames_low_fps(
+        frames: list[tuple[bytes, str]],
+        source_fps: float,
+        target_fps: float,
+        max_frames: int,
+    ) -> list[tuple[bytes, str]]:
+        """Downsample a frame list to target FPS and cap processed frame count."""
+        if not frames:
+            return []
+
+        src = max(source_fps, 0.1)
+        tgt = max(target_fps, 0.1)
+        stride = max(1, int(round(src / tgt)))
+
+        sampled = frames[::stride]
+        if len(sampled) > max_frames:
+            sampled = sampled[:max_frames]
+
+        return sampled
+
+    async def analyze_screenshare_frames(
+        self,
+        *,
+        frames: list[tuple[bytes, str]],
+        source_fps: float,
+        target_fps: float,
+        provider_name: Optional[str] = None,
+        reference_key: Optional[str] = None,
+        use_gemini_embeddings: Optional[bool] = None,
+    ) -> dict:
+        """Analyze low-FPS sampled screenshare frames for guidance support."""
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        if not frames:
+            raise ValueError("No frames were provided")
+
+        sampled = self.sample_frames_low_fps(
+            frames,
+            source_fps=source_fps,
+            target_fps=target_fps,
+            max_frames=max(1, int(settings.VISUAL_SCREENSHARE_MAX_FRAMES)),
+        )
+        if not sampled:
+            raise ValueError("No frames remained after low-FPS sampling")
+
+        use_gemini = (
+            settings.VISUAL_SCREENSHARE_USE_GEMINI_EMBEDDINGS
+            if use_gemini_embeddings is None
+            else bool(use_gemini_embeddings)
+        )
+        provider_step_timeout_seconds = max(
+            0.5,
+            float(getattr(settings, "VISUAL_SCREENSHARE_PROVIDER_STEP_TIMEOUT_SECONDS", 8.0)),
+        )
+        provider_embedding_timeout_seconds = max(
+            0.5,
+            float(
+                getattr(
+                    settings,
+                    "VISUAL_SCREENSHARE_PROVIDER_EMBEDDING_TIMEOUT_SECONDS",
+                    provider_step_timeout_seconds,
+                )
+            ),
+        )
+
+        provider = get_visual_provider(provider_name)
+        vectors: list[list[float]] = []
+        embedding_backend = provider.provider_name
+        gemini_failed = False
+
+        if use_gemini:
+            try:
+                for image_bytes, mime_type in sampled:
+                    vec = embed_image_with_gemini(
+                        image_bytes,
+                        mime_type=mime_type,
+                        output_dimensionality=settings.VISUAL_SCREENSHARE_EMBEDDING_DIMENSION,
+                    )
+                    vectors.append(vec)
+                embedding_backend = "gemini"
+            except Exception as exc:
+                gemini_failed = True
+                vectors = []
+                logger.warning(
+                    "Gemini screenshare embeddings failed; falling back to %s embeddings: %s",
+                    provider.provider_name,
+                    exc,
+                )
+
+        if not vectors:
+            for idx, (image_bytes, _mime_type) in enumerate(sampled, start=1):
+                try:
+                    vec = await asyncio.wait_for(
+                        provider.encode_embedding(image_bytes),
+                        timeout=provider_embedding_timeout_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Provider embeddings timed out for sampled frame %s/%s after %.1fs",
+                        idx,
+                        len(sampled),
+                        provider_embedding_timeout_seconds,
+                    )
+                    continue
+                except Exception as exc:
+                    logger.warning(
+                        "Provider embeddings failed for sampled frame %s/%s: %s",
+                        idx,
+                        len(sampled),
+                        exc,
+                    )
+                    continue
+                vectors.append(vec)
+
+        if use_gemini and gemini_failed and vectors:
+            embedding_backend = f"{provider.provider_name} (gemini-fallback)"
+        elif not vectors:
+            embedding_backend = "unavailable"
+
+        transition_scores: list[float] = []
+        for i in range(1, len(vectors)):
+            transition_scores.append(1.0 - _cosine(vectors[i - 1], vectors[i]))
+
+        avg_transition = float(np.mean(transition_scores)) if transition_scores else 0.0
+        max_transition = float(np.max(transition_scores)) if transition_scores else 0.0
+
+        # Run final-frame OCR/UI analysis for actionable hints.
+        # Avoid forcing a full embedding pass here so realtime chunks remain resilient
+        # even when local embedding backends are unavailable.
+        final_bytes, _final_mime = sampled[-1]
+        final_ocr_text = ""
+        final_caption = ""
+        final_element_count = 0
+        final_labels: list[str] = []
+
+        try:
+            final_ocr = await asyncio.wait_for(
+                provider.extract_ocr(final_bytes),
+                timeout=provider_step_timeout_seconds,
+            )
+            final_ocr_text = (final_ocr.text or "").strip()
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Final-frame OCR timed out during screenshare analysis after %.1fs",
+                provider_step_timeout_seconds,
+            )
+        except Exception as exc:
+            logger.warning("Final-frame OCR failed during screenshare analysis: %s", exc)
+
+        try:
+            final_ui = await asyncio.wait_for(
+                provider.analyze_ui(final_bytes),
+                timeout=provider_step_timeout_seconds,
+            )
+            final_caption = (final_ui.caption or "").strip()
+            final_element_count = len(final_ui.elements or [])
+            final_labels = final_ui.labels or []
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Final-frame UI analysis timed out during screenshare analysis after %.1fs",
+                provider_step_timeout_seconds,
+            )
+        except Exception as exc:
+            logger.warning("Final-frame UI analysis failed during screenshare analysis: %s", exc)
+
+        aggregate = _mean_embedding(vectors)
+
+        ref_similarity = None
+        if reference_key:
+            ref = await self._get_reference(reference_key=reference_key)
+            if ref and ref.embedding is not None and aggregate:
+                ref_vec = list(ref.embedding)
+                if len(ref_vec) == len(aggregate):
+                    ref_similarity = _cosine(aggregate, ref_vec)
+
+        assistance = _build_screenshare_assistance_hints(
+            final_caption=final_caption,
+            final_ocr_text=final_ocr_text,
+            final_labels=final_labels,
+            final_element_count=final_element_count,
+            processed_frames=len(sampled),
+            uploaded_frames=len(frames),
+            avg_transition=avg_transition,
+            max_transition=max_transition,
+            ref_similarity=ref_similarity,
+        )
+        if not vectors:
+            assistance.insert(
+                0,
+                "Embedding analysis is temporarily unavailable right now, but live OCR and UI hints are still provided.",
+            )
+        elif use_gemini and gemini_failed:
+            assistance.insert(
+                0,
+                "Gemini embeddings were temporarily unavailable, so fallback embeddings were used to keep analysis running.",
+            )
+
+        return {
+            "source_fps": source_fps,
+            "target_fps": target_fps,
+            "uploaded_frames": len(frames),
+            "processed_frames": len(sampled),
+            "embedding_backend": embedding_backend,
+            "embedding_dimension": len(vectors[0]) if vectors else 0,
+            "avg_transition_score": round(avg_transition, 4),
+            "max_transition_score": round(max_transition, 4),
+            "reference_similarity": round(ref_similarity, 4) if ref_similarity is not None else None,
+            "final_frame": {
+                "provider": provider.provider_name,
+                "caption": final_caption,
+                "ocr_text_preview": final_ocr_text[:500],
+                "element_count": final_element_count,
+                "labels": final_labels,
+            },
+            "assistance_hints": assistance,
+        }

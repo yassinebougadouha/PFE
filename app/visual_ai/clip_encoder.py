@@ -25,7 +25,8 @@ def _get_clip_model(model_name: str = "clip-ViT-B-32"):
 
     logger.info("Loading CLIP model: %s (this may take a moment on first run)", model_name)
     model = SentenceTransformer(model_name)
-    logger.info("CLIP model loaded, embedding dim=%d", model.get_sentence_embedding_dimension())
+    embedding_dim = model.get_sentence_embedding_dimension()
+    logger.info("CLIP model loaded, embedding dim=%s", embedding_dim if embedding_dim is not None else "unknown")
     return model
 
 

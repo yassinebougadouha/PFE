@@ -84,6 +84,11 @@ def assess_risk(
     classification: ClassificationResult,
     existing_priority: TicketPriority = TicketPriority.MEDIUM,
     has_escalation_flag: bool = False,
+    critical_threshold: float = 0.7,
+    high_threshold: float = 0.5,
+    medium_threshold: float = 0.3,
+    low_confidence_risk_boost: float = 0.08,
+    medium_confidence_risk_boost: float = 0.03,
 ) -> RiskAssessment:
     """
     Compute a risk score (0.0–1.0) based on text analysis and context.
@@ -164,30 +169,30 @@ def assess_risk(
 
     # 9. Low confidence amplifies risk
     if classification.confidence_level == ConfidenceLevel.LOW:
-        risk_score += 0.08
+        risk_score += low_confidence_risk_boost
         risk_factors.append("Low classification confidence increases uncertainty")
     elif classification.confidence_level == ConfidenceLevel.MEDIUM:
-        risk_score += 0.03
+        risk_score += medium_confidence_risk_boost
 
     # Clamp to [0.0, 1.0]
     risk_score = round(min(max(risk_score, 0.0), 1.0), 3)
 
     # Determine risk level
-    if risk_score >= 0.7:
+    if risk_score >= critical_threshold:
         risk_level = RiskLevel.CRITICAL
-    elif risk_score >= 0.5:
+    elif risk_score >= high_threshold:
         risk_level = RiskLevel.HIGH
-    elif risk_score >= 0.3:
+    elif risk_score >= medium_threshold:
         risk_level = RiskLevel.MEDIUM
     else:
         risk_level = RiskLevel.LOW
 
     # Suggest priority based on risk
-    if risk_score >= 0.7:
+    if risk_score >= critical_threshold:
         suggested_priority = TicketPriority.CRITICAL
-    elif risk_score >= 0.5:
+    elif risk_score >= high_threshold:
         suggested_priority = TicketPriority.HIGH
-    elif risk_score >= 0.3:
+    elif risk_score >= medium_threshold:
         suggested_priority = TicketPriority.MEDIUM
     else:
         suggested_priority = TicketPriority.LOW

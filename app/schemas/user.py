@@ -26,6 +26,15 @@ class UserUpdate(BaseModel):
     role: Optional[UserRole] = None
     status: Optional[UserStatus] = None
     phone_number: Optional[str] = Field(None, min_length=8, max_length=20)
+    can_reply_conversations: Optional[bool] = None
+    can_reply_whatsapp: Optional[bool] = None
+    is_vip: Optional[bool] = None
+    teams_email: Optional[EmailStr] = None
+    teams_webhook_url: Optional[str] = Field(None, max_length=1000)
+    timezone: Optional[str] = Field(None, max_length=64)
+    locale: Optional[str] = Field(None, max_length=16)
+    must_change_password: Optional[bool] = None
+    profile_completed: Optional[bool] = None
 
 
 class UserLogin(BaseModel):
@@ -42,6 +51,9 @@ class UserResponse(BaseModel):
     phone_number: Optional[str] = None
     role: UserRole
     status: UserStatus
+    can_reply_conversations: bool
+    can_reply_whatsapp: bool
+    is_vip: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -51,3 +63,38 @@ class UserResponse(BaseModel):
 class UserListResponse(BaseModel):
     users: list[UserResponse]
     total: int
+
+
+class CurrentUserResponse(BaseModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    phone_number: Optional[str] = None
+    role: UserRole
+    status: UserStatus
+    can_reply_conversations: bool
+    can_reply_whatsapp: bool
+    is_vip: bool = False
+    teams_email: Optional[str] = None
+    teams_webhook_url: Optional[str] = None
+    timezone: str
+    locale: str
+    must_change_password: bool
+    profile_completed: bool
+    profile_completion_required: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    phone_number: Optional[str] = Field(None, min_length=8, max_length=20)
+    teams_email: Optional[EmailStr] = None
+    teams_webhook_url: Optional[str] = Field(None, max_length=1000)
+    timezone: Optional[str] = Field(None, max_length=64)
+    locale: Optional[str] = Field(None, max_length=16)
+
+
+class UserPasswordChangeRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)

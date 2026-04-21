@@ -5,7 +5,7 @@ Shared API dependencies: current user, role enforcement, Redis.
 import uuid
 from typing import Annotated, List
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import redis.asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.core.security import decode_token
 from app.db.session import get_db
 from app.db.models.user import User
 from app.db.models.enums import UserRole, UserStatus
+from app.services.settings_service import SettingsService
 from app.services.user_service import UserService
 from app.services.redis_service import RedisService, get_redis_client
 
@@ -29,6 +30,7 @@ async def get_redis() -> RedisService:
 # ── Current user dependency ──────────────────────────────
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[RedisService, Depends(get_redis)],
@@ -63,6 +65,39 @@ async def get_current_user(
         raise credentials_exception
     if user.status != UserStatus.ACTIVE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account suspended")
+
+    user.profile_completed = UserService._compute_profile_completed(
+        user.role,
+        user.phone_number,
+        user.teams_email,
+    )
+
+    exempt_prefixes = (
+        "/api/v1/users/me",
+        "/api/v1/auth/logout",
+        "/api/v1/notifications",
+    )
+    is_exempt_path = request.url.path.startswith(exempt_prefixes)
+
+    if user.must_change_password and not is_exempt_path:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "password_change_required",
+                "message": "You must change your password before continuing.",
+            },
+        )
+
+    if user.role == UserRole.ADMIN and not is_exempt_path:
+        settings_service = SettingsService(db)
+        if await settings_service.get_bool("require_admin_profile_completion") and not user.profile_completed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "profile_completion_required",
+                    "message": "Complete your admin profile before accessing the workspace.",
+                },
+            )
     return user
 
 
@@ -87,3 +122,25 @@ class RoleChecker:
 require_admin = RoleChecker([UserRole.ADMIN])
 require_agent_or_admin = RoleChecker([UserRole.AGENT, UserRole.ADMIN])
 require_any_authenticated = RoleChecker([UserRole.CLIENT, UserRole.AGENT, UserRole.ADMIN])
+
+
+def require_conversation_reply_access(
+    user: Annotated[User, Depends(require_agent_or_admin)],
+) -> User:
+    if not user.can_reply_conversations:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read-only mode: conversation replies are disabled for this account",
+        )
+    return user
+
+
+def require_whatsapp_reply_access(
+    user: Annotated[User, Depends(require_agent_or_admin)],
+) -> User:
+    if not user.can_reply_whatsapp:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read-only mode: WhatsApp replies are disabled for this account",
+        )
+    return user

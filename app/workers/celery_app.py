@@ -2,11 +2,15 @@
 Celery application instance.
 """
 
+import logging
+
 from celery import Celery
+from celery.signals import beat_init, worker_ready
 
 from app.core.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 celery_app = Celery(
     "support_worker",
@@ -31,6 +35,8 @@ celery_app.conf.update(
         "app.workers.tasks.sync_all_gmail_accounts": {"queue": "gmail"},
         "app.workers.tasks.process_whatsapp_incoming_task": {"queue": "whatsapp"},
         "app.workers.tasks.record_whatsapp_outbound_task": {"queue": "whatsapp"},
+        "app.workers.tasks.generate_conversation_summary_job_task": {"queue": "celery"},
+        "app.workers.tasks.generate_conversation_assisted_draft_job_task": {"queue": "celery"},
         "app.decision_engine.tasks.analyze_ticket_task": {"queue": "decision"},
         "app.rag.tasks.index_article_task": {"queue": "rag"},
         "app.rag.tasks.reindex_all_articles_task": {"queue": "rag"},
@@ -47,3 +53,23 @@ celery_app.conf.update(
 )
 
 celery_app.autodiscover_tasks(["app.workers", "app.decision_engine", "app.rag", "app.visual_ai"])
+
+
+def _log_tasks_runtime(component: str) -> None:
+    from app.workers.tasks import get_worker_tasks_runtime_marker
+
+    logger.info(
+        "Celery %s loaded app.workers.tasks=%s",
+        component,
+        get_worker_tasks_runtime_marker(),
+    )
+
+
+@worker_ready.connect
+def _worker_ready_log(sender=None, **kwargs):
+    _log_tasks_runtime("worker")
+
+
+@beat_init.connect
+def _beat_ready_log(sender=None, **kwargs):
+    _log_tasks_runtime("beat")

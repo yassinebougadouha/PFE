@@ -15,39 +15,173 @@ from app.rag.response_providers.enums import ResponseChannel
 #  Per-channel formatters
 # ═══════════════════════════════════════════════════════════
 
-def format_for_chat(text: str, **_kwargs) -> str:
-    """Chat: keep concise, light markdown OK."""
+def format_for_chat(
+    text: str,
+    customer_name: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    **_kwargs,
+) -> str:
+    """Chat: keep concise, without greeting or signature blocks."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    lines = text.split("\n")
+
+    while lines and not lines[0].strip():
+        lines.pop(0)
+
+    if lines:
+        first_line = lines[0].strip()
+        greeting_prefix = (
+            r"^(?:hello|hi|hey|bonjour|bonsoir|salut)\b"
+            r"(?:\s+(?:there|client|customer|team|friend|everyone|all|[A-Za-z][\w'-]*)){0,4}"
+            r"[,!:.-]*\s*"
+        )
+        updated_first_line = re.sub(greeting_prefix, "", first_line, count=1, flags=re.IGNORECASE)
+        if updated_first_line != first_line:
+            if updated_first_line.strip():
+                lines[0] = updated_first_line.strip()
+            else:
+                lines.pop(0)
+
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    signoff_pattern = re.compile(
+        r"^(?:best regards|kind regards|regards|sincerely|thanks|thank you|cheers|warm regards|"
+        r"cordialement|bien cordialement)[\s,!:.-]*$",
+        re.IGNORECASE,
+    )
+
+    if lines and _is_chat_signature_line(lines[-1], agent_name=agent_name):
+        lines.pop()
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+    if lines and signoff_pattern.fullmatch(lines[-1].strip()):
+        lines.pop()
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if lines and _is_chat_signature_line(lines[-1], agent_name=agent_name):
+            lines.pop()
+            while lines and not lines[-1].strip():
+                lines.pop()
+
+    text = "\n".join(lines)
+    text = _strip_chat_leading_punctuation(text)
     # Trim excessive whitespace / blank lines
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def _strip_chat_leading_punctuation(text: str) -> str:
+    cleaned = (text or "").lstrip()
+    while cleaned:
+        updated = re.sub(r"^[!.,:;\-\u2022]+\s*", "", cleaned, count=1)
+        if updated == cleaned:
+            break
+        cleaned = updated.lstrip()
+    return cleaned
+
+
+def _is_chat_signature_line(line: str, agent_name: Optional[str] = None) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+
+    if agent_name and re.fullmatch(re.escape(agent_name.strip()), stripped, flags=re.IGNORECASE):
+        return True
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", stripped.lower()).strip()
+    if not normalized:
+        return False
+
+    tokens = normalized.split()
+    if len(tokens) > 4:
+        return False
+
+    generic_signature_tokens = {
+        "support",
+        "assistant",
+        "team",
+        "service",
+        "helpdesk",
+        "agent",
+        "customer",
+        "client",
+    }
+    if tokens and all(token in generic_signature_tokens for token in tokens):
+        return True
+
+    return normalized in {
+        "support assistant",
+        "assistant support",
+        "support team",
+        "team support",
+        "customer support",
+        "client support",
+        "support agent",
+        "assistant service",
+    }
 
 
 def format_for_email(
     text: str,
     customer_name: Optional[str] = None,
     agent_name: Optional[str] = None,
+    language: Optional[str] = None,
     **_kwargs,
 ) -> str:
     """Email: ensure greeting + sign-off structure."""
     text = text.strip()
+    lang = (language or "").lower().strip()
 
-    # Add greeting if missing
+    if not lang:
+        lowered = text.lower()
+        if any(m in lowered for m in ("bonjour", "cordialement", "merci", "votre", "nous", "vous")):
+            lang = "fr"
+        else:
+            lang = "en"
+
+    # Add greeting if missing (supports EN/FR openings).
     greeting_patterns = re.compile(
-        r"^(dear|hello|hi|hey|good morning|good afternoon|good evening)",
+        r"^(dear|hello|hi|hey|good morning|good afternoon|good evening|bonjour|bonsoir|salut)",
         re.IGNORECASE,
     )
-    if not greeting_patterns.match(text):
-        name = customer_name or "there"
-        text = f"Hello {name},\n\n{text}"
+    if customer_name:
+        # Upgrade generic "Bonjour," to "Bonjour <name>," when possible.
+        if lang == "fr":
+            text = re.sub(
+                r"^(bonjour)\s*,",
+                f"\\1 {customer_name.strip()},",
+                text,
+                flags=re.IGNORECASE,
+                count=1,
+            )
+        else:
+            text = re.sub(
+                r"^(hello)\s*,",
+                f"\\1 {customer_name.strip()},",
+                text,
+                flags=re.IGNORECASE,
+                count=1,
+            )
 
-    # Add sign-off if missing
+    if not greeting_patterns.match(text):
+        name = (customer_name or "").strip()
+        if lang == "fr":
+            greeting = f"Bonjour {name}," if name else "Bonjour,"
+        else:
+            greeting = f"Hello {name}," if name else "Hello,"
+        text = f"{greeting}\n\n{text}"
+
+    # Add sign-off if missing (supports EN/FR closings).
     signoff_patterns = re.compile(
-        r"(best regards|kind regards|regards|sincerely|thank you|thanks|cheers|warm regards)\s*[,.]?\s*$",
+        r"(best regards|kind regards|regards|sincerely|thank you|thanks|cheers|warm regards|cordialement|bien cordialement|merci|merci d'avance)\s*[,.]?\s*$",
         re.IGNORECASE | re.MULTILINE,
     )
     if not signoff_patterns.search(text):
         agent = agent_name or "Support Team"
-        text = f"{text}\n\nBest regards,\n{agent}"
+        signoff = "Cordialement," if lang == "fr" else "Best regards,"
+        text = f"{text}\n\n{signoff}\n{agent}"
 
     return text
 
@@ -139,6 +273,7 @@ def format_response(
     customer_name: Optional[str] = None,
     agent_name: Optional[str] = None,
     sources: list[dict] | None = None,
+    language: Optional[str] = None,
 ) -> str:
     """
     Apply channel-specific formatting to a raw LLM response.
@@ -150,4 +285,5 @@ def format_response(
         customer_name=customer_name,
         agent_name=agent_name,
         sources=sources,
+        language=language,
     )

@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import fitz  # PyMuPDF
+try:
+    import fitz  # PyMuPDF
+except ModuleNotFoundError:
+    fitz = None
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,11 @@ def extract_pdf(filepath: str | Path) -> PDFDocument:
         ValueError: If the file is not a valid PDF.
     """
     filepath = Path(filepath)
+    if fitz is None:
+        raise RuntimeError(
+            "PyMuPDF is not installed in this runtime. Install 'PyMuPDF' to enable PDF ingestion."
+        )
+
     if not filepath.exists():
         raise FileNotFoundError(f"PDF not found: {filepath}")
     if filepath.suffix.lower() != ".pdf":

@@ -10,6 +10,7 @@ Both share the same interface: send_message(), parse_incoming(), get_status().
 
 import logging
 import uuid
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional
@@ -32,6 +33,38 @@ from app.db.models.enums import (
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def normalize_whatsapp_number(raw: str | None) -> str | None:
+    """Normalize WhatsApp identifiers into a stable numeric phone key.
+
+    Accepts formats like:
+    - 21611122233
+    - +21611122233
+    - 21611122233@c.us
+    - 21611122233@s.whatsapp.net
+    - 21611122233:12@s.whatsapp.net
+    """
+    if not raw:
+        return None
+
+    value = str(raw).strip().lower()
+    if not value:
+        return None
+
+    # Remove WhatsApp JID suffix and any device segment.
+    value = value.split("@")[0]
+    value = value.split(":")[0]
+
+    digits = re.sub(r"\D", "", value)
+    if not digits:
+        return None
+
+    # E.164 max length is 15 digits; too-short IDs are also invalid.
+    if len(digits) < 8 or len(digits) > 15:
+        return None
+
+    return digits
 
 
 # ── Abstract base ────────────────────────────────────────
@@ -193,8 +226,35 @@ class WebBridgeProvider(WhatsAppProvider):
         return h
 
     async def send_message(self, to: str, message: str) -> dict:
-        # whatsapp-web.js uses chatId format: "XXXXXXXXXXX@c.us"
-        chat_id = f"{to}@c.us" if "@" not in to else to
+        raw_to = (to or "").strip()
+        if "@" in raw_to:
+            local, domain = raw_to.split("@", 1)
+            local = local.split(":", 1)[0]
+            domain = domain.strip().lower()
+
+            if domain in {"c.us", "s.whatsapp.net", "lid"} and local:
+                # Preserve the inbound JID domain to avoid misrouting non-phone chats.
+                chat_id = f"{local}@{domain}"
+            else:
+                logger.warning("[Bridge] Unsupported recipient JID: %s", to)
+                return {
+                    "success": False,
+                    "message_id": None,
+                    "provider": "bridge",
+                    "error": "unsupported_recipient_jid",
+                }
+        else:
+            normalized_to = normalize_whatsapp_number(raw_to)
+            if not normalized_to:
+                logger.warning("[Bridge] Invalid recipient number: %s", to)
+                return {
+                    "success": False,
+                    "message_id": None,
+                    "provider": "bridge",
+                    "error": "invalid_recipient_number",
+                }
+            # Default for plain phone input from UI/API send endpoints.
+            chat_id = f"{normalized_to}@c.us"
         url = f"{self.bridge_url}/send"
         payload = {"chatId": chat_id, "message": message}
 
@@ -278,9 +338,13 @@ class WhatsAppSyncService:
           2. Otherwise, create a new CLIENT user with this phone_number
         No more fake 'whatsapp_xxx@wa.local' emails — real phone lookup.
         """
-        # 1. Look up by phone_number column
+        normalized_phone = normalize_whatsapp_number(phone_number)
+        if not normalized_phone:
+            raise ValueError(f"Invalid WhatsApp phone number: {phone_number}")
+
+        # 1. Look up by canonical phone_number column
         user = self.db.execute(
-            select(User).where(User.phone_number == phone_number)
+            select(User).where(User.phone_number == normalized_phone)
         ).scalar_one_or_none()
 
         if user:
@@ -290,22 +354,22 @@ class WhatsAppSyncService:
             ):
                 user.full_name = display_name
                 self.db.flush()
-            logger.info(f"WhatsApp matched existing user: {user.id} ({user.email}) by phone {phone_number}")
+            logger.info(f"WhatsApp matched existing user: {user.id} ({user.email}) by phone {normalized_phone}")
             return user
 
         # 2. Create a new client user with a placeholder email
-        wa_email = f"wa_{phone_number}@whatsapp.local"
+        wa_email = f"wa_{normalized_phone}@whatsapp.local"
         user = User(
             email=wa_email,
-            full_name=display_name if display_name != "Unknown" else f"WhatsApp {phone_number}",
+            full_name=display_name if display_name != "Unknown" else f"WhatsApp {normalized_phone}",
             hashed_password="!wa_no_login",  # cannot login via password
-            phone_number=phone_number,
+            phone_number=normalized_phone,
             role=UserRole.CLIENT,
             status=UserStatus.ACTIVE,
         )
         self.db.add(user)
         self.db.flush()
-        logger.info(f"Created WhatsApp user: {user.id} (phone={phone_number})")
+        logger.info(f"Created WhatsApp user: {user.id} (phone={normalized_phone})")
         return user
 
     def _find_or_create_conversation(
@@ -338,6 +402,30 @@ class WhatsAppSyncService:
         logger.info(f"Created WhatsApp conversation: {conv.id} for user {user_id}")
         return conv
 
+    def _get_or_create_support_sender(self) -> User:
+        """Return a stable support sender account for automated outbound messages."""
+        support_email = "whatsapp.support@local"
+        support_user = self.db.execute(
+            select(User).where(User.email == support_email)
+        ).scalar_one_or_none()
+
+        if support_user:
+            return support_user
+
+        support_user = User(
+            email=support_email,
+            full_name="WhatsApp Support",
+            hashed_password="!wa_no_login",
+            role=UserRole.AGENT,
+            status=UserStatus.ACTIVE,
+            can_reply_conversations=True,
+            can_reply_whatsapp=True,
+        )
+        self.db.add(support_user)
+        self.db.flush()
+        logger.info("Created WhatsApp support sender user: %s", support_user.id)
+        return support_user
+
     def create_conversation_from_message(
         self,
         from_number: str,
@@ -350,11 +438,15 @@ class WhatsAppSyncService:
         Conversation, then add a Message — exactly like chat.
         Returns (conversation, message).
         """
+        normalized_from = normalize_whatsapp_number(from_number)
+        if not normalized_from:
+            raise ValueError(f"Invalid WhatsApp sender number: {from_number}")
+
         # 1. Resolve user
-        user = self._find_or_create_whatsapp_user(from_number, sender_name)
+        user = self._find_or_create_whatsapp_user(normalized_from, sender_name)
 
         # 2. Resolve conversation (reuse open one or create new)
-        conv = self._find_or_create_conversation(user.id, from_number)
+        conv = self._find_or_create_conversation(user.id, normalized_from)
 
         # 3. Add message
         msg = Message(
@@ -378,7 +470,7 @@ class WhatsAppSyncService:
         self.db.flush()
 
         logger.info(
-            f"WhatsApp message ingested: {from_number} → conv={conv.id}, msg={msg.id}"
+            f"WhatsApp message ingested: {normalized_from} → conv={conv.id}, msg={msg.id}"
         )
         return conv, msg
 
@@ -393,6 +485,11 @@ class WhatsAppSyncService:
         """
         Record an outbound WhatsApp message as a Message in the conversation.
         """
+        normalized_to = normalize_whatsapp_number(to_number)
+        if not normalized_to:
+            logger.warning("Invalid WhatsApp recipient number for outbound record: %s", to_number)
+            return None
+
         # Find the conversation to attach to
         conv = None
         if conversation_id:
@@ -403,7 +500,7 @@ class WhatsAppSyncService:
         if not conv:
             # Try to find by the recipient's phone_number → open WhatsApp conversation
             wa_user = self.db.execute(
-                select(User).where(User.phone_number == to_number)
+                select(User).where(User.phone_number == normalized_to)
             ).scalar_one_or_none()
             if wa_user:
                 conv = self.db.execute(
@@ -416,10 +513,10 @@ class WhatsAppSyncService:
                 ).scalar_one_or_none()
 
         if not conv:
-            logger.warning(f"No conversation found for outbound to {to_number}, skipping message record")
+            logger.warning(f"No conversation found for outbound to {normalized_to}, skipping message record")
             return None
 
-        sender_id = user_id or conv.user_id
+        sender_id = user_id if user_id else self._get_or_create_support_sender().id
 
         msg = Message(
             conversation_id=conv.id,
@@ -440,5 +537,5 @@ class WhatsAppSyncService:
         self.db.add(audit)
         self.db.flush()
 
-        logger.info(f"WhatsApp outbound recorded: msg={msg.id} in conv={conv.id} → {to_number}")
+        logger.info(f"WhatsApp outbound recorded: msg={msg.id} in conv={conv.id} → {normalized_to}")
         return msg

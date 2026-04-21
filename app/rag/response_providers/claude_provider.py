@@ -34,6 +34,7 @@ class ClaudeProvider(BaseProvider):
     def __init__(self) -> None:
         settings = get_settings()
         self.api_key: str = getattr(settings, "ANTHROPIC_API_KEY", "")
+        self.default_model = getattr(settings, "ANTHROPIC_RESPONSE_MODEL", self.default_model) or self.default_model
 
     @property
     def _is_configured(self) -> bool:

@@ -40,3 +40,24 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local imported/temporary project trees
+l2t-plateform-main/
+ai-therapist-fastapi-react-mongodb/
+
+# Runtime/log artifacts
+api_logs.txt
+api_logs_test.txt
+bridge_logs.txt
+build_log.txt
+celery_logs.txt
+celerybeat-schedule
+
+# Generated runtime files
+recordings/
+screenshots/
+uploads/chat_attachments/
+uploads/voice_agents_control.json
+
+# Temporary local scripts
+tmp_*.ps1

@@ -227,6 +227,43 @@ app.get("/status", (req, res) => {
   });
 });
 
+// PNG-only QR endpoint for frontend embedding (scales better than iframe HTML)
+app.get("/qr.png", async (req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+
+  if (isReady) {
+    return res.status(409).json({
+      status: "already_connected",
+      phone: clientInfo.phone,
+      name: clientInfo.name,
+    });
+  }
+
+  if (!currentQR) {
+    return res.status(404).json({
+      status: "waiting",
+      message: "QR code not yet generated",
+    });
+  }
+
+  try {
+    const qrBuffer = await QRCode.toBuffer(currentQR, {
+      type: "png",
+      width: 512,
+      margin: 2,
+    });
+
+    res.set("Content-Type", "image/png");
+    return res.send(qrBuffer);
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ error: "Failed to generate QR image", details: err.message });
+  }
+});
+
 app.get("/qr", async (req, res) => {
   if (isReady) {
     return res.send(`

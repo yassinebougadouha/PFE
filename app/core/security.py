@@ -29,9 +29,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(
     subject: str,
     extra_claims: Optional[dict[str, Any]] = None,
+    expires_minutes: Optional[int] = None,
 ) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        minutes=expires_minutes or settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
     )
     payload = {
         "sub": subject,

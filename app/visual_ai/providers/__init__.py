@@ -13,7 +13,7 @@ from app.visual_ai.enums import VisualAIProvider
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=4)
 def get_visual_provider(provider: str | None = None) -> BaseVisualProvider:
     """
     Return the configured visual AI provider instance.
@@ -26,7 +26,11 @@ def get_visual_provider(provider: str | None = None) -> BaseVisualProvider:
     from app.core.config import get_settings
     settings = get_settings()
 
-    name = provider or getattr(settings, "VISUAL_AI_PROVIDER", "local-basic")
+    raw_name = provider or getattr(settings, "VISUAL_AI_PROVIDER", "local-basic")
+    name = str(raw_name).strip().lower()
+
+    if name == VisualAIProvider.GEMINI or name == "gemini":
+        name = VisualAIProvider.GOOGLE.value
 
     if name == VisualAIProvider.LOCAL_ADVANCED or name == "local-advanced":
         from app.visual_ai.providers.local_advanced import LocalAdvancedProvider
@@ -35,7 +39,7 @@ def get_visual_provider(provider: str | None = None) -> BaseVisualProvider:
 
     if name == VisualAIProvider.GOOGLE or name == "google":
         from app.visual_ai.providers.google_cloud import GoogleCloudProvider
-        logger.info("Visual AI provider: google (Cloud Vision + Vertex AI + Gemini)")
+        logger.info("Visual AI provider: google/gemini (Cloud Vision + Vertex AI + Gemini)")
         return GoogleCloudProvider()
 
     # Default: local-basic
