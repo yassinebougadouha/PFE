@@ -225,7 +225,7 @@ async def _call_llm_for_guidance(prompt: str) -> Optional[str]:
     settings = get_settings()
 
     # Use Gemini if available (already configured for visual tasks)
-    if settings.GEMINI_API_KEY:
+    if settings.current_gemini_key:
         import httpx
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -233,7 +233,7 @@ async def _call_llm_for_guidance(prompt: str) -> Optional[str]:
         }
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.GEMINI_API_KEY}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.current_gemini_key}",
                 json=payload,
             )
             resp.raise_for_status()

@@ -7,9 +7,6 @@ import enum
 
 class VisualAIProvider(str, enum.Enum):
     """Available visual analysis providers."""
-    LOCAL_BASIC = "local-basic"
-    LOCAL_ADVANCED = "local-advanced"
-    GOOGLE = "google"
     GEMINI = "gemini"
 
 

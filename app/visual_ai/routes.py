@@ -16,6 +16,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Annotated, Optional
@@ -54,6 +55,7 @@ from app.visual_ai.service import VisualAIService
 from app.visual_ai.video_frames import extract_frames_from_video_bytes
 
 router = APIRouter(prefix="/visual-ai", tags=["Visual AI"])
+logger = logging.getLogger(__name__)
 
 # ── Type aliases ──────────────────────────────────────────
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -442,7 +444,7 @@ async def analyze_raw(
     db: DB,
     user: AnyUser,
     file: UploadFile = File(..., description="Screenshot image"),
-    provider: Optional[str] = Form(None, description="Provider: local-basic, local-advanced, google"),
+    provider: Optional[str] = Form(None, description="Provider override (Gemini-only mode)"),
 ):
     """Analyze an uploaded image without persisting it. Returns full analysis result."""
     image_bytes = await file.read()
@@ -450,7 +452,15 @@ async def analyze_raw(
         raise HTTPException(status_code=400, detail="Empty file")
 
     svc = VisualAIService(db)
-    result = await svc.analyze_raw(image_bytes, provider_name=provider)
+    try:
+        result = await svc.analyze_raw(image_bytes, provider_name=provider)
+    except Exception as exc:
+        logger.exception("Visual AI analyze-raw failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Visual analysis provider is temporarily unavailable. Please retry.",
+        )
+
     return result.model_dump()
 
 
@@ -728,7 +738,7 @@ async def process_screenshot(
     consent: bool = Form(..., description="User must consent"),
     conversation_id: Optional[uuid.UUID] = Form(None),
     reference_key: Optional[str] = Form(None, description="Reference screen key for gap detection"),
-    provider: Optional[str] = Form(None, description="Provider: local-basic, local-advanced, google"),
+    provider: Optional[str] = Form(None, description="Provider override (Gemini-only mode)"),
     metadata: Optional[str] = Form(None, description="JSON metadata"),
 ):
     """

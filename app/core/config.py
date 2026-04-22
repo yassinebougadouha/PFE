@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+    
+    @property
+    def current_gemini_key(self) -> str:
+        """Rotate through comma-separated Gemini API keys to extend limits."""
+        import random
+        keys = [k.strip() for k in self.GEMINI_API_KEY.split(",") if k.strip()]
+        return random.choice(keys) if keys else ""
+
     AI_RESPONSE_PROVIDER: str = "openai"       # openai | claude | gemini | local
     OPENAI_RESPONSE_MODEL: str = "gpt-4o-mini"
     ANTHROPIC_RESPONSE_MODEL: str = "claude-3-haiku-20240307"

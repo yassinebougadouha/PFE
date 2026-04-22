@@ -67,7 +67,7 @@ def _extract_embedding_values(item: dict) -> list[float]:
 def _embed_with_gemini(texts: list[str], task_type: str) -> list[list[float]]:
     """Embed texts via Gemini API in one call."""
     settings = get_settings()
-    api_key = (settings.GEMINI_API_KEY or "").strip()
+    api_key = (settings.current_gemini_key or "").strip()
     if not api_key:
         raise RuntimeError("USE_GEMINI_EMBEDDINGS=True but GEMINI_API_KEY is not configured")
 

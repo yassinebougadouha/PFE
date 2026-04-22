@@ -65,7 +65,8 @@ def make_llm(voice: str):
 
     if settings.use_realtime:
         # Realtime mode: always Google (Gemini handles STT+LLM+TTS in one)
-        return google.beta.realtime.RealtimeModel(voice=voice)
+        api_key = settings.current_gemini_key or settings.current_google_key or None
+        return google.beta.realtime.RealtimeModel(voice=voice, api_key=api_key)
 
     provider = settings.ai_provider.lower()
 
@@ -75,7 +76,8 @@ def make_llm(voice: str):
 
     # Default: Google Gemini (works with free Gemini API key)
     logger.info("LLM factory: using Google Gemini (%s)", settings.gemini_model)
-    return google.LLM(model=settings.gemini_model)
+    api_key = settings.current_gemini_key or settings.current_google_key or None
+    return google.LLM(model=settings.gemini_model, api_key=api_key)
 
 
 # ═══════════════════════════════════════════════════════════

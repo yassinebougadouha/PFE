@@ -45,7 +45,7 @@ def test_sample_frames_low_fps():
 def test_get_visual_provider_accepts_gemini_alias():
     get_visual_provider.cache_clear()
     provider = get_visual_provider("gemini")
-    assert provider.provider_name == "google"
+    assert provider.provider_name == "gemini"
 
 
 def test_analyze_screenshare_frames_provider_embeddings(monkeypatch):

@@ -112,7 +112,7 @@ async def analyze_chat_image(
     """
     Analyze an attached customer image with Gemini and return a compact summary.
     """
-    if not settings.GEMINI_API_KEY:
+    if not settings.current_gemini_key:
         raise RuntimeError("Gemini API key is not configured (GEMINI_API_KEY)")
 
     resolved_mime_type = _resolve_image_mime_type(mime_type, filename=filename)
@@ -143,7 +143,7 @@ async def analyze_chat_image(
 
     async with httpx.AsyncClient(timeout=45.0) as client:
         response = await client.post(
-            f"{_GEMINI_BASE_URL}/{settings.GEMINI_IMAGE_ANALYSIS_MODEL}:generateContent?key={settings.GEMINI_API_KEY}",
+            f"{_GEMINI_BASE_URL}/{settings.GEMINI_IMAGE_ANALYSIS_MODEL}:generateContent?key={settings.current_gemini_key}",
             json=payload,
         )
         response.raise_for_status()

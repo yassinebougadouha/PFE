@@ -54,9 +54,9 @@ Requirements:
 
 
 def _gemini_headers() -> dict[str, str]:
-    if not settings.GEMINI_API_KEY:
+    if not settings.current_gemini_key:
         raise RuntimeError("Gemini API key is not configured (GEMINI_API_KEY)")
-    return {"x-goog-api-key": settings.GEMINI_API_KEY}
+    return {"x-goog-api-key": settings.current_gemini_key}
 
 
 def _guess_mime_type(filename: str, content_type: str | None = None) -> str:

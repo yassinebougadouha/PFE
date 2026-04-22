@@ -32,7 +32,7 @@ class GeminiProvider(BaseProvider):
 
     def __init__(self) -> None:
         settings = get_settings()
-        self.api_key: str = getattr(settings, "GEMINI_API_KEY", "")
+        self.api_key: str = getattr(settings, "current_gemini_key", "")
         self.default_model = getattr(settings, "GEMINI_RESPONSE_MODEL", self.default_model) or self.default_model
 
     @property

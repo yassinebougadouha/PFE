@@ -238,7 +238,7 @@ DOCKER COMPOSE SERVICES (9 containers):
     │ flower            │ 5555    │ Celery monitoring dashboard            │
     │ whatsapp_bridge   │ 3000    │ WhatsApp Web protocol bridge           │
     │ livekit           │ 7880    │ WebRTC media server (voice agents)     │
-    │ voice_agents      │ —       │ LiveKit agent workers                  │
+    │ voice_agents      │ —       │ LiveKit agent worker                   │
     └───────────────────┴─────────┴────────────────────────────────────────┘
 
     Redis database mapping:
@@ -296,10 +296,10 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │   ├── email.py                EmailIngest, EmailReplyRequest, etc.
     │   │   ├── audit.py                AuditLogResponse, AuditLogListResponse
     │   │   ├── gmail.py                GmailAuthURL, GmailStatusResponse, etc.
-    │   │   ├── voice.py                TranscriptionResult, TTSRequest, TTSResult
-    │   │   ├── voice_call.py           VoiceCallLogResponse, pagination schemas
-    │   │   ├── voice_agent.py          Voice agent admin config/control schemas
-    │   │   └── whatsapp.py             WhatsAppSendRequest, webhook schemas, etc.
+    │   │   │   ├── voice.py                TranscriptionResult, TTSRequest, TTSResult
+    │   │   │   ├── voice_call.py           VoiceCallLogResponse, pagination schemas
+    │   │   │   ├── voice_agent.py          Voice agent admin config/control schemas
+    │   │   │   └── whatsapp.py             WhatsAppSendRequest, webhook schemas, etc.
     │   │
     │   ├── api/                         ─── API ROUTES ───
     │   │   ├── deps.py                 Auth dependencies (get_current_user,
@@ -317,6 +317,9 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │       ├── voice_calls.py      /voice-calls list/detail/audio streaming
     │   │       ├── voice_agents.py     /voice-agents admin process control API
     │   │       ├── audit.py            GET /audit
+    │   │       ├── dashboard.py        Dashboard metrics and statistics
+    │   │       ├── notifications.py    Notification management
+    │   │       ├── settings.py         System settings and configuration
     │   │       └── internal.py         /internal/rag/search, /internal/rag/generate
     │   │
     │   ├── services/                    ─── SERVICE LAYER ───
@@ -331,6 +334,17 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │   ├── tts_service.py          Edge-TTS synthesis (free, no API)
     │   │   ├── audit_service.py        Write & query audit logs
     │   │   ├── auto_reply_guardrails.py Channel auto-reply skip/safety rules
+    │   │   ├── auto_reply_policy.py    Advanced auto-reply policies
+    │   │   ├── conversation_playbook_service.py Playbook execution
+    │   │   ├── conversation_snippet_service.py Reusable message snippets
+    │   │   ├── dashboard_service.py    Analytics and metrics aggregation
+    │   │   ├── image_analysis_service.py Visual AI screenshot/image logic
+    │   │   ├── notification_service.py User and system notifications
+    │   │   ├── runtime_mail_service.py Email sending and templates
+    │   │   ├── settings_service.py     Dynamic system configuration
+    │   │   ├── support_call_screen_context.py Screenshare context tracking
+    │   │   ├── ticket_notification_service.py Ticket-specific alerts
+    │   │   ├── voice_call_post_call_service.py Post-call analytics/escalation
     │   │   ├── voice_call_service.py   Voice call log listing + audio retrieval
     │   │   └── redis_service.py        Token blacklist + cache + rate limiting
     │   │
@@ -343,6 +357,7 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   │   └── tasks.py                Email, Gmail, WhatsApp, audit tasks
     │   │
     │   ├── decision_engine/             ─── DECISION ENGINE (Sprint 2) ───
+    │   │   ├── config.py               Configuration specific to decision engine
     │   │   ├── enums.py                IntentCategory, DecisionOutcome, etc.
     │   │   ├── schemas.py              Classification, Risk, Decision schemas
     │   │   ├── models.py               DecisionLog, AgentSkill DB models
@@ -415,8 +430,20 @@ DOCKER COMPOSE SERVICES (9 containers):
     │   ├── rag_bridge.py              HTTP bridge to backend RAG API
     │   ├── local_stt.py               Local Whisper STT plugin
     │   ├── local_tts.py               Local Edge-TTS plugin
+    │   ├── call_recorder.py           Call recording capabilities
+    │   ├── call_transcript.py         Real-time call transcription
+    │   ├── control_api.py             Process control API and Visual AI bridge
+    │   ├── shared_state.py            Shared escalation and status state
     │   ├── requirements.txt           LiveKit-specific dependencies
+    │   ├── Dockerfile                 Containerization definition
     │   └── README.md
+    │
+    ├── frontend/                        ═══ REACT FRONTEND ═══
+    │   ├── src/                         React components and pages
+    │   ├── public/                      Static assets
+    │   ├── package.json                 Node.js dependencies
+    │   ├── vite.config.ts               Vite build configuration
+    │   └── tailwind.config.ts           Tailwind CSS configuration
     │
     ├── whatsapp-bridge/                 ═══ WHATSAPP WEB BRIDGE ═══
     │   ├── server.js                   Baileys-based REST bridge
@@ -591,7 +618,7 @@ CONFIGURATION CATEGORIES:
   │                      │ AI_RESPONSE_MAX_TOKENS    │ 1024                   │
   │                      │ OPENAI_API_KEY            │ ""                     │
   │                      │ ANTHROPIC_API_KEY         │ ""                     │
-  │                      │ GEMINI_API_KEY            │ ""                     │
+  │                      │ GEMINI_API_KEY            │ "key1,key2" (rotation) │
   ├──────────────────────┼───────────────────────────┼────────────────────────┤
   │ Local LLM            │ LOCAL_LLM_BASE_URL        │ http://localhost:11434 │
   │                      │ LOCAL_LLM_MODEL           │ llama3.2               │

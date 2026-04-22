@@ -196,7 +196,7 @@ class CallTranscriptCollector:
     async def _transcribe_audio_file(self, audio_file_path: str) -> str:
         """Run Gemini transcription on the saved recording, with Whisper fallback."""
         settings = get_voice_settings()
-        api_key = settings.gemini_api_key or settings.google_api_key
+        api_key = settings.current_gemini_key or settings.current_google_key
 
         if genai is not None and genai_types is not None and api_key:
             try:
@@ -268,7 +268,7 @@ class CallTranscriptCollector:
     async def _translate_to_french(self, transcript: str) -> str:
         """Use Google Gemini to translate the transcript to French."""
         settings = get_voice_settings()
-        api_key = settings.gemini_api_key or settings.google_api_key
+        api_key = settings.current_gemini_key or settings.current_google_key
 
         if not api_key:
             logger.warning("No Gemini API key — skipping translation, returning raw.")

@@ -66,50 +66,18 @@ class GoogleCloudProvider(BaseVisualProvider):
 
     @property
     def provider_name(self) -> str:
-        return "google"
+        return "gemini"
 
     def _get_gemini_key(self) -> str:
         from app.core.config import get_settings
         settings = get_settings()
-        return settings.GEMINI_API_KEY
+        return settings.current_gemini_key
 
     async def extract_ocr(self, image: bytes) -> OCRResult:
         """
-        Extract text using Google Cloud Vision TEXT_DETECTION.
-        Falls back to Gemini Vision if Cloud Vision credentials aren't available.
+        Extract text using Gemini Vision.
         """
-        # Try Cloud Vision first
-        try:
-            return await self._cloud_vision_ocr(image)
-        except Exception as e:
-            logger.warning("Cloud Vision OCR unavailable (%s), falling back to Gemini OCR", e)
-
-        # Fallback: Gemini Vision OCR
         return await self._gemini_ocr(image)
-
-    async def _cloud_vision_ocr(self, image: bytes) -> OCRResult:
-        """Use Google Cloud Vision TEXT_DETECTION."""
-        from google.cloud import vision
-
-        client = vision.ImageAnnotatorClient()
-        gimage = vision.Image(content=image)
-        response = client.text_detection(image=gimage)
-
-        if response.error.message:
-            raise RuntimeError(response.error.message)
-
-        texts = response.text_annotations
-        if not texts:
-            return OCRResult(text="", confidence=0.0)
-
-        full_text = texts[0].description.strip()
-        words = [w for w in full_text.split() if w.strip()]
-
-        return OCRResult(
-            text=full_text,
-            confidence=0.95,
-            word_count=len(words),
-        )
 
     async def _gemini_ocr(self, image: bytes) -> OCRResult:
         """Fallback OCR using Gemini Vision."""
@@ -127,13 +95,32 @@ class GoogleCloudProvider(BaseVisualProvider):
             }],
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
-                json=payload,
-            )
-            resp.raise_for_status()
+        data: dict[str, Any] = {}
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
+                    json=payload,
+                )
+
+            if resp.status_code == 429:
+                raise RuntimeError("Gemini API Rate Limit Exceeded (429). Please wait and try again.")
+            
+            if resp.status_code >= 500:
+                logger.warning("Gemini OCR returned upstream %s", resp.status_code)
+                return OCRResult(text="", confidence=0.0)
+
+            if resp.status_code >= 400:
+                logger.warning("Gemini OCR returned client error %s: %s", resp.status_code, resp.text)
+                return OCRResult(text="", confidence=0.0)
+
             data = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Gemini OCR request failed: %s", exc)
+            return OCRResult(text="", confidence=0.0)
+        except ValueError as exc:
+            logger.warning("Gemini OCR returned non-JSON response: %s", exc)
+            return OCRResult(text="", confidence=0.0)
 
         text = ""
         try:
@@ -165,13 +152,32 @@ class GoogleCloudProvider(BaseVisualProvider):
             },
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
-                json=payload,
-            )
-            resp.raise_for_status()
+        data: dict[str, Any] = {}
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
+                    json=payload,
+                )
+
+            if resp.status_code == 429:
+                raise RuntimeError("Gemini API Rate Limit Exceeded (429). Please wait and try again.")
+            
+            if resp.status_code >= 500:
+                logger.warning("Gemini UI analysis returned upstream %s", resp.status_code)
+                return UIAnalysisResult()
+
+            if resp.status_code >= 400:
+                logger.warning("Gemini UI analysis returned client error %s: %s", resp.status_code, resp.text)
+                return UIAnalysisResult()
+
             data = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Gemini UI analysis request failed: %s", exc)
+            return UIAnalysisResult()
+        except ValueError as exc:
+            logger.warning("Gemini UI analysis returned non-JSON response: %s", exc)
+            return UIAnalysisResult()
 
         try:
             raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -216,33 +222,50 @@ class GoogleCloudProvider(BaseVisualProvider):
 
     async def encode_embedding(self, image: bytes) -> list[float]:
         """
-        Generate visual embedding.
-        Try Vertex AI multimodal embedding first, fall back to CLIP.
+        Generate visual embedding using Gemini embeddings model.
+        Falls back to CLIP.
         """
+        import asyncio
+        from app.visual_ai.gemini_embeddings import embed_image_with_gemini
+        
         try:
-            return await self._vertex_embedding(image)
+            return await asyncio.to_thread(embed_image_with_gemini, image)
         except Exception as e:
-            logger.warning("Vertex AI embedding unavailable (%s), using CLIP fallback", e)
+            logger.warning("Gemini embedding unavailable (%s), using CLIP fallback", e)
             from app.visual_ai.clip_encoder import encode_image
             return encode_image(image)
-
-    async def _vertex_embedding(self, image: bytes) -> list[float]:
-        """Generate embedding via Vertex AI Multimodal Embedding API."""
-        from google.cloud import aiplatform
-        from vertexai.vision_models import MultiModalEmbeddingModel, Image as VImage
-
-        model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding")
-        vimage = VImage(image_bytes=image)
-        embeddings = model.get_embeddings(image=vimage, dimension=512)
-        return embeddings.image_embedding
 
     async def full_analysis(self, image: bytes) -> FullAnalysisResult:
         """Run complete pipeline: Cloud Vision OCR + Gemini UI + embedding."""
         start = time.perf_counter()
 
-        ocr = await self.extract_ocr(image)
-        ui_analysis = await self.analyze_ui(image)
-        embedding = await self.encode_embedding(image)
+        try:
+            ocr = await self.extract_ocr(image)
+        except RuntimeError as exc:
+            if "Rate Limit" in str(exc):
+                raise  # Propagate rate limit up to user
+            logger.warning("Visual AI OCR stage failed: %s", exc)
+            ocr = OCRResult(text="", confidence=0.0)
+        except Exception as exc:
+            logger.warning("Visual AI OCR stage failed: %s", exc)
+            ocr = OCRResult(text="", confidence=0.0)
+
+        try:
+            ui_analysis = await self.analyze_ui(image)
+        except RuntimeError as exc:
+            if "Rate Limit" in str(exc):
+                raise
+            logger.warning("Visual AI UI analysis stage failed: %s", exc)
+            ui_analysis = UIAnalysisResult()
+        except Exception as exc:
+            logger.warning("Visual AI UI analysis stage failed: %s", exc)
+            ui_analysis = UIAnalysisResult()
+
+        try:
+            embedding = await self.encode_embedding(image)
+        except Exception as exc:
+            logger.warning("Visual AI embedding stage failed: %s", exc)
+            embedding = []
 
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
@@ -252,6 +275,6 @@ class GoogleCloudProvider(BaseVisualProvider):
             embedding=embedding,
             provider=self.provider_name,
             processing_ms=elapsed_ms,
-            confidence=0.95,
-            raw_result={"provider": "google", "services": ["cloud_vision", "gemini", "clip_or_vertex"]},
+            confidence=0.95 if (ocr.text or ui_analysis.caption or embedding) else 0.0,
+            raw_result={"provider": "gemini", "services": ["cloud_vision", "gemini", "clip_or_vertex"]},
         )

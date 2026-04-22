@@ -45,7 +45,7 @@ def embed_image_with_gemini(
 ) -> list[float]:
 	"""Embed one image using Gemini embedding API."""
 	settings = get_settings()
-	api_key = (settings.GEMINI_API_KEY or "").strip()
+	api_key = (settings.current_gemini_key or "").strip()
 	if not api_key:
 		raise RuntimeError("GEMINI_API_KEY is required for Gemini screenshare embeddings")
 

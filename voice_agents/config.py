@@ -51,6 +51,18 @@ class VoiceAgentSettings:
     voice_recordings_dir: str = "recordings"
     database_url: str = ""
 
+    @property
+    def current_gemini_key(self) -> str:
+        import random
+        keys = [k.strip() for k in self.gemini_api_key.split(",") if k.strip()]
+        return random.choice(keys) if keys else ""
+
+    @property
+    def current_google_key(self) -> str:
+        import random
+        keys = [k.strip() for k in self.google_api_key.split(",") if k.strip()]
+        return random.choice(keys) if keys else ""
+
 
 def _bool(val: str | None) -> bool:
     return (val or "").strip().lower() in ("true", "1", "yes")
@@ -66,13 +78,7 @@ def get_voice_settings() -> VoiceAgentSettings:
     load_dotenv(".env", override=False)
     load_dotenv(".env.local", override=True)
 
-    # Avoid SDK ambiguity warnings when both keys are present.
-    if os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
-        os.environ.pop("GEMINI_API_KEY", None)
-
-    # Ensure GOOGLE_API_KEY is set for the Google SDK if only GEMINI_API_KEY is defined
-    if not os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
-        os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+    # (Removed os.environ manipulation since we pass api_key explicitly now to handle rotating keys)
 
     return VoiceAgentSettings(
         livekit_api_key=os.getenv("LIVEKIT_API_KEY", "devkey"),

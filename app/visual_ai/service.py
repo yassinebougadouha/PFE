@@ -687,55 +687,65 @@ class VisualAIService:
         vectors: list[list[float]] = []
         embedding_backend = provider.provider_name
         gemini_failed = False
+        skip_embeddings_for_snapshot = (
+            len(frames) == 1
+            and len(sampled) == 1
+            and not reference_key
+            and provider_name is None
+        )
+        needs_embeddings = not skip_embeddings_for_snapshot
 
-        if use_gemini:
-            try:
-                for image_bytes, mime_type in sampled:
-                    vec = embed_image_with_gemini(
-                        image_bytes,
-                        mime_type=mime_type,
-                        output_dimensionality=settings.VISUAL_SCREENSHARE_EMBEDDING_DIMENSION,
-                    )
-                    vectors.append(vec)
-                embedding_backend = "gemini"
-            except Exception as exc:
-                gemini_failed = True
-                vectors = []
-                logger.warning(
-                    "Gemini screenshare embeddings failed; falling back to %s embeddings: %s",
-                    provider.provider_name,
-                    exc,
-                )
-
-        if not vectors:
-            for idx, (image_bytes, _mime_type) in enumerate(sampled, start=1):
+        if needs_embeddings:
+            if use_gemini:
                 try:
-                    vec = await asyncio.wait_for(
-                        provider.encode_embedding(image_bytes),
-                        timeout=provider_embedding_timeout_seconds,
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Provider embeddings timed out for sampled frame %s/%s after %.1fs",
-                        idx,
-                        len(sampled),
-                        provider_embedding_timeout_seconds,
-                    )
-                    continue
+                    for image_bytes, mime_type in sampled:
+                        vec = embed_image_with_gemini(
+                            image_bytes,
+                            mime_type=mime_type,
+                            output_dimensionality=settings.VISUAL_SCREENSHARE_EMBEDDING_DIMENSION,
+                        )
+                        vectors.append(vec)
+                    embedding_backend = "gemini"
                 except Exception as exc:
+                    gemini_failed = True
+                    vectors = []
                     logger.warning(
-                        "Provider embeddings failed for sampled frame %s/%s: %s",
-                        idx,
-                        len(sampled),
+                        "Gemini screenshare embeddings failed; falling back to %s embeddings: %s",
+                        provider.provider_name,
                         exc,
                     )
-                    continue
-                vectors.append(vec)
 
-        if use_gemini and gemini_failed and vectors:
-            embedding_backend = f"{provider.provider_name} (gemini-fallback)"
-        elif not vectors:
-            embedding_backend = "unavailable"
+            if not vectors:
+                for idx, (image_bytes, _mime_type) in enumerate(sampled, start=1):
+                    try:
+                        vec = await asyncio.wait_for(
+                            provider.encode_embedding(image_bytes),
+                            timeout=provider_embedding_timeout_seconds,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Provider embeddings timed out for sampled frame %s/%s after %.1fs",
+                            idx,
+                            len(sampled),
+                            provider_embedding_timeout_seconds,
+                        )
+                        continue
+                    except Exception as exc:
+                        logger.warning(
+                            "Provider embeddings failed for sampled frame %s/%s: %s",
+                            idx,
+                            len(sampled),
+                            exc,
+                        )
+                        continue
+                    vectors.append(vec)
+
+            if use_gemini and gemini_failed and vectors:
+                embedding_backend = f"{provider.provider_name} (gemini-fallback)"
+            elif not vectors:
+                embedding_backend = "unavailable"
+        else:
+            embedding_backend = "skipped-single-frame"
 
         transition_scores: list[float] = []
         for i in range(1, len(vectors)):
@@ -804,12 +814,12 @@ class VisualAIService:
             max_transition=max_transition,
             ref_similarity=ref_similarity,
         )
-        if not vectors:
+        if needs_embeddings and not vectors:
             assistance.insert(
                 0,
                 "Embedding analysis is temporarily unavailable right now, but live OCR and UI hints are still provided.",
             )
-        elif use_gemini and gemini_failed:
+        elif needs_embeddings and use_gemini and gemini_failed:
             assistance.insert(
                 0,
                 "Gemini embeddings were temporarily unavailable, so fallback embeddings were used to keep analysis running.",
