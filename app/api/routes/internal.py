@@ -16,6 +16,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from httpx import HTTPStatusError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -28,6 +29,11 @@ from app.schemas.support_call_screen_context import (
     SupportCallScreenContextClearResponse,
     SupportCallScreenContextSnapshotResponse,
 )
+from app.schemas.voice_agent import VoiceEscalationRequest, VoiceEscalationResponse
+from app.schemas.ticket import TicketCreate, TicketUpdate
+from app.db.models.enums import ChannelType, TicketPriority, TicketStatus, UserRole, UserStatus
+from app.db.models.user import User
+from app.services.ticket_service import TicketService
 from app.services.support_call_screen_context import support_call_screen_context_store
 
 logger = logging.getLogger(__name__)
@@ -150,3 +156,77 @@ async def internal_clear_support_call_screen_context(
 ) -> SupportCallScreenContextClearResponse:
     cleared = support_call_screen_context_store.clear(room_name)
     return SupportCallScreenContextClearResponse(room_name=room_name, cleared=cleared)
+
+
+@router.post(
+    "/voice/escalations",
+    response_model=VoiceEscalationResponse,
+    summary="Create an immediate voice escalation ticket",
+    description="Creates a high-priority human handoff ticket for a voice call. For internal services only.",
+)
+async def internal_create_voice_escalation(
+    payload: VoiceEscalationRequest,
+    db: DB,
+    _key: ServiceKey,
+) -> VoiceEscalationResponse:
+    room_name = payload.room_name.strip()
+    reason = payload.reason.strip()
+    if not room_name or not reason:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="room_name and reason are required")
+
+    result = await db.execute(
+        select(User).where(
+            User.email == "voice_agent_system@local",
+            User.is_deleted == False,
+        )
+    )
+    system_user = result.scalar_one_or_none()
+    if not system_user:
+        system_user = User(
+            email="voice_agent_system@local",
+            full_name="Voice Agent System",
+            hashed_password="!no_login",
+            role=UserRole.CLIENT,
+            status=UserStatus.ACTIVE,
+        )
+        db.add(system_user)
+        await db.flush()
+
+    description_parts = [
+        f"**Escalation Reason:** {reason}",
+        f"**Room Name:** {room_name}",
+    ]
+    if payload.audio_file_path:
+        description_parts.append(f"**Audio Recording:** `{payload.audio_file_path}`")
+    if payload.transcript:
+        description_parts.append("\n**--- Transcript ---**")
+        description_parts.append(payload.transcript)
+
+    ticket_service = TicketService(db)
+    ticket = await ticket_service.create_ticket(
+        system_user.id,
+        TicketCreate(
+            subject=f"Voice Call Escalation: {room_name}",
+            description="\n".join(description_parts),
+            priority=TicketPriority.HIGH,
+            channel_source=ChannelType.CALL_TRANSCRIPT,
+        ),
+    )
+
+    escalated_ticket = await ticket_service.update_ticket(
+        ticket.id,
+        TicketUpdate(
+            status=TicketStatus.ESCALATED,
+            escalation_flag=True,
+        ),
+    )
+    if not escalated_ticket:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Escalation ticket update failed")
+
+    return VoiceEscalationResponse(
+        room_name=room_name,
+        ticket_id=str(escalated_ticket.id),
+        ticket_subject=escalated_ticket.subject,
+        status=escalated_ticket.status.value,
+        escalation_flag=bool(escalated_ticket.escalation_flag),
+    )

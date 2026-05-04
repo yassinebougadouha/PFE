@@ -243,6 +243,55 @@ async def clear_support_call_screen_context(room_name: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════
+#  Voice escalation handoff
+# ═══════════════════════════════════════════════════════════
+
+async def escalate_voice_call(
+    *,
+    room_name: str,
+    reason: str,
+    transcript: str | None = None,
+    audio_file_path: str | None = None,
+) -> Optional[dict[str, Any]]:
+    """Create a human-escalation ticket for the current voice call immediately."""
+    normalized_room = room_name.strip()
+    normalized_reason = reason.strip()
+    if not normalized_room or not normalized_reason:
+        return None
+
+    url = f"{_base_url()}/api/v1/internal/voice/escalations"
+    payload: dict[str, Any] = {
+        "room_name": normalized_room,
+        "reason": normalized_reason,
+    }
+    if transcript:
+        payload["transcript"] = transcript
+    if audio_file_path:
+        payload["audio_file_path"] = audio_file_path
+
+    try:
+        client = _get_client()
+        resp = await client.post(url, json=payload, headers=_headers())
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(
+            "Voice escalation created: room=%s ticket=%s",
+            normalized_room,
+            data.get("ticket_id"),
+        )
+        return data
+    except httpx.ConnectError:
+        logger.warning("Voice escalation bridge: backend unreachable at %s", _base_url())
+        return None
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Voice escalation bridge: HTTP %d — %s", exc.response.status_code, exc.response.text[:200])
+        return None
+    except Exception as exc:
+        logger.warning("Voice escalation bridge: unexpected error — %s", exc)
+        return None
+
+
+# ═══════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════
 

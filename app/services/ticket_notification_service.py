@@ -2,6 +2,7 @@
 Ticket notification fan-out service.
 """
 
+import asyncio
 import logging
 import uuid
 
@@ -26,9 +27,9 @@ class TicketNotificationService:
         self.notification_service = NotificationService(db)
         self.runtime_mail_service = RuntimeMailService(db)
 
-    async def _get_active_admin_and_agent_ids(self) -> list[uuid.UUID]:
+    async def _get_active_admin_and_agent_users(self) -> list[User]:
         result = await self.db.execute(
-            select(User.id).where(
+            select(User).where(
                 User.role.in_([UserRole.ADMIN, UserRole.AGENT]),
                 User.status == UserStatus.ACTIVE,
                 User.is_deleted == False,
@@ -36,17 +37,46 @@ class TicketNotificationService:
         )
         return list(result.scalars().all())
 
+    async def _send_email_notifications(
+        self,
+        *,
+        users: list[User],
+        subject: str,
+        text_body: str,
+    ) -> None:
+        seen: set[str] = set()
+        deliveries = []
+
+        for user in users:
+            email = str(getattr(user, "email", "") or "").strip()
+            if not email:
+                continue
+            normalized_email = email.lower()
+            if normalized_email in seen:
+                continue
+            seen.add(normalized_email)
+            deliveries.append(
+                self.runtime_mail_service.send_email(
+                    to_address=email,
+                    subject=subject,
+                    text_body=text_body,
+                )
+            )
+
+        if deliveries:
+            await asyncio.gather(*deliveries)
+
     async def notify_new_ticket(self, ticket: Ticket) -> None:
         settings = await self.settings_service.get_all_settings()
         if not settings["notify_new_ticket"]:
             return
 
-        recipients = await self._get_active_admin_and_agent_ids()
+        recipients = await self._get_active_admin_and_agent_users()
         if not recipients:
             return
 
         await self.notification_service.create_many(
-            user_ids=recipients,
+            user_ids=[user.id for user in recipients],
             type="ticket_new",
             title=f"New ticket: {ticket.subject[:60]}",
             body=f"Ticket {ticket.id} was created and is ready for triage.",
@@ -54,6 +84,21 @@ class TicketNotificationService:
             resource_id=str(ticket.id),
             action_url=f"/tickets/{ticket.id}",
             meta={"ticket_id": str(ticket.id)},
+        )
+
+        priority_value = getattr(getattr(ticket, "priority", None), "value", getattr(ticket, "priority", "MEDIUM"))
+        status_value = getattr(getattr(ticket, "status", None), "value", getattr(ticket, "status", "OPEN"))
+        await self._send_email_notifications(
+            users=recipients,
+            subject=f"[Support] New ticket created: {ticket.subject[:80]}",
+            text_body=(
+                f"Hello,\n\n"
+                f"A new ticket is ready for triage.\n\n"
+                f"Ticket ID: {ticket.id}\n"
+                f"Subject: {ticket.subject}\n"
+                f"Priority: {priority_value}\n"
+                f"Status: {status_value}\n"
+            ),
         )
 
     async def notify_assignment(self, ticket: Ticket, assigned_user_id: uuid.UUID) -> None:
@@ -77,6 +122,16 @@ class TicketNotificationService:
             resource_id=str(ticket.id),
             action_url=f"/tickets/{ticket.id}",
             meta={"ticket_id": str(ticket.id)},
+        )
+        await self._send_email_notifications(
+            users=[user],
+            subject=f"[Support] Ticket assigned: {ticket.subject[:80]}",
+            text_body=(
+                f"Hello {user.full_name},\n\n"
+                f"Ticket {ticket.id} is now assigned to you.\n\n"
+                f"Subject: {ticket.subject}\n"
+                f"Open the workspace to review and respond.\n"
+            ),
         )
 
     async def notify_status_change(
@@ -133,11 +188,11 @@ class TicketNotificationService:
             )
 
         if is_resolved:
-            admin_ids = await self._get_active_admin_and_agent_ids()
-            notify_ids = [user_id for user_id in admin_ids if user_id != actor.id]
-            if notify_ids:
+            admin_users = await self._get_active_admin_and_agent_users()
+            notify_users = [user for user in admin_users if user.id != actor.id]
+            if notify_users:
                 await self.notification_service.create_many(
-                    user_ids=notify_ids,
+                    user_ids=[user.id for user in notify_users],
                     type="ticket_resolved",
                     title=f"Ticket resolved by {actor.full_name}",
                     body=f"Ticket {ticket.id} is now {status_label}.",

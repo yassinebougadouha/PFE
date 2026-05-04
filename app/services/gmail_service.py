@@ -164,6 +164,7 @@ class GmailSyncService:
 
     def __init__(self, db: Session):
         self.db = db
+        self.created_ticket_ids: list[uuid.UUID] = []
 
     def get_all_active_credentials(self) -> list[GmailCredential]:
         result = self.db.execute(
@@ -507,6 +508,7 @@ class GmailSyncService:
         self.db.add(ticket)
         email.status = EmailStatus.CONVERTED
         self.db.flush()
+        self.created_ticket_ids.append(ticket.id)
 
         skip_reason = get_email_auto_reply_skip_reason(
             sender,

@@ -63,6 +63,21 @@ AnyUser = Annotated[User, Depends(require_any_authenticated)]
 AgentOrAdmin = Annotated[User, Depends(require_agent_or_admin)]
 Admin = Annotated[User, Depends(require_admin)]
 
+# ── Noise prefixes to filter from hints before storing ───
+_HINT_NOISE_PREFIXES = (
+    "frames processed:",
+    "avg transition:",
+    "average ui transition",
+    "processed ",
+    "embedding analysis unavailable",
+    "gemini embeddings failed",
+    "reference similarity:",
+    "frame appears blank",
+    "the shared frame looks blank",
+    "the shared frame looks unreadable",
+    "significant ui change detected",
+)
+
 
 def _caption_suggests_visible_content(caption: str | None) -> bool:
     normalized = (caption or "").strip().lower()
@@ -70,72 +85,75 @@ def _caption_suggests_visible_content(caption: str | None) -> bool:
         return False
 
     low_signal_markers = [
-        "black image",
-        "blank image",
-        "blank screen",
-        "nothing visible",
-        "no visible content",
-        "no discernible content",
-        "fully obscured",
-        "entirely obscured",
+        "black image", "blank image", "blank screen", "nothing visible",
+        "no visible content", "no discernible content", "fully obscured", "entirely obscured",
     ]
     return not any(marker in normalized for marker in low_signal_markers)
+
+
+def _is_hint_noise(hint: str) -> bool:
+    n = hint.strip().lower()
+    return any(n.startswith(p) for p in _HINT_NOISE_PREFIXES)
 
 
 def _get_preferred_screen_analysis_hint(
     hints: list[str] | None,
     caption: str | None,
 ) -> str:
+    """
+    Return the most informative hint for storing as analysis_text.
+    Priority: raw OCR text > UI cues > any non-noise hint.
+    Strips label prefixes so only the content is stored.
+    """
     if not hints:
         return ""
 
-    low_signal_frame_warning = next(
-        (
-            hint
-            for hint in hints
-            if (hint or "").strip().lower().startswith("the shared frame looks blank")
-            or (hint or "").strip().lower().startswith("the shared frame looks unreadable")
-        ),
-        None,
-    )
+    # 1. Raw OCR — strip "Visible text: " prefix
+    for hint in hints:
+        if hint.strip().lower().startswith("visible text:"):
+            return hint.replace(hint[:hint.lower().index(":")+1], "").strip()
 
-    preferred_hint = next(
-        (
-            hint
-            for hint in hints
-            if (hint or "").strip()
-            and not (hint or "").strip().lower().startswith("processed ")
-            and not (hint or "").strip().lower().startswith("average ui transition score:")
-            and (hint or "").strip().lower() != (low_signal_frame_warning or "").strip().lower()
-        ),
-        None,
-    )
+    # 2. UI element labels — strip "UI cues: " prefix
+    for hint in hints:
+        if hint.strip().lower().startswith("ui cues:"):
+            return hint.replace(hint[:hint.lower().index(":")+1], "").strip()
 
-    if preferred_hint:
-        return preferred_hint.strip()
+    # 3. Any non-noise hint
+    for hint in hints:
+        if hint.strip() and not _is_hint_noise(hint):
+            return hint.strip()
 
-    if low_signal_frame_warning and _caption_suggests_visible_content(caption):
-        return ""
-
-    return (hints[0] or "").strip()
+    return ""
 
 
 def _build_support_call_analysis_text(result: dict[str, Any]) -> tuple[str, str | None, list[str]]:
+    """
+    Build the analysis_text to store in the screen context store.
+    Priority: OCR text > UI hint > caption.
+    Returns (analysis_text, caption, all_hints).
+    """
     final_frame = result.get("final_frame") or {}
     caption = (final_frame.get("caption") or "").strip() or None
+    ocr_text = (final_frame.get("ocr_text_preview") or "").strip() or None
+
     hints = [
         hint.strip()
         for hint in (result.get("assistance_hints") or [])
         if isinstance(hint, str) and hint.strip()
     ]
+
     preferred_hint = _get_preferred_screen_analysis_hint(hints, caption)
 
-    if caption:
-        summary = f"The user is doing: {caption}"
+    # Build the most informative text possible for the voice agent
+    if ocr_text:
+        analysis_text = ocr_text
+    elif preferred_hint:
+        analysis_text = preferred_hint
+    elif caption:
+        analysis_text = caption
     else:
-        summary = "The user is interacting with the app interface."
+        analysis_text = ""
 
-    analysis_text = f"{summary} {preferred_hint}".strip() if preferred_hint else summary
     return analysis_text, caption, hints
 
 
@@ -156,6 +174,10 @@ def _maybe_publish_support_call_context(
 
     analysis_text, caption, hints = _build_support_call_analysis_text(result)
     if not analysis_text.strip():
+        logger.debug(
+            "Skipping support-call context publish for room=%s: no analysis text",
+            normalized_room,
+        )
         return
 
     payload = SupportCallScreenContextIngestRequest(
@@ -168,7 +190,16 @@ def _maybe_publish_support_call_context(
         session_id=normalized_room,
         chunk_index=chunk_index,
     )
-    support_call_screen_context_store.upsert(normalized_room, payload)
+    try:
+        store_result = support_call_screen_context_store.upsert(normalized_room, payload)
+        logger.debug(
+            "Support-call context published: room=%s events=%d analysis_text=%r",
+            normalized_room,
+            store_result.get("events_stored", 0),
+            analysis_text[:120],
+        )
+    except Exception as exc:
+        logger.warning("Failed to publish support-call context for room=%s: %s", normalized_room, exc)
 
 
 def _compact_line(text: str | None, *, default: str = "", limit: int = 240) -> str:
@@ -201,28 +232,13 @@ def _infer_wizard_risk_level(*, issue_summary: str, observed_text: str, attempte
     signal = " ".join([issue_summary, observed_text, " ".join(attempted_actions)]).lower()
 
     high_markers = {
-        "error",
-        "exception",
-        "fail",
-        "failed",
-        "timeout",
-        "denied",
-        "forbidden",
-        "payment declined",
-        "security",
-        "locked",
+        "error", "exception", "fail", "failed", "timeout", "denied",
+        "forbidden", "payment declined", "security", "locked",
     }
     if any(marker in signal for marker in high_markers):
         return "high"
 
-    medium_markers = {
-        "not working",
-        "stuck",
-        "cannot",
-        "unable",
-        "incorrect",
-        "mismatch",
-    }
+    medium_markers = {"not working", "stuck", "cannot", "unable", "incorrect", "mismatch"}
     if len(attempted_actions) >= 2 or any(marker in signal for marker in medium_markers):
         return "medium"
 
@@ -339,7 +355,6 @@ async def upload_screenshot(
             detail="Screenshot capture requires user consent",
         )
 
-    # Validate file type
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/bmp"}
     if file.content_type not in allowed_types:
         raise HTTPException(
@@ -351,7 +366,6 @@ async def upload_screenshot(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # Parse metadata JSON if provided
     meta = None
     if metadata:
         import json
@@ -379,7 +393,6 @@ async def upload_screenshot(
     summary="Get screenshot details",
 )
 async def get_screenshot(screenshot_id: uuid.UUID, db: DB, user: AnyUser):
-    """Get screenshot metadata by ID."""
     svc = VisualAIService(db)
     screenshot = await svc.get_screenshot(screenshot_id)
     if not screenshot:
@@ -398,7 +411,6 @@ async def list_screenshots(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """List screenshots with optional conversation filter."""
     svc = VisualAIService(db)
     items, total = await svc.list_screenshots(
         conversation_id=conversation_id,
@@ -424,7 +436,6 @@ async def analyze_screenshot(
     user: AnyUser,
     payload: Optional[AnalyzeRequest] = None,
 ):
-    """Run visual analysis on a stored screenshot."""
     svc = VisualAIService(db)
     provider_name = payload.provider.value if payload and payload.provider else None
 
@@ -446,7 +457,6 @@ async def analyze_raw(
     file: UploadFile = File(..., description="Screenshot image"),
     provider: Optional[str] = Form(None, description="Provider override (Gemini-only mode)"),
 ):
-    """Analyze an uploaded image without persisting it. Returns full analysis result."""
     image_bytes = await file.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
@@ -470,7 +480,6 @@ async def analyze_raw(
     summary="Get analysis result",
 )
 async def get_analysis(analysis_id: uuid.UUID, db: DB, user: AnyUser):
-    """Get a specific analysis result by ID."""
     svc = VisualAIService(db)
     analysis = await svc.get_analysis(analysis_id)
     if not analysis:
@@ -493,10 +502,6 @@ async def detect_gap_endpoint(
     db: DB,
     user: AnyUser,
 ):
-    """
-    Compare an analysis result against a reference screen.
-    Returns gap score, severity, diffs, and guidance hints.
-    """
     svc = VisualAIService(db)
     try:
         result = await svc.detect_gap_for_analysis(
@@ -530,7 +535,6 @@ async def create_reference(
     expected_elements: Optional[str] = Form(None, description="JSON array of expected elements"),
     expected_ocr_text: Optional[str] = Form(None),
 ):
-    """Create a reference screen for gap detection comparison."""
     image_bytes = await file.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty file")
@@ -573,7 +577,6 @@ async def list_references(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """List all reference screens."""
     svc = VisualAIService(db)
     items, total = await svc.list_references(limit=limit, offset=offset)
     return ReferenceScreenListResponse(items=items, total=total)
@@ -585,7 +588,6 @@ async def list_references(
     summary="Get reference screen",
 )
 async def get_reference(ref_id: uuid.UUID, db: DB, user: AgentOrAdmin):
-    """Get reference screen details by ID."""
     svc = VisualAIService(db)
     ref = await svc.get_reference(ref_id)
     if not ref:
@@ -599,7 +601,6 @@ async def get_reference(ref_id: uuid.UUID, db: DB, user: AgentOrAdmin):
     summary="Delete reference screen",
 )
 async def delete_reference(ref_id: uuid.UUID, db: DB, user: Admin):
-    """Delete a reference screen."""
     svc = VisualAIService(db)
     deleted = await svc.delete_reference(ref_id)
     if not deleted:
@@ -622,7 +623,6 @@ async def get_timeline(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    """Get the ordered list of UI states for a conversation."""
     svc = VisualAIService(db)
     return await svc.get_timeline(conversation_id, limit=limit, offset=offset)
 
@@ -642,10 +642,6 @@ async def generate_guidance(
     user: AnyUser,
     payload: Optional[GuidanceRequest] = None,
 ):
-    """
-    Generate contextual guidance for an analysis result.
-    Optionally compare against a reference screen.
-    """
     svc = VisualAIService(db)
     ref_key = payload.reference_key if payload else None
 
@@ -666,7 +662,6 @@ async def generate_troubleshooting_wizard(
     payload: TroubleshootingWizardRequest,
     user: AnyUser,
 ):
-    """Generate a guided troubleshooting sequence from current visual context."""
     del user
 
     issue_summary = _compact_line(payload.issue_summary, default=payload.goal, limit=500)
@@ -741,14 +736,6 @@ async def process_screenshot(
     provider: Optional[str] = Form(None, description="Provider override (Gemini-only mode)"),
     metadata: Optional[str] = Form(None, description="JSON metadata"),
 ):
-    """
-    Complete Visual AI pipeline in one call:
-    1. Store screenshot
-    2. Run analysis
-    3. Detect gaps (if reference_key provided)
-    4. Add to timeline (if conversation_id provided)
-    5. Generate guidance (if gap detected)
-    """
     if not consent:
         raise HTTPException(status_code=400, detail="Screenshot capture requires user consent")
 
@@ -777,7 +764,6 @@ async def process_screenshot(
         reference_key=reference_key,
     )
 
-    # Convert ORM objects in result to dicts for JSON serialization
     response = {}
     if result.get("screenshot"):
         s = result["screenshot"]
@@ -846,10 +832,7 @@ async def screenshare_assist(
     for frame in frames:
         mime_type = (frame.content_type or "image/png").lower()
         if mime_type not in allowed_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported frame type: {mime_type}",
-            )
+            raise HTTPException(status_code=400, detail=f"Unsupported frame type: {mime_type}")
         data = await frame.read()
         if not data:
             continue
@@ -906,12 +889,7 @@ async def screenshare_assist_video(
     if not consent:
         raise HTTPException(status_code=400, detail="Screen recording analysis requires user consent")
 
-    allowed_video_types = {
-        "video/mp4",
-        "video/webm",
-        "video/quicktime",
-        "video/x-matroska",
-    }
+    allowed_video_types = {"video/mp4", "video/webm", "video/quicktime", "video/x-matroska"}
     mime_type = (file.content_type or "").lower()
     if mime_type not in allowed_video_types:
         raise HTTPException(status_code=400, detail=f"Unsupported video type: {mime_type}")
@@ -926,10 +904,7 @@ async def screenshare_assist_video(
     if len(video_bytes) > max_bytes:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Video file too large: {len(video_bytes)} bytes exceeds max "
-                f"{settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB} MB"
-            ),
+            detail=f"Video file too large: {len(video_bytes)} bytes exceeds max {settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB} MB",
         )
 
     effective_target_fps = target_fps if target_fps is not None else settings.VISUAL_SCREENSHARE_TARGET_FPS
@@ -1004,12 +979,7 @@ async def screenshare_assist_realtime_chunk(
     if upload is None:
         raise HTTPException(status_code=400, detail="No video chunk was uploaded")
 
-    allowed_video_types = {
-        "video/mp4",
-        "video/webm",
-        "video/quicktime",
-        "video/x-matroska",
-    }
+    allowed_video_types = {"video/mp4", "video/webm", "video/quicktime", "video/x-matroska"}
     mime_type = (upload.content_type or "").lower()
     if mime_type not in allowed_video_types:
         raise HTTPException(status_code=400, detail=f"Unsupported video type: {mime_type}")
@@ -1019,16 +989,12 @@ async def screenshare_assist_realtime_chunk(
         raise HTTPException(status_code=400, detail="Empty video file")
 
     from app.core.config import get_settings
-
     settings = get_settings()
     max_bytes = int(settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB) * 1024 * 1024
     if len(video_bytes) > max_bytes:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Video file too large: {len(video_bytes)} bytes exceeds max "
-                f"{settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB} MB"
-            ),
+            detail=f"Video file too large: {len(video_bytes)} bytes exceeds max {settings.VISUAL_SCREENSHARE_MAX_VIDEO_MB} MB",
         )
 
     effective_target_fps = target_fps if target_fps is not None else settings.VISUAL_SCREENSHARE_TARGET_FPS

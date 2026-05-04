@@ -8,7 +8,6 @@ import asyncio
 import importlib.util
 import json
 import os
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +32,12 @@ from app.schemas.support_call_screen_context import (
     SupportCallScreenContextIngestRequest,
     SupportCallScreenContextIngestResponse,
 )
+from app.schemas.voice_agent import VoiceEscalationRequest, VoiceEscalationResponse
+from app.schemas.ticket import TicketCreate, TicketUpdate
+from app.services.ticket_service import TicketService
+from app.db.models.enums import ChannelType, TicketPriority, TicketStatus
+from app.db.session import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.support_call_screen_context import support_call_screen_context_store
 
 settings = get_settings()
@@ -40,6 +45,7 @@ router = APIRouter(prefix="/voice-agents", tags=["Voice Agents Admin"])
 
 
 import httpx
+
 
 class VoiceAgentProcessManagerProxy:
     def __init__(self) -> None:
@@ -59,6 +65,7 @@ class VoiceAgentProcessManagerProxy:
             google_api_key=settings.GOOGLE_API_KEY,
             openai_api_key=settings.OPENAI_API_KEY,
             anthropic_api_key=settings.ANTHROPIC_API_KEY,
+            # Store the full comma-separated string so rotation is preserved
             gemini_api_key=settings.current_gemini_key,
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
@@ -86,16 +93,20 @@ class VoiceAgentProcessManagerProxy:
 
     def start(self, mode: Literal["dev", "start"]) -> None:
         cfg = self.get_effective_config()
+
+        # Use the rotation properties — both VoiceAgentConfig (Pydantic) and
+        # VoiceAgentSettings (dataclass) now expose current_gemini_key /
+        # current_google_key, so this call is safe on either type.
         env_vars = {
             "LIVEKIT_API_KEY": cfg.livekit_api_key,
             "LIVEKIT_API_SECRET": cfg.livekit_api_secret,
             "LIVEKIT_URL": cfg.livekit_url,
             "AI_RESPONSE_PROVIDER": cfg.ai_response_provider,
             "USE_REALTIME": "true" if cfg.use_realtime else "false",
-            "GOOGLE_API_KEY": cfg.google_api_key or "",
+            "GOOGLE_API_KEY": cfg.current_google_key or "",   # ← rotated
             "OPENAI_API_KEY": cfg.openai_api_key or "",
             "ANTHROPIC_API_KEY": cfg.anthropic_api_key or "",
-            "GEMINI_API_KEY": cfg.current_gemini_key or "",
+            "GEMINI_API_KEY": cfg.current_gemini_key or "",   # ← rotated
             "GEMINI_MODEL": cfg.gemini_model or "",
             "OPENAI_MODEL": cfg.openai_model or "",
             "BACKEND_API_URL": cfg.backend_api_url,
@@ -103,18 +114,20 @@ class VoiceAgentProcessManagerProxy:
             "VOICE_RECORDINGS_DIR": cfg.voice_recordings_dir,
             "DATABASE_URL": cfg.database_url,
         }
-        
+
         try:
             resp = httpx.post(
                 f"{self.control_url}/start",
                 json={"mode": mode, "env_vars": env_vars},
-                timeout=10.0
+                timeout=10.0,
             )
             if resp.status_code == 409:
                 raise RuntimeError("Voice agents process is already running")
             resp.raise_for_status()
         except httpx.RequestError as exc:
-            raise RuntimeError(f"Voice agents container unreachable ({self.control_url}). Is Docker running?") from exc
+            raise RuntimeError(
+                f"Voice agents container unreachable ({self.control_url}). Is Docker running?"
+            ) from exc
 
     def stop(self) -> bool:
         try:
@@ -129,7 +142,6 @@ class VoiceAgentProcessManagerProxy:
             resp = httpx.get(f"{self.control_url}/status", timeout=5.0)
             resp.raise_for_status()
             data = resp.json()
-            # Ensure proper datetime parsing if string
             started_at = data.get("started_at")
             if isinstance(started_at, str):
                 started_at = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
@@ -144,13 +156,20 @@ class VoiceAgentProcessManagerProxy:
             )
         except Exception:
             return VoiceAgentStatusResponse(
-                running=False, pid=None, mode=None, started_at=None,
-                uptime_seconds=None, log_file=None, last_exit_code=None
+                running=False,
+                pid=None,
+                mode=None,
+                started_at=None,
+                uptime_seconds=None,
+                log_file=None,
+                last_exit_code=None,
             )
 
     def read_logs(self, lines: int = 200) -> list[str]:
         try:
-            resp = httpx.get(f"{self.control_url}/logs", params={"lines": lines}, timeout=5.0)
+            resp = httpx.get(
+                f"{self.control_url}/logs", params={"lines": lines}, timeout=5.0
+            )
             resp.raise_for_status()
             return resp.json().get("lines", [])
         except Exception:
@@ -191,7 +210,15 @@ async def update_voice_agent_config(
 async def get_voice_agent_status(_: User = Depends(get_current_user)):
     status_obj = manager.status()
     if importlib.util.find_spec("livekit") is None and not status_obj.running:
-        status_obj = status_obj.model_copy(update={"last_exit_code": status_obj.last_exit_code if status_obj.last_exit_code is not None else 127})
+        status_obj = status_obj.model_copy(
+            update={
+                "last_exit_code": (
+                    status_obj.last_exit_code
+                    if status_obj.last_exit_code is not None
+                    else 127
+                )
+            }
+        )
     return status_obj
 
 
@@ -210,7 +237,10 @@ async def start_voice_agents(
         except RuntimeError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
         except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to start voice agents: {exc}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to start voice agents: {exc}",
+            )
 
     return VoiceAgentActionResponse(message=f"Voice agents started in '{payload.mode}' mode")
 
@@ -239,6 +269,7 @@ async def get_voice_agent_logs(
     lines: int = Query(200, ge=1, le=1000),
 ):
     return VoiceAgentLogsResponse(lines=manager.read_logs(lines=lines))
+
 
 class TokenResponse(BaseModel):
     token: str
@@ -276,6 +307,7 @@ def _build_livekit_token_response(
         frontend_url = frontend_url.replace("livekit:7880", "127.0.0.1:7880")
 
     return TokenResponse(token=token, url=frontend_url)
+
 
 @router.get(
     "/test-token",
@@ -323,3 +355,60 @@ async def ingest_support_call_screen_context(
 
     return SupportCallScreenContextIngestResponse(**result)
 
+
+@router.post(
+    "/escalate",
+    response_model=VoiceEscalationResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def escalate_voice_call(
+    payload: VoiceEscalationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin endpoint: create a high-priority escalation ticket for a voice call."""
+    room_name = payload.room_name.strip()
+    reason = payload.reason.strip()
+    if not room_name or not reason:
+        raise HTTPException(status_code=400, detail="room_name and reason are required")
+
+    ticket_service = TicketService(db)
+    ticket = await ticket_service.create_ticket(
+        current_user.id,
+        TicketCreate(
+            subject=f"Voice Call Escalation: {room_name}",
+            description="\n".join(
+                [
+                    f"**Escalation Reason:** {reason}",
+                    f"**Room Name:** {room_name}",
+                    *(
+                        [f"**Audio Recording:** `{payload.audio_file_path}`"]
+                        if payload.audio_file_path
+                        else []
+                    ),
+                    *(
+                        ["\n**--- Transcript ---**", payload.transcript]
+                        if payload.transcript
+                        else []
+                    ),
+                ]
+            ),
+            priority=TicketPriority.HIGH,
+            channel_source=ChannelType.CALL_TRANSCRIPT,
+        ),
+    )
+
+    escalated_ticket = await ticket_service.update_ticket(
+        ticket.id,
+        TicketUpdate(status=TicketStatus.ESCALATED, escalation_flag=True),
+    )
+    if not escalated_ticket:
+        raise HTTPException(status_code=500, detail="Escalation ticket update failed")
+
+    return VoiceEscalationResponse(
+        room_name=room_name,
+        ticket_id=str(escalated_ticket.id),
+        ticket_subject=escalated_ticket.subject,
+        status=escalated_ticket.status.value,
+        escalation_flag=bool(escalated_ticket.escalation_flag),
+    )

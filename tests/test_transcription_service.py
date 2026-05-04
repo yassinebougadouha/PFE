@@ -180,3 +180,62 @@ def test_save_upload_and_transcribe_uses_files_api_for_large_audio(monkeypatch):
     }
     assert ("POST", transcription_service.GEMINI_FILES_URL) in UploadedGeminiClient.calls
     assert ("DELETE", f"{transcription_service.GEMINI_API_BASE_URL}/v1beta/files/audio-123") in UploadedGeminiClient.calls
+
+
+def test_save_upload_and_transcribe_accepts_custom_prompt(monkeypatch):
+    class PromptGeminiClient:
+        prompt = ""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, headers=None, json=None, content=None):
+            PromptGeminiClient.prompt = json["contents"][0]["parts"][0]["text"]
+            return _json_response(
+                "POST",
+                url,
+                payload={
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "text": (
+                                            '{"text":"client: hello\\nai: hi",'
+                                            '"language":"en","segments":[]}'
+                                        )
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(transcription_service.settings, "GEMINI_API_KEY", "test-gemini-key", raising=False)
+    monkeypatch.setattr(transcription_service.settings, "GEMINI_TRANSCRIPTION_MODEL", "gemini-test", raising=False)
+    monkeypatch.setattr(
+        transcription_service.settings,
+        "GEMINI_TRANSCRIPTION_INLINE_MAX_BYTES",
+        1024,
+        raising=False,
+    )
+    monkeypatch.setattr(transcription_service.httpx, "AsyncClient", PromptGeminiClient)
+
+    result = asyncio.run(
+        transcription_service.save_upload_and_transcribe(
+            b"fake-audio",
+            "support-call.wav",
+            content_type="audio/wav",
+            prompt="custom support-call prompt",
+        )
+    )
+
+    assert PromptGeminiClient.prompt == "custom support-call prompt"
+    assert result["text"] == "client: hello\nai: hi"

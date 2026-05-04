@@ -16,6 +16,8 @@ def get_session_state(room_name: str) -> Dict[str, Any]:
         session_states[room_name] = {
             "escalated": False,
             "escalation_reason": "No reason provided",
+            "escalation_ticket_id": None,
+            "escalation_dispatched_at": None,
         }
     return session_states[room_name]
 

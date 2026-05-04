@@ -23,3 +23,7 @@ COPY . .
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+# Install voice agent dependencies into the same image
+COPY voice_agents/requirements.txt /tmp/voice_agents_requirements.txt
+RUN pip install -r /tmp/voice_agents_requirements.txt

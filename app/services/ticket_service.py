@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.enums import TicketPriority, TicketStatus, UserRole, UserStatus
 from app.db.models.ticket import Ticket
 from app.db.models.user import User
+from app.decision_engine.decision_engine import analyze_ticket
+from app.decision_engine.enums import DecisionOutcome
 from app.decision_engine.classifier import classify_text
 from app.decision_engine.models import AgentSkill
 from app.schemas.ticket import TicketCreate, TicketStatusUpdate, TicketUpdate
-from app.services.settings_service import SettingsService
 from app.services.ticket_notification_service import TicketNotificationService
 
 OPEN_WORKLOAD_STATUSES = {
@@ -30,7 +31,6 @@ class TicketService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.settings_service = SettingsService(db)
         self.notification_service = TicketNotificationService(db)
 
     async def create_ticket(self, creator_id: uuid.UUID, payload: TicketCreate) -> Ticket:
@@ -46,28 +46,59 @@ class TicketService:
         self.db.add(ticket)
         await self.db.flush()
 
-        settings = await self.settings_service.get_all_settings()
-        auto_assignment_enabled = self._as_bool(settings.get("auto_assignment"), default=False)
-        if auto_assignment_enabled:
-            auto_assignment_method = self._normalize_assignment_method(
-                str(settings.get("auto_assignment_method", "Round-robin"))
-            )
-            assignee = await self._select_auto_assignee(
-                ticket=ticket,
-                method=auto_assignment_method,
-            )
-            if assignee:
-                ticket.assigned_agent_id = assignee.id
-                ticket.status = TicketStatus.IN_PROGRESS
+        decision = await analyze_ticket(
+            db=self.db,
+            ticket=ticket,
+            auto_assign=True,
+            auto_update_priority=True,
+        )
 
         await self.db.flush()
         await self.db.refresh(ticket)
 
-        await self.notification_service.notify_new_ticket(ticket)
+        if decision.decision_outcome != DecisionOutcome.AUTO_RESOLVE:
+            await self.notification_service.notify_new_ticket(ticket)
         if ticket.assigned_agent_id:
             await self.notification_service.notify_assignment(ticket, ticket.assigned_agent_id)
+        await self._notify_creator_decision_action(ticket, decision)
 
         return ticket
+
+    async def _notify_creator_decision_action(self, ticket: Ticket, decision) -> None:
+        first_suggestion = decision.response_suggestions[0] if decision.response_suggestions else None
+
+        if decision.decision_outcome == DecisionOutcome.AUTO_RESOLVE:
+            await self.notification_service.notification_service.create_notification(
+                user_id=ticket.creator_id,
+                type="ticket_auto_resolved",
+                title=f"Ticket resolved: {ticket.subject[:60]}",
+                body=first_suggestion or "Your ticket was resolved automatically by the support decision engine.",
+                resource_type="ticket",
+                resource_id=str(ticket.id),
+                action_url=f"/tickets/{ticket.id}",
+                meta={
+                    "ticket_id": str(ticket.id),
+                    "decision_outcome": decision.decision_outcome.value,
+                    "confidence": decision.confidence_score,
+                    "risk": decision.risk_score,
+                },
+            )
+        elif decision.decision_outcome == DecisionOutcome.CLARIFY:
+            await self.notification_service.notification_service.create_notification(
+                user_id=ticket.creator_id,
+                type="ticket_clarification_requested",
+                title=f"More information needed: {ticket.subject[:60]}",
+                body=first_suggestion or "Please add more details so support can handle your ticket accurately.",
+                resource_type="ticket",
+                resource_id=str(ticket.id),
+                action_url=f"/tickets/{ticket.id}",
+                meta={
+                    "ticket_id": str(ticket.id),
+                    "decision_outcome": decision.decision_outcome.value,
+                    "confidence": decision.confidence_score,
+                    "risk": decision.risk_score,
+                },
+            )
 
     async def get_ticket(self, ticket_id: uuid.UUID) -> Optional[Ticket]:
         result = await self.db.execute(

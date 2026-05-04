@@ -6,6 +6,7 @@ Uses synchronous DB sessions because Celery workers run in a sync context.
 import logging
 import uuid
 import asyncio
+import json
 import re
 import inspect
 from datetime import datetime, timezone
@@ -30,7 +31,10 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.notification import Notification
 from app.db.models.user import User
 from app.db.models.gmail_credential import GmailCredential
+from app.db.models.setting import Setting
 from app.db.models.enums import EmailStatus, TicketPriority, ChannelType, AuditAction
+from app.services.runtime_mail_service import RuntimeMailService
+from app.services.settings_service import DEFAULT_SETTINGS
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -39,6 +43,143 @@ settings = get_settings()
 _sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
 sync_engine = create_engine(_sync_url, pool_size=5, max_overflow=5)
 SyncSession = sessionmaker(bind=sync_engine)
+
+
+def _load_runtime_delivery_settings(db: Session) -> dict:
+    settings_payload = dict(DEFAULT_SETTINGS)
+    result = db.execute(select(Setting))
+    for row in result.scalars().all():
+        settings_payload[row.key] = row.value
+    return settings_payload
+
+
+def _normalize_email_labels(labels: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in labels or []:
+        label = str(raw or "").strip().lower()
+        if not label:
+            continue
+        if len(label) > 64:
+            label = label[:64]
+        if label in seen:
+            continue
+        seen.add(label)
+        normalized.append(label)
+    return normalized
+
+
+def _extract_rfc_message_id(raw_headers: str | None) -> str | None:
+    if not raw_headers:
+        return None
+
+    try:
+        parsed = json.loads(raw_headers)
+        if isinstance(parsed, dict):
+            for key, value in parsed.items():
+                if str(key).strip().lower() == "message-id":
+                    candidate = str(value or "").strip()
+                    if candidate:
+                        return candidate
+    except Exception:
+        pass
+
+    match = re.search(r"^message-id:\s*(.+)$", raw_headers, flags=re.IGNORECASE | re.MULTILINE)
+    if match:
+        candidate = match.group(1).strip()
+        if candidate:
+            return candidate
+
+    return None
+
+
+def _send_smtp_reply(
+    db: Session,
+    *,
+    settings_payload: dict,
+    original: Email,
+    reply_body: str,
+    user_id: uuid.UUID | None,
+) -> Email:
+    reply_subject = (original.subject or "").strip() or "(No Subject)"
+    if not reply_subject.lower().startswith("re:"):
+        reply_subject = f"Re: {reply_subject}"
+
+    original_message_id = _extract_rfc_message_id(original.raw_headers)
+    references = [original_message_id] if original_message_id else None
+    delivery = RuntimeMailService.send_via_smtp_with_settings(
+        settings_payload,
+        to_address=original.sender_address,
+        subject=reply_subject,
+        text_body=reply_body,
+        in_reply_to=original_message_id,
+        references=references,
+    )
+    if not delivery.ok:
+        raise ValueError(delivery.error or "SMTP delivery failed")
+
+    thread_id = original.gmail_thread_id or str(original.id)
+    reply_email = Email(
+        sender_address=delivery.sender_email[:320],
+        recipient_address=original.sender_address[:320],
+        subject=reply_subject[:500],
+        body=reply_body,
+        raw_headers=json.dumps(delivery.headers, indent=2) if delivery.headers else None,
+        gmail_thread_id=thread_id,
+        is_outbound=True,
+        is_read=True,
+        is_starred=False,
+        labels=["sent"],
+        in_reply_to_id=original.id,
+        replied_by_id=user_id,
+        status=EmailStatus.REPLIED,
+    )
+    db.add(reply_email)
+
+    if original.status != EmailStatus.REPLIED:
+        original.status = EmailStatus.REPLIED
+
+    db.flush()
+    return reply_email
+
+
+def _send_smtp_new_email(
+    db: Session,
+    *,
+    settings_payload: dict,
+    user_id: uuid.UUID,
+    recipient: str,
+    subject: str,
+    body: str,
+    labels: list[str] | None = None,
+) -> Email:
+    outbound_subject = (subject or "").strip() or "(No Subject)"
+    delivery = RuntimeMailService.send_via_smtp_with_settings(
+        settings_payload,
+        to_address=recipient,
+        subject=outbound_subject,
+        text_body=body,
+    )
+    if not delivery.ok:
+        raise ValueError(delivery.error or "SMTP delivery failed")
+
+    outbound_labels = _normalize_email_labels(["sent", *(labels or [])])
+    outbound_email = Email(
+        sender_address=delivery.sender_email[:320],
+        recipient_address=recipient[:320],
+        subject=outbound_subject[:500],
+        body=body,
+        raw_headers=json.dumps(delivery.headers, indent=2) if delivery.headers else None,
+        is_outbound=True,
+        is_read=True,
+        is_starred=False,
+        labels=outbound_labels,
+        status=EmailStatus.REPLIED,
+        replied_by_id=user_id,
+    )
+    db.add(outbound_email)
+    db.flush()
+    return outbound_email
 
 
 def _detect_language(text: str) -> str:
@@ -228,6 +369,10 @@ def process_email_task(self, email_id: str):
     logger.info(f"Processing email {email_id}")
     with SyncSession() as db:
         try:
+            runtime_mail_settings = _load_runtime_delivery_settings(db)
+            mail_mode = RuntimeMailService.normalize_mail_mode(
+                runtime_mail_settings.get("mail_mode")
+            )
             email = db.execute(
                 select(Email).where(Email.id == uuid.UUID(email_id))
             ).scalar_one_or_none()
@@ -284,8 +429,8 @@ def process_email_task(self, email_id: str):
                 and is_channel_auto_reply_enabled_sync(db, "email", default=True)
             )
 
-            # Optional auto-reply via Gmail if mailbox credential is known.
-            if email_auto_reply_enabled and cred and not skip_reason:
+            # Optional auto-reply via the active mail mode.
+            if email_auto_reply_enabled and not skip_reason:
                 from app.services.gmail_service import GmailSyncService
 
                 generated = _internal_generate_reply(
@@ -294,15 +439,32 @@ def process_email_task(self, email_id: str):
                 )
                 if generated:
                     try:
-                        GmailSyncService(db).send_reply(
-                            user_id=cred.user_id,
-                            original_email_id=email.id,
-                            reply_body=generated,
-                        )
-                        email.status = EmailStatus.REPLIED
+                        if mail_mode == "smtp":
+                            _send_smtp_reply(
+                                db,
+                                settings_payload=runtime_mail_settings,
+                                original=email,
+                                reply_body=generated,
+                                user_id=cred.user_id if cred else None,
+                            )
+                            email.status = EmailStatus.REPLIED
+                        elif cred:
+                            GmailSyncService(db).send_reply(
+                                user_id=cred.user_id,
+                                original_email_id=email.id,
+                                reply_body=generated,
+                            )
+                            email.status = EmailStatus.REPLIED
+                        else:
+                            logger.info(
+                                "Skipping email auto-reply for %s because Gmail mode has no active mailbox credential",
+                                email.id,
+                            )
+                    except ValueError as exc:
+                        logger.warning("Email auto-reply failed validation for %s: %s", email.id, exc)
                     except Exception:
                         logger.exception("Failed to auto-reply to email %s", email.id)
-            elif email_auto_reply_enabled and cred and skip_reason:
+            elif email_auto_reply_enabled and skip_reason:
                 logger.info(
                     "Skipping email auto-reply for %s (%s): %s",
                     email.id,
@@ -310,9 +472,13 @@ def process_email_task(self, email_id: str):
                     skip_reason,
                 )
 
+            ticket_id = str(ticket.id)
             if email.status != EmailStatus.REPLIED:
                 email.status = EmailStatus.CONVERTED
             db.commit()
+            from app.decision_engine.tasks import analyze_ticket_task
+
+            analyze_ticket_task.delay(ticket_id, auto_assign=True, auto_update_priority=True)
 
             logger.info(f"Email {email_id} converted to ticket")
             return {"status": "success", "email_id": email_id}
@@ -411,7 +577,13 @@ def sync_gmail_for_user_task(self, user_id: str):
 
             sync_svc = GmailSyncService(db)
             stats = sync_svc.sync_emails_for_credential(cred)
+            created_ticket_ids = [str(ticket_id) for ticket_id in sync_svc.created_ticket_ids]
             db.commit()
+            if created_ticket_ids:
+                from app.decision_engine.tasks import analyze_ticket_task
+
+                for ticket_id in created_ticket_ids:
+                    analyze_ticket_task.delay(ticket_id, auto_assign=True, auto_update_priority=True)
 
             logger.info(f"Gmail sync for {user_id}: {stats}")
             return {"status": "success", **stats}
@@ -425,20 +597,39 @@ def sync_gmail_for_user_task(self, user_id: str):
 @celery_app.task(name="app.workers.tasks.send_email_reply_task", bind=True, max_retries=2)
 def send_email_reply_task(self, user_id: str, original_email_id: str, reply_body: str):
     """
-    Send a reply to an ingested email via the user's connected Gmail.
+    Send a reply to an ingested email using the active delivery mode.
     Runs synchronously in the Celery worker.
     """
-    from app.services.gmail_service import GmailSyncService
-
     logger.info(f"Sending reply to email {original_email_id} for user {user_id}")
     with SyncSession() as db:
         try:
-            sync_svc = GmailSyncService(db)
-            reply_email = sync_svc.send_reply(
-                user_id=uuid.UUID(user_id),
-                original_email_id=uuid.UUID(original_email_id),
-                reply_body=reply_body,
+            runtime_mail_settings = _load_runtime_delivery_settings(db)
+            mail_mode = RuntimeMailService.normalize_mail_mode(
+                runtime_mail_settings.get("mail_mode")
             )
+            original = db.execute(
+                select(Email).where(Email.id == uuid.UUID(original_email_id))
+            ).scalar_one_or_none()
+            if not original:
+                raise ValueError(f"Original email {original_email_id} not found")
+
+            if mail_mode == "smtp":
+                reply_email = _send_smtp_reply(
+                    db,
+                    settings_payload=runtime_mail_settings,
+                    original=original,
+                    reply_body=reply_body,
+                    user_id=uuid.UUID(user_id),
+                )
+            else:
+                from app.services.gmail_service import GmailSyncService
+
+                sync_svc = GmailSyncService(db)
+                reply_email = sync_svc.send_reply(
+                    user_id=uuid.UUID(user_id),
+                    original_email_id=uuid.UUID(original_email_id),
+                    reply_body=reply_body,
+                )
             db.commit()
 
             logger.info(
@@ -471,20 +662,35 @@ def send_new_email_task(
     body: str,
     labels: list[str] | None = None,
 ):
-    """Send a brand-new outbound email via the user's connected Gmail account."""
-    from app.services.gmail_service import GmailSyncService
-
+    """Send a brand-new outbound email using the active delivery mode."""
     logger.info(f"Sending new outbound email to {recipient} for user {user_id}")
     with SyncSession() as db:
         try:
-            sync_svc = GmailSyncService(db)
-            outbound = sync_svc.send_new_email(
-                user_id=uuid.UUID(user_id),
-                recipient=recipient,
-                subject=subject,
-                body=body,
-                labels=labels or [],
+            runtime_mail_settings = _load_runtime_delivery_settings(db)
+            mail_mode = RuntimeMailService.normalize_mail_mode(
+                runtime_mail_settings.get("mail_mode")
             )
+            if mail_mode == "smtp":
+                outbound = _send_smtp_new_email(
+                    db,
+                    settings_payload=runtime_mail_settings,
+                    user_id=uuid.UUID(user_id),
+                    recipient=recipient,
+                    subject=subject,
+                    body=body,
+                    labels=labels or [],
+                )
+            else:
+                from app.services.gmail_service import GmailSyncService
+
+                sync_svc = GmailSyncService(db)
+                outbound = sync_svc.send_new_email(
+                    user_id=uuid.UUID(user_id),
+                    recipient=recipient,
+                    subject=subject,
+                    body=body,
+                    labels=labels or [],
+                )
             db.commit()
 
             logger.info(
@@ -532,7 +738,13 @@ def sync_all_gmail_accounts():
                 total_stats["ingested"] += stats["ingested"]
                 total_stats["errors"] += stats["errors"]
 
+            created_ticket_ids = [str(ticket_id) for ticket_id in sync_svc.created_ticket_ids]
             db.commit()
+            if created_ticket_ids:
+                from app.decision_engine.tasks import analyze_ticket_task
+
+                for ticket_id in created_ticket_ids:
+                    analyze_ticket_task.delay(ticket_id, auto_assign=True, auto_update_priority=True)
             logger.info(f"Periodic Gmail sync complete: {total_stats}")
             return total_stats
 

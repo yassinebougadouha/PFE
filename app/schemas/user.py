@@ -54,6 +54,7 @@ class UserResponse(BaseModel):
     can_reply_conversations: bool
     can_reply_whatsapp: bool
     is_vip: bool = False
+    profile_picture_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -82,6 +83,7 @@ class CurrentUserResponse(BaseModel):
     must_change_password: bool
     profile_completed: bool
     profile_completion_required: bool
+    profile_picture_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

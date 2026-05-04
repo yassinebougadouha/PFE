@@ -7,71 +7,91 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.models.setting import Setting
 
 
-DEFAULT_SETTINGS: dict[str, Any] = {
-    "app_name": "AI Support Agent",
-    "support_email": "support@example.com",
-    "description": "AI-powered support operations workspace.",
-    "locale": "en",
-    "timezone": "UTC",
-    "primary_color": "#1f3a6f",
-    "secondary_color": "#2f6f9f",
-    "theme_mode": "light",
-    "ticket_label": "Ticket",
-    "auto_assignment": False,
-    "auto_assignment_method": "Round-robin",
-    "allow_client_close": True,
-    "sla_critical_hours": 4,
-    "sla_high_hours": 8,
-    "sla_medium_hours": 24,
-    "sla_low_hours": 48,
-    "min_password_length": 8,
-    "session_timeout": 120,
-    "max_login_attempts": 5,
-    "password_complexity": True,
-    "allow_registration": True,
-    "require_email_verification": False,
-    "two_factor_auth": False,
-    "require_admin_profile_completion": False,
-    "mail_mode": "gmail",
-    "gmail_from_email": "",
-    "gmail_client_id": "",
-    "gmail_client_secret": "",
-    "gmail_refresh_token": "",
-    "smtp_from_name": "Support",
-    "smtp_from_email": "",
-    "smtp_host": "smtp.gmail.com",
-    "smtp_port": 587,
-    "smtp_encryption": "tls",
-    "smtp_username": "",
-    "smtp_password": "",
-    "notify_new_ticket": True,
-    "notify_status_change": True,
-    "notify_new_comment": True,
-    "notify_assigned": True,
-    "notify_overdue": True,
-    "notify_resolved": True,
-    "ai_auto_reply_chat_enabled": True,
-    "ai_auto_reply_whatsapp_enabled": True,
-    "ai_auto_reply_email_enabled": True,
-    "conversation_sla_autopilot_enabled": True,
-    "conversation_sla_auto_escalate_minutes_before_breach": 15,
-    "conversation_sla_auto_assign_enabled": True,
-    "conversation_sla_auto_assign_minutes_before_breach": 10,
-    "conversation_sla_autopilot_respect_snooze": True,
-    "decision_confidence_high_threshold": 0.7,
-    "decision_confidence_medium_threshold": 0.4,
-    "decision_risk_critical_threshold": 0.7,
-    "decision_risk_high_threshold": 0.5,
-    "decision_risk_medium_threshold": 0.3,
-    "decision_low_confidence_risk_boost": 0.08,
-    "decision_medium_confidence_risk_boost": 0.03,
-    "decision_enforce_security_escalation": True,
-    "decision_enforce_critical_escalation": True,
-    "decision_low_confidence_general_suggest": True,
-}
+def _normalize_mail_mode(value: object) -> str:
+    normalized = str(value or "gmail").strip().lower()
+    return "smtp" if normalized == "smtp" else "gmail"
+
+
+def _normalize_smtp_encryption(value: object) -> str:
+    normalized = str(value or "tls").strip().lower()
+    return normalized if normalized in {"tls", "ssl", "none"} else "tls"
+
+
+def _build_default_settings() -> dict[str, Any]:
+    runtime = get_settings()
+    default_support_email = (
+        str(runtime.GMAIL_FROM_EMAIL or runtime.SMTP_FROM_EMAIL or "support@example.com").strip()
+        or "support@example.com"
+    )
+
+    return {
+        "app_name": "AI Support Agent",
+        "support_email": default_support_email,
+        "description": "AI-powered support operations workspace.",
+        "locale": "en",
+        "timezone": "UTC",
+        "primary_color": "#1f3a6f",
+        "secondary_color": "#2f6f9f",
+        "theme_mode": "light",
+        "ticket_label": "Ticket",
+        "auto_assignment": False,
+        "auto_assignment_method": "Round-robin",
+        "allow_client_close": True,
+        "sla_critical_hours": 4,
+        "sla_high_hours": 8,
+        "sla_medium_hours": 24,
+        "sla_low_hours": 48,
+        "min_password_length": 8,
+        "session_timeout": 120,
+        "max_login_attempts": 5,
+        "password_complexity": True,
+        "allow_registration": True,
+        "require_email_verification": False,
+        "two_factor_auth": False,
+        "require_admin_profile_completion": False,
+        "mail_mode": _normalize_mail_mode(runtime.MAIL_MODE),
+        "gmail_from_email": str(runtime.GMAIL_FROM_EMAIL or "").strip(),
+        "gmail_client_id": str(runtime.GMAIL_CLIENT_ID or "").strip(),
+        "gmail_client_secret": str(runtime.GMAIL_CLIENT_SECRET or "").strip(),
+        "gmail_refresh_token": str(runtime.GMAIL_REFRESH_TOKEN or "").strip(),
+        "smtp_from_name": str(runtime.MAIL_SENDER_NAME or "Support").strip() or "Support",
+        "smtp_from_email": str(runtime.SMTP_FROM_EMAIL or "").strip(),
+        "smtp_host": str(runtime.SMTP_HOST or "smtp.gmail.com").strip() or "smtp.gmail.com",
+        "smtp_port": int(runtime.SMTP_PORT or 587),
+        "smtp_encryption": _normalize_smtp_encryption(runtime.SMTP_ENCRYPTION),
+        "smtp_username": str(runtime.SMTP_USERNAME or "").strip(),
+        "smtp_password": str(runtime.SMTP_PASSWORD or ""),
+        "notify_new_ticket": True,
+        "notify_status_change": True,
+        "notify_assigned": True,
+        "notify_overdue": True,
+        "notify_resolved": True,
+        "ai_auto_reply_chat_enabled": True,
+        "ai_auto_reply_whatsapp_enabled": True,
+        "ai_auto_reply_email_enabled": True,
+        "conversation_sla_autopilot_enabled": True,
+        "conversation_sla_auto_escalate_minutes_before_breach": 15,
+        "conversation_sla_auto_assign_enabled": True,
+        "conversation_sla_auto_assign_minutes_before_breach": 10,
+        "conversation_sla_autopilot_respect_snooze": True,
+        "decision_confidence_high_threshold": 0.7,
+        "decision_confidence_medium_threshold": 0.4,
+        "decision_risk_critical_threshold": 0.7,
+        "decision_risk_high_threshold": 0.5,
+        "decision_risk_medium_threshold": 0.3,
+        "decision_low_confidence_risk_boost": 0.08,
+        "decision_medium_confidence_risk_boost": 0.03,
+        "decision_enforce_security_escalation": True,
+        "decision_enforce_critical_escalation": True,
+        "decision_low_confidence_general_suggest": True,
+    }
+
+
+DEFAULT_SETTINGS: dict[str, Any] = _build_default_settings()
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "general": (
@@ -121,7 +141,6 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "smtp_password",
         "notify_new_ticket",
         "notify_status_change",
-        "notify_new_comment",
         "notify_assigned",
         "notify_overdue",
         "notify_resolved",

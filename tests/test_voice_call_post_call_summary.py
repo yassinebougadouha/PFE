@@ -15,6 +15,7 @@ from app.schemas.voice_call import (
 )
 from app.services.ticket_service import TicketService
 from app.services.voice_call_post_call_service import VoiceCallPostCallService
+from app.services import voice_call_service as voice_call_service_module
 from app.services.voice_call_service import VoiceCallService
 
 
@@ -73,6 +74,61 @@ def test_generate_post_call_summary_route_returns_service_payload(monkeypatch):
     assert response.call_id == call_id
     assert response.summary
     assert response.action_items[0].priority == "high"
+
+
+def test_voice_call_list_backfills_even_when_existing_logs_are_present(monkeypatch):
+    call_id = uuid.uuid4()
+    events: list[str] = []
+    call = _mock_call(call_id)
+
+    class CountResult:
+        def scalar(self):
+            return 2
+
+    class ItemsResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [call]
+
+    class FakeDb:
+        def __init__(self):
+            self.results = [CountResult(), ItemsResult()]
+
+        async def execute(self, _statement):
+            return self.results.pop(0)
+
+    async def fake_backfill(self):
+        events.append("backfill")
+        return 1
+
+    async def fake_enrich_missing_durations(self):
+        events.append("enrich")
+
+    monkeypatch.setattr(VoiceCallService, "_backfill_from_recordings", fake_backfill)
+    monkeypatch.setattr(VoiceCallService, "_enrich_missing_durations", fake_enrich_missing_durations)
+
+    items, total = asyncio.run(VoiceCallService(FakeDb()).list_calls())
+
+    assert items == [call]
+    assert total == 2
+    assert events == ["backfill", "enrich"]
+
+
+def test_voice_call_recording_path_resolves_container_path_to_configured_dir(monkeypatch, tmp_path):
+    recording = tmp_path / "support-call-client-1_20260502_101500.wav"
+    recording.write_bytes(b"fake wav")
+    monkeypatch.setattr(
+        voice_call_service_module.settings,
+        "VOICE_RECORDINGS_DIR",
+        str(tmp_path),
+        raising=False,
+    )
+
+    resolved = VoiceCallService._resolve_recording_path(f"/app/recordings/{recording.name}")
+
+    assert resolved == recording
 
 
 def test_link_voice_call_to_existing_ticket(monkeypatch):

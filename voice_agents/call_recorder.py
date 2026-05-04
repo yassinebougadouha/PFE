@@ -68,7 +68,7 @@ class CallAudioRecorder:
         logger.info(
             "Recording audio track from participant %s (track %s)",
             participant.identity,
-            track.sid,
+            getattr(track, "sid", "unknown"),
         )
 
         self._start_capture(track, f"remote:{participant.identity}")
@@ -78,16 +78,66 @@ class CallAudioRecorder:
         if track.kind != rtc.TrackKind.KIND_AUDIO:
             return
 
-        logger.info("Recording local agent audio track %s", track.sid)
+        logger.info("Recording local agent audio track %s", getattr(track, "sid", "unknown"))
         self._start_capture(track, "local:agent")
 
     def on_local_track_subscribed(self, track: rtc.Track) -> None:
         """Compatibility hook when local track subscription events fire."""
         self.on_local_track_published(track)
 
+    def capture_existing_tracks(self, room: rtc.Room) -> None:
+        """
+        Attach to audio tracks that were already published before event handlers
+        fired. LiveKit agent jobs often join a room after the caller's mic track
+        already exists, and the agent output track is usually published during
+        session startup.
+        """
+        if room is None:
+            return
+
+        try:
+            remote_participants = getattr(room, "remote_participants", {}) or {}
+            participants = (
+                remote_participants.values()
+                if hasattr(remote_participants, "values")
+                else remote_participants
+            )
+            for participant in participants:
+                identity = getattr(participant, "identity", "unknown")
+                self._capture_publications_for_participant(
+                    participant,
+                    f"remote:{identity}",
+                )
+        except Exception as exc:
+            logger.debug("Failed to inspect existing remote tracks: %s", exc)
+
+        try:
+            local_participant = getattr(room, "local_participant", None)
+            if local_participant is not None:
+                self._capture_publications_for_participant(local_participant, "local:agent")
+        except Exception as exc:
+            logger.debug("Failed to inspect existing local tracks: %s", exc)
+
+    def _capture_publications_for_participant(self, participant, source_id: str) -> None:
+        publications = getattr(participant, "track_publications", None) or {}
+        values = publications.values() if hasattr(publications, "values") else publications
+
+        for publication in values:
+            track = getattr(publication, "track", None)
+            kind = getattr(track, "kind", None) or getattr(publication, "kind", None)
+            if kind != rtc.TrackKind.KIND_AUDIO or track is None:
+                continue
+
+            logger.info(
+                "Recording existing audio track from %s (track %s)",
+                source_id,
+                getattr(track, "sid", "unknown"),
+            )
+            self._start_capture(track, source_id)
+
     def _start_capture(self, track: rtc.Track, source_id: str) -> None:
         """Start capture for a track once; duplicate events are ignored."""
-        track_id = track.sid or f"track-{id(track)}"
+        track_id = getattr(track, "sid", None) or f"track-{id(track)}"
         if track_id in self._captured_track_ids:
             return
 
@@ -100,7 +150,11 @@ class CallAudioRecorder:
     ) -> None:
         """Read audio frames from a track and append to the buffer."""
         try:
-            audio_stream = rtc.AudioStream(track)
+            audio_stream = rtc.AudioStream(
+                track,
+                sample_rate=TARGET_SAMPLE_RATE,
+                num_channels=TARGET_CHANNELS,
+            )
             async for event in audio_stream:
                 if not self._recording:
                     break
@@ -145,10 +199,18 @@ class CallAudioRecorder:
 
         # Wait for active streams to finish (with timeout)
         if self._active_streams:
-            await asyncio.gather(
-                *self._active_streams,
-                return_exceptions=True,
-            )
+            done, pending = await asyncio.wait(self._active_streams, timeout=3.0)
+            if pending:
+                logger.warning(
+                    "Timed out waiting for %d audio capture task(s); saving buffered audio.",
+                    len(pending),
+                )
+                for task in pending:
+                    task.cancel()
+
+                await asyncio.gather(*pending, return_exceptions=True)
+            if done:
+                await asyncio.gather(*done, return_exceptions=True)
 
         async with self._lock:
             if not self._participant_buffers:

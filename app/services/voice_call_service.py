@@ -33,11 +33,8 @@ class VoiceCallService:
         query = select(VoiceCallLog)
         count_q = select(func.count(VoiceCallLog.id))
 
+        await self._backfill_from_recordings()
         total = (await self.db.execute(count_q)).scalar() or 0
-        if total == 0:
-            created = await self._backfill_from_recordings()
-            if created:
-                total = (await self.db.execute(count_q)).scalar() or 0
 
         await self._enrich_missing_durations()
 
@@ -67,21 +64,20 @@ class VoiceCallService:
         return call
 
     async def _backfill_from_recordings(self) -> int:
-        recordings_dir = Path(settings.VOICE_RECORDINGS_DIR)
-        if not recordings_dir.is_absolute():
-            recordings_dir = (Path.cwd() / recordings_dir).resolve()
-
+        recordings_dir = self._recordings_dir()
         if not recordings_dir.exists() or not recordings_dir.is_dir():
             return 0
 
         existing_result = await self.db.execute(
             select(VoiceCallLog.audio_file_path).where(VoiceCallLog.audio_file_path.is_not(None))
         )
-        existing_paths = {
-            str(Path(value).resolve())
-            for value in existing_result.scalars().all()
-            if value
-        }
+        existing_paths: set[str] = set()
+        existing_filenames: set[str] = set()
+        for value in existing_result.scalars().all():
+            if not value:
+                continue
+            existing_paths.add(str(self._resolve_recording_path(value)))
+            existing_filenames.add(Path(value).name)
 
         recording_files = sorted(
             (
@@ -96,7 +92,7 @@ class VoiceCallService:
         created = 0
         for recording_path in recording_files:
             absolute_path = str(recording_path.resolve())
-            if absolute_path in existing_paths:
+            if absolute_path in existing_paths or recording_path.name in existing_filenames:
                 continue
 
             started_at = self._infer_started_at(recording_path)
@@ -119,6 +115,7 @@ class VoiceCallService:
                 )
             )
             existing_paths.add(absolute_path)
+            existing_filenames.add(recording_path.name)
             created += 1
 
         if created:
@@ -208,10 +205,24 @@ class VoiceCallService:
     @staticmethod
     def _resolve_recording_path(audio_file_path: str) -> Path:
         candidate = Path(audio_file_path)
+        if candidate.exists():
+            return candidate
+
         if candidate.is_absolute():
+            configured_candidate = VoiceCallService._recordings_dir() / candidate.name
+            if configured_candidate.exists():
+                return configured_candidate
             return candidate
 
         return (Path.cwd() / candidate).resolve()
+
+    @staticmethod
+    def _recordings_dir() -> Path:
+        recordings_dir = Path(settings.VOICE_RECORDINGS_DIR)
+        if recordings_dir.is_absolute():
+            return recordings_dir
+
+        return (Path.cwd() / recordings_dir).resolve()
 
     @staticmethod
     def _infer_client_id_from_room_name(room_name: str | None) -> str | None:

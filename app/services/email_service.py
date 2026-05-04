@@ -15,6 +15,7 @@ from app.utils.mail_content import normalize_email_subject, normalize_mail_like_
 
 
 class EmailService:
+    LOCAL_THREAD_PREFIX = "local-thread-"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -187,6 +188,54 @@ class EmailService:
         if not email:
             return None
         email.status = status
+        await self.db.flush()
+        await self.db.refresh(email)
+        return email
+
+    async def ensure_thread_id(self, email: Email) -> str:
+        if email.gmail_thread_id:
+            return email.gmail_thread_id
+
+        if not email.id:
+            await self.db.flush()
+
+        email.gmail_thread_id = f"{self.LOCAL_THREAD_PREFIX}{email.id}"
+        await self.db.flush()
+        return email.gmail_thread_id
+
+    async def create_outbound_email(
+        self,
+        *,
+        sender_address: str,
+        recipient_address: str,
+        subject: str,
+        body: str,
+        labels: Optional[list[str]] = None,
+        gmail_message_id: Optional[str] = None,
+        gmail_thread_id: Optional[str] = None,
+        in_reply_to_id: Optional[uuid.UUID] = None,
+        replied_by_id: Optional[uuid.UUID] = None,
+    ) -> Email:
+        cleaned_subject = normalize_email_subject(subject)
+        cleaned_body = normalize_mail_like_text(body) or "(empty)"
+        normalized_labels = self.normalize_labels(["sent", *(labels or [])])
+
+        email = Email(
+            sender_address=sender_address[:320],
+            recipient_address=recipient_address[:320],
+            subject=cleaned_subject[:500],
+            body=cleaned_body,
+            gmail_message_id=gmail_message_id,
+            gmail_thread_id=gmail_thread_id,
+            is_outbound=True,
+            is_read=True,
+            is_starred=False,
+            labels=normalized_labels,
+            in_reply_to_id=in_reply_to_id,
+            replied_by_id=replied_by_id,
+            status=EmailStatus.REPLIED,
+        )
+        self.db.add(email)
         await self.db.flush()
         await self.db.refresh(email)
         return email

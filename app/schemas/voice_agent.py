@@ -4,6 +4,7 @@ Schemas for admin voice-agent process control and configuration.
 
 from __future__ import annotations
 
+import random
 from datetime import datetime
 from typing import Literal
 
@@ -21,7 +22,7 @@ class VoiceAgentConfig(BaseModel):
     google_api_key: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""
-    gemini_api_key: str = ""
+    gemini_api_key: str = ""  # Comma-separated keys for rotation: "key1,key2,key3"
 
     gemini_model: str = "gemini-2.5-flash-lite"
     openai_model: str = "gpt-4o-mini"
@@ -31,6 +32,23 @@ class VoiceAgentConfig(BaseModel):
 
     voice_recordings_dir: str = "recordings"
     database_url: str = ""
+
+    # ── Key rotation helpers ──────────────────────────────────────────────────
+    # These mirror the same properties on VoiceAgentSettings so that
+    # VoiceAgentProcessManagerProxy.start() can call cfg.current_gemini_key
+    # directly on the Pydantic model without hitting an AttributeError.
+
+    @property
+    def current_gemini_key(self) -> str:
+        """Pick a random key from the comma-separated gemini_api_key list."""
+        keys = [k.strip() for k in self.gemini_api_key.split(",") if k.strip()]
+        return random.choice(keys) if keys else ""
+
+    @property
+    def current_google_key(self) -> str:
+        """Pick a random key from the comma-separated google_api_key list."""
+        keys = [k.strip() for k in self.google_api_key.split(",") if k.strip()]
+        return random.choice(keys) if keys else ""
 
 
 class VoiceAgentConfigResponse(BaseModel):
@@ -57,3 +75,18 @@ class VoiceAgentStatusResponse(BaseModel):
 
 class VoiceAgentLogsResponse(BaseModel):
     lines: list[str] = Field(default_factory=list)
+
+
+class VoiceEscalationRequest(BaseModel):
+    room_name: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+    transcript: str | None = None
+    audio_file_path: str | None = None
+
+
+class VoiceEscalationResponse(BaseModel):
+    room_name: str
+    ticket_id: str
+    ticket_subject: str
+    status: str
+    escalation_flag: bool

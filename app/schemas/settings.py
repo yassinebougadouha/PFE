@@ -52,7 +52,6 @@ class AdminSettingsResponse(BaseModel):
     smtp_password: str
     notify_new_ticket: bool
     notify_status_change: bool
-    notify_new_comment: bool
     notify_assigned: bool
     notify_overdue: bool
     notify_resolved: bool
@@ -117,7 +116,6 @@ class NotificationSettingsUpdate(BaseModel):
     smtp_password: str = ""
     notify_new_ticket: bool
     notify_status_change: bool
-    notify_new_comment: bool
     notify_assigned: bool
     notify_overdue: bool
     notify_resolved: bool

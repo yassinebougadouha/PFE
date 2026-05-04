@@ -21,6 +21,7 @@ from app.schemas.email import (
     EmailBulkActionResponse,
     EmailComposeRequest,
     EmailComposeResponse,
+    EmailDeliveryStatusResponse,
     EmailFlagUpdateRequest,
     EmailIngest,
     EmailListResponse,
@@ -34,6 +35,8 @@ from app.rag.response_providers.service import ResponseGenerationService
 from app.services.email_service import EmailService
 from app.services.audit_service import AuditService
 from app.services.gmail_service import GmailService
+from app.services.runtime_mail_service import RuntimeMailService
+from app.services.settings_service import SettingsService
 from app.utils.mail_content import normalize_mail_like_text
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
@@ -160,16 +163,28 @@ async def compose_email(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_agent_or_admin)],
 ):
-    """Queue a brand-new outbound email send (new thread, not reply)."""
+    """Queue a brand-new outbound email send using the active delivery mode."""
     from app.workers.tasks import send_new_email_task
 
-    gmail_svc = GmailService(db)
-    cred = await gmail_svc.get_credential(current_user.id)
-    if not cred or not cred.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Gmail is not connected. Please authorize first.",
-        )
+    settings_service = SettingsService(db)
+    mail_settings = await settings_service.get_all_settings()
+    mail_mode = RuntimeMailService.normalize_mail_mode(mail_settings.get("mail_mode"))
+
+    if mail_mode == "gmail":
+        gmail_svc = GmailService(db)
+        cred = await gmail_svc.get_credential(current_user.id)
+        if not cred or not cred.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Gmail is not connected. Please authorize first.",
+            )
+    else:
+        missing_fields = RuntimeMailService.validate_smtp_settings(mail_settings)
+        if missing_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"SMTP is not fully configured: {', '.join(missing_fields)}",
+            )
 
     queued_id = uuid.uuid4()
     send_new_email_task.delay(
@@ -198,6 +213,36 @@ async def compose_email(
         "gmail_message_id": None,
         "gmail_thread_id": None,
         "sent_at": datetime.now(timezone.utc),
+    }
+
+
+@router.get("/delivery-status", response_model=EmailDeliveryStatusResponse)
+async def get_email_delivery_status(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_agent_or_admin)],
+):
+    """Return the active outbound mail mode and whether the current user can send mail."""
+    settings_service = SettingsService(db)
+    mail_settings = await settings_service.get_all_settings()
+    mail_mode = RuntimeMailService.normalize_mail_mode(mail_settings.get("mail_mode"))
+
+    gmail_svc = GmailService(db)
+    cred = await gmail_svc.get_credential(current_user.id)
+    gmail_connected = bool(cred and cred.is_active)
+
+    smtp_missing_fields = RuntimeMailService.validate_smtp_settings(mail_settings)
+    smtp_sender_email = RuntimeMailService.resolve_smtp_sender_email(mail_settings) or None
+    smtp_ready = not smtp_missing_fields
+
+    return {
+        "mail_mode": mail_mode,
+        "ready": gmail_connected if mail_mode == "gmail" else smtp_ready,
+        "gmail_connected": gmail_connected,
+        "gmail_address": cred.gmail_address if cred and cred.is_active else None,
+        "gmail_last_synced": cred.updated_at if cred and cred.is_active else None,
+        "smtp_ready": smtp_ready,
+        "smtp_sender_email": smtp_sender_email,
+        "smtp_missing_fields": smtp_missing_fields,
     }
 
 
@@ -365,8 +410,8 @@ async def reply_to_email(
     current_user: Annotated[User, Depends(require_agent_or_admin)],
 ):
     """
-    Reply to an ingested email via the connected Gmail account.
-    The reply is threaded in Gmail and recorded as an outbound email.
+    Reply to an ingested email using the active delivery mode.
+    The reply is recorded as an outbound email in the local mailbox.
     """
     # Verify original email exists
     svc = EmailService(db)

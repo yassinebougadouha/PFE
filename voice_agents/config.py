@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 
 @dataclass(frozen=True)
-class VoiceAgentSettings:
+class VoiceAgentConfig:
     """Immutable settings for the voice-agent subsystem."""
 
     # ── LiveKit ──────────────────────────────────────────
@@ -69,7 +69,7 @@ def _bool(val: str | None) -> bool:
 
 
 @lru_cache(maxsize=1)
-def get_voice_settings() -> VoiceAgentSettings:
+def get_voice_settings() -> VoiceAgentConfig:
     """
     Load settings from environment / .env file.
     Cached — only parsed once per process.
@@ -80,7 +80,7 @@ def get_voice_settings() -> VoiceAgentSettings:
 
     # (Removed os.environ manipulation since we pass api_key explicitly now to handle rotating keys)
 
-    return VoiceAgentSettings(
+    return VoiceAgentConfig(
         livekit_api_key=os.getenv("LIVEKIT_API_KEY", "devkey"),
         livekit_api_secret=os.getenv("LIVEKIT_API_SECRET", "secret"),
         livekit_url=os.getenv("LIVEKIT_URL", "ws://localhost:7880"),

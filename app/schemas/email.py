@@ -73,6 +73,17 @@ class EmailComposeResponse(BaseModel):
     sent_at: datetime
 
 
+class EmailDeliveryStatusResponse(BaseModel):
+    mail_mode: Literal["gmail", "smtp"]
+    ready: bool
+    gmail_connected: bool = False
+    gmail_address: Optional[str] = None
+    gmail_last_synced: Optional[datetime] = None
+    smtp_ready: bool = False
+    smtp_sender_email: Optional[str] = None
+    smtp_missing_fields: list[str] = Field(default_factory=list)
+
+
 class EmailFlagUpdateRequest(BaseModel):
     is_read: Optional[bool] = None
     is_starred: Optional[bool] = None

@@ -3,9 +3,11 @@ Application entry point — assembles FastAPI app with all routes and middleware
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.utils.logging import setup_logging
@@ -41,6 +43,12 @@ app.add_middleware(
 )
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(TraceIDMiddleware)
+
+# ── Static Files ─────────────────────────────────────────
+# Serve uploaded files (profile pictures, attachments, etc.)
+uploads_dir = Path(settings.UPLOADS_DIR)
+if uploads_dir.exists():
+    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 # ── Routes ──────────────────────────────────────────────
 from app.api.routes import health, auth, users, conversations, tickets, emails, audit, gmail, voice, whatsapp, internal, voice_calls, voice_agents, settings as settings_routes, notifications as notifications_routes, dashboard as dashboard_routes  # noqa: E402

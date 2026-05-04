@@ -42,7 +42,7 @@ ENV/
 Thumbs.db
 
 # Local imported/temporary project trees
-l2t-plateform-main/
+frontend/
 ai-therapist-fastapi-react-mongodb/
 
 # Runtime/log artifacts

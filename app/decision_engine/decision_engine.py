@@ -12,6 +12,7 @@ This is the heart of Sprint 2: the adaptive decision engine.
 
 import uuid
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -195,6 +196,22 @@ async def analyze_ticket(
         ticket.escalation_flag = True
         if ticket.status not in (TicketStatus.ESCALATED, TicketStatus.RESOLVED, TicketStatus.CLOSED):
             ticket.status = TicketStatus.ESCALATED
+        await db.flush()
+
+    if outcome == DecisionOutcome.AUTO_RESOLVE:
+        if ticket.status not in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+            ticket.status = TicketStatus.RESOLVED
+            ticket.resolved_at = datetime.now(timezone.utc)
+        if not ticket.resolution_note:
+            suggestion = suggestions[0] if suggestions else None
+            ticket.resolution_note = (
+                "Auto-resolved by the decision engine."
+                if not suggestion
+                else f"Auto-resolved by the decision engine. Suggested response: {suggestion}"
+            )
+        await db.flush()
+    elif outcome == DecisionOutcome.CLARIFY and ticket.status in (TicketStatus.OPEN, TicketStatus.IN_PROGRESS):
+        ticket.status = TicketStatus.WAITING_ON_CUSTOMER
         await db.flush()
 
     return DecisionResult(

@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.db.models.user import User
 from app.db.models.email import Email
-from app.db.models.ticket import Ticket
 from app.db.models.enums import (
     AuditAction,
     ChannelType,
@@ -42,6 +41,8 @@ from app.services.tts_service import (
     synthesize_speech,
 )
 from app.services.audit_service import AuditService
+from app.services.ticket_service import TicketService
+from app.schemas.ticket import TicketCreate
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -148,16 +149,17 @@ async def submit_voice_message(
     db.add(email)
     await db.flush()
 
-    # Create ticket from transcription
-    ticket = Ticket(
-        subject=f"[Voice] {subject}"[:500],
-        description=transcript,
-        priority=priority,
-        channel_source=ChannelType.CHAT,
-        creator_id=current_user.id,
-        source_email_id=email.id,
+    # Create ticket from transcription. TicketService runs decision analysis and outcome actions.
+    ticket = await TicketService(db).create_ticket(
+        current_user.id,
+        TicketCreate(
+            subject=f"[Voice] {subject}"[:500],
+            description=transcript,
+            priority=priority,
+            channel_source=ChannelType.CHAT,
+        ),
     )
-    db.add(ticket)
+    ticket.source_email_id = email.id
     await db.flush()
 
     # Audit

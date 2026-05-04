@@ -47,7 +47,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/3
       LIVEKIT_URL: ws://livekit:7880
-      BACKEND_API_URL: http://api:8000
+      BACKEND_API_URL: http://localhost:8000
       VOICE_AGENTS_CONTROL_URL: http://livekit:8001
       API_RELOAD: ${API_RELOAD:-false}
       API_WORKERS: ${API_WORKERS:-4}

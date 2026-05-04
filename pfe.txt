@@ -1,6 +1,6 @@
 ╔══════════════════════════════════════════════════════════════════════════════════╗
 ║                                                                                ║
-║         AI SUPPORT AGENT BACKEND — COMPLETE PROJECT DOCUMENTATION              ║
+║         L2T AI SUPPORT AGENT BACKEND — COMPLETE PROJECT DOCUMENTATION          ║
 ║                                                                                ║
 ║         Full Architecture & Module Reference                                   ║
 ║         Version: 0.1.0  |  Date: April 2026                                   ║
@@ -55,10 +55,10 @@
  1. OVERVIEW & PROJECT PURPOSE
 ================================================================================
 
-The AI Support Agent Backend is a decision-centric intelligent customer support
-platform. Unlike typical chatbot systems that rely solely on generative LLMs,
-this platform places an explicit, rule-based decision engine at its core, using
-LLMs only as linguistic interfaces for response formulation.
+The L2T AI Support Agent Backend is a decision-centric intelligent customer
+support platform. Unlike typical chatbot systems that rely solely on generative
+LLMs, this project places an explicit, rule-based decision engine at its core
+and treats LLMs primarily as linguistic interfaces for response formulation.
 
 PROJECT GOALS:
   • Build a robust, modular, scalable backend for multi-channel customer support
@@ -154,7 +154,7 @@ SECURITY PRINCIPLES:
 HIGH-LEVEL SYSTEM ARCHITECTURE:
 
     ┌─────────────────────────────────────────────────────────────────────────┐
-    │                        AI SUPPORT AGENT SYSTEM                          │
+    │                        L2T AI SUPPORT AGENT SYSTEM                      │
     ├─────────────────────────────────────────────────────────────────────────┤
     │                                                                         │
     │   CLIENTS                              INFRASTRUCTURE                   │

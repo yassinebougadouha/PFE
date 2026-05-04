@@ -5,12 +5,15 @@ User service â€” CRUD + business logic for user management.
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import UploadFile
 
 from app.core.security import hash_password, verify_password
+from app.core.config import settings
 from app.db.models.enums import UserRole, UserStatus
 from app.db.models.user import User
 from app.schemas.user import UserCreate, UserPasswordChangeRequest, UserProfileUpdate, UserUpdate
@@ -214,3 +217,41 @@ class UserService:
         user.deleted_at = datetime.now(timezone.utc)
         await self.db.flush()
         return True
+
+    async def upload_profile_picture(self, user_id: uuid.UUID, file: UploadFile) -> Optional[User]:
+        """Upload and save a profile picture for a user."""
+        user = await self.get_by_id(user_id)
+        if not user:
+            return None
+
+        # Validate file type
+        allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+        if file.content_type not in allowed_types:
+            raise ValueError("Only image files (JPEG, PNG, WebP, GIF) are allowed.")
+
+        # Validate file size (max 5MB)
+        max_size = 5 * 1024 * 1024
+        content = await file.read()
+        if len(content) > max_size:
+            raise ValueError("File size must not exceed 5MB.")
+
+        # Create profile pictures directory
+        profile_pics_dir = Path(settings.UPLOADS_DIR) / "profile_pictures"
+        profile_pics_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename
+        ext = Path(file.filename or "image.jpg").suffix
+        filename = f"{user_id}{ext}"
+        file_path = profile_pics_dir / filename
+
+        # Save file
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        # Update user profile picture URL (full URL accessible from browser)
+        user.profile_picture_url = f"{settings.BACKEND_API_URL}/uploads/profile_pictures/{filename}"
+
+        await self.db.flush()
+        await self.db.refresh(user)
+        return user
+

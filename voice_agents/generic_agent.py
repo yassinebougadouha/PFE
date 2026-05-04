@@ -291,6 +291,14 @@ class GenericAgent(Agent):
         state["escalated"] = True
         state["escalation_reason"] = reason
 
+        escalation_result = await rag_bridge.escalate_voice_call(
+            room_name=room_name,
+            reason=reason,
+        )
+        if escalation_result and escalation_result.get("ticket_id"):
+            state["escalation_ticket_id"] = str(escalation_result["ticket_id"])
+            state["escalation_dispatched_at"] = escalation_result.get("created_at")
+
         # 2. Tell the user we're escalating and end the call
         self.session.interrupt()
         await self.session.generate_reply(
@@ -308,6 +316,8 @@ class GenericAgent(Agent):
         except Exception:
             pass
 
+        if escalation_result and escalation_result.get("ticket_id"):
+            return f"Escalating to human agent. Ticket {escalation_result['ticket_id']} created."
         return "Escalating to human agent."
 
     # ── conversation tools ───────────────────────────────

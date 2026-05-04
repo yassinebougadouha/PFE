@@ -3,7 +3,6 @@ API endpoints for viewing Voice Call Logs (transcriptions and audio).
 """
 
 import uuid
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -200,7 +199,7 @@ async def stream_audio_file(
     if not call.audio_file_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No audio file associated with this call")
 
-    file_path = Path(call.audio_file_path)
+    file_path = service._resolve_recording_path(call.audio_file_path)
     
     if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audio file not found on disk")

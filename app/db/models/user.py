@@ -70,6 +70,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         default=False,
         nullable=False,
     )
+    profile_picture_url: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
 
     # ── Relationships ──────────────────────────────
     conversations = relationship("Conversation", back_populates="user", lazy="selectin")

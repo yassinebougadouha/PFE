@@ -6,6 +6,7 @@ Uses pydantic-settings for validated, type-safe configuration.
 from functools import lru_cache
 from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     # ── API ───────────────────────────────────────────────
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: List[str] = ["*"]
+    BACKEND_API_URL: str = "http://localhost:8000"  # URL for file serving, sent to frontend
 
     # ── Database ─────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/support_db"
@@ -54,11 +56,21 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/3"
 
     # ── Gmail OAuth2 ─────────────────────────────────────
+    MAIL_MODE: str = "gmail"
+    MAIL_SENDER_NAME: str = "Support"
+    GMAIL_FROM_EMAIL: str = ""
     GMAIL_CLIENT_ID: str = ""
     GMAIL_CLIENT_SECRET: str = ""
+    GMAIL_REFRESH_TOKEN: str = ""
     GMAIL_REDIRECT_URI: str = "http://localhost:8000/api/v1/gmail/callback"
     GMAIL_SCOPES: List[str] = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify"]
     GMAIL_POLL_INTERVAL_SECONDS: int = 60
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_ENCRYPTION: str = "tls"
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
 
     # ── WhatsApp ────────────────────────────────────────
     WHATSAPP_PROVIDER: str = "meta"  # "meta" (official Cloud API) | "bridge" (unofficial Web bridge)
@@ -153,6 +165,7 @@ class Settings(BaseSettings):
     LIVEKIT_URL: str = "ws://localhost:7880"
     GOOGLE_API_KEY: str = ""
     USE_REALTIME: bool = False
+    VOICE_RECORDINGS_DIR: str = "recordings"
 
     # ── Internal Service-to-Service Auth ─────────────────
     INTERNAL_SERVICE_KEY: str = "change-me-internal-key"
@@ -167,8 +180,25 @@ class Settings(BaseSettings):
     # ── Logging ──────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def _coerce_debug(cls, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "debug", "dev", "development", "local"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "release", "prod", "production", "staging"}:
+                return False
+        return value
+
 
 @lru_cache()
 def get_settings() -> Settings:
     """Cached singleton — avoids re-reading .env on each import."""
     return Settings()
+
+settings = get_settings()

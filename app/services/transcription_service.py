@@ -133,12 +133,16 @@ def _parse_transcription_result(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_generation_payload(parts: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_generation_payload(
+    parts: list[dict[str, Any]],
+    *,
+    prompt: str = TRANSCRIPTION_PROMPT,
+) -> dict[str, Any]:
     return {
         "contents": [
             {
                 "parts": [
-                    {"text": TRANSCRIPTION_PROMPT},
+                    {"text": prompt},
                     *parts,
                 ]
             }
@@ -155,6 +159,8 @@ async def _generate_transcription_with_inline_audio(
     client: httpx.AsyncClient,
     audio_bytes: bytes,
     mime_type: str,
+    *,
+    prompt: str = TRANSCRIPTION_PROMPT,
 ) -> dict[str, Any]:
     payload = _build_generation_payload(
         [
@@ -164,7 +170,8 @@ async def _generate_transcription_with_inline_audio(
                     "data": base64.b64encode(audio_bytes).decode("utf-8"),
                 }
             }
-        ]
+        ],
+        prompt=prompt,
     )
 
     response = await client.post(
@@ -238,6 +245,8 @@ async def _generate_transcription_with_uploaded_file(
     client: httpx.AsyncClient,
     file_uri: str,
     mime_type: str,
+    *,
+    prompt: str = TRANSCRIPTION_PROMPT,
 ) -> dict[str, Any]:
     payload = _build_generation_payload(
         [
@@ -247,7 +256,8 @@ async def _generate_transcription_with_uploaded_file(
                     "file_uri": file_uri,
                 }
             }
-        ]
+        ],
+        prompt=prompt,
     )
 
     response = await client.post(
@@ -263,6 +273,7 @@ async def save_upload_and_transcribe(
     file_content: bytes,
     filename: str,
     content_type: str | None = None,
+    prompt: str = TRANSCRIPTION_PROMPT,
 ) -> dict[str, Any]:
     """
     Transcribe uploaded audio bytes using Gemini.
@@ -288,6 +299,7 @@ async def save_upload_and_transcribe(
                 client,
                 file_content,
                 mime_type,
+                prompt=prompt,
             )
         else:
             file_uri, file_name = await _upload_audio_file(client, file_content, filename, mime_type)
@@ -296,6 +308,7 @@ async def save_upload_and_transcribe(
                     client,
                     file_uri,
                     mime_type,
+                    prompt=prompt,
                 )
             finally:
                 await _delete_uploaded_audio_file(client, file_name)
