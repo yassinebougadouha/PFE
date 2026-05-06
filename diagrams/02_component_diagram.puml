@@ -1,0 +1,104 @@
+@startuml
+title AI Support Agent Platform - Component Diagram
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageBorderColor #333
+skinparam packageBackgroundColor #f5f5f5
+skinparam componentBorderColor #555
+skinparam componentBackgroundColor #e8e8e8
+skinparam databaseBackgroundColor #fff9e6
+skinparam queueBackgroundColor #e6f2ff
+hide circle
+
+package "Client Layer" {
+  [Web Frontend (React/Vite)] as Frontend
+  [WhatsApp Client] as WAClient
+}
+
+package "Backend API (FastAPI)" {
+  [Auth + RBAC Routes] as AuthRoutes
+  [Conversations/Tickets Routes] as CoreRoutes
+  [Decision Engine Routes] as DecisionRoutes
+  [Voice + WhatsApp + Gmail Routes] as ChannelRoutes
+  [Dashboard/Settings/Notifications Routes] as AdminRoutes
+}
+
+package "Business Services" {
+  [ConversationService] as ConversationSvc
+  [TicketService] as TicketSvc
+  [EmailService / GmailService] as MailSvc
+  [WhatsAppService] as WASvc
+  [Voice Services] as VoiceSvc
+  [NotificationService] as NotifySvc
+  [DashboardService] as DashSvc
+}
+
+package "AI Modules" {
+  [DecisionEngine\n(classifier/scorer/rules/router)] as DecisionEngine
+  [RAG + Response Providers] as RAG
+  [Visual AI Module] as VisualAI
+}
+
+package "Async Processing" {
+  [Celery Worker] as Worker
+  [Celery Beat] as Beat
+}
+
+database "PostgreSQL" as Postgres
+queue "Redis\n(broker/cache/results)" as Redis
+component "WhatsApp Bridge\n(Node.js/Baileys)" as WABridge
+component "Meta WhatsApp Cloud API" as MetaWA
+component "Google Gmail API" as GmailAPI
+
+Frontend --> AuthRoutes
+Frontend --> CoreRoutes
+Frontend --> DecisionRoutes
+Frontend --> ChannelRoutes
+Frontend --> AdminRoutes
+
+WAClient --> MetaWA
+MetaWA --> ChannelRoutes
+WABridge --> ChannelRoutes
+
+AuthRoutes --> ConversationSvc
+CoreRoutes --> ConversationSvc
+CoreRoutes --> TicketSvc
+DecisionRoutes --> DecisionEngine
+DecisionRoutes --> TicketSvc
+ChannelRoutes --> MailSvc
+ChannelRoutes --> WASvc
+ChannelRoutes --> VoiceSvc
+AdminRoutes --> NotifySvc
+AdminRoutes --> DashSvc
+
+ConversationSvc --> Postgres
+TicketSvc --> Postgres
+MailSvc --> Postgres
+WASvc --> Postgres
+VoiceSvc --> Postgres
+NotifySvc --> Postgres
+DashSvc --> Postgres
+DecisionEngine --> Postgres
+RAG --> Postgres
+VisualAI --> Postgres
+
+ConversationSvc --> Redis
+TicketSvc --> Redis
+DecisionEngine --> Redis
+Worker --> Redis
+Beat --> Redis
+
+Worker --> MailSvc
+Worker --> WASvc
+Worker --> DecisionEngine
+Beat --> MailSvc
+
+MailSvc --> GmailAPI
+WASvc --> MetaWA
+WASvc --> WABridge
+
+CoreRoutes --> RAG
+CoreRoutes --> VisualAI
+
+@enduml

@@ -1,0 +1,127 @@
+@startuml
+' Monochrome high-level class diagram for the project
+skinparam monochrome true
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontSize 12
+title AI Support Agent Platform — Class Diagram (Monochrome)
+
+' Layout: top-down with compact packages
+top to bottom direction
+
+package "Domain Models" as DM {
+  class User {
+    +id: UUID
+    +email: str
+    +full_name: str
+    +role: UserRole
+  }
+
+  class Conversation {
+    +id: UUID
+    +channel: ChannelType
+    +status: ConversationStatus
+  }
+
+  class Message {
+    +id: UUID
+    +conversation_id: UUID
+    +sender_id: UUID
+    +content: str
+  }
+
+  class Ticket {
+    +id: UUID
+    +conversation_id: UUID
+    +status: TicketStatus
+    +priority: TicketPriority
+  }
+
+  class Email {
+    +id: UUID
+    +sender: str
+    +subject: str
+  }
+
+  class Notification {
+    +id: UUID
+    +user_id: UUID
+    +type: str
+  }
+
+  class GmailCredential {
+    +id: UUID
+    +user_id: UUID
+    +email: str
+  }
+
+  class VoiceCallLog {
+    +id: UUID
+    +conversation_id: UUID
+    +duration_seconds: int
+  }
+}
+
+package "Decision Engine" as DE {
+  class DecisionLog {
+    +id: UUID
+    +ticket_id: UUID
+    +intent_category: IntentCategory
+    +risk_score: float
+    +outcome: DecisionOutcome
+  }
+
+  class AgentSkill {
+    +id: UUID
+    +agent_id: UUID
+    +intent_category: IntentCategory
+  }
+
+  class DecisionEngine {
+    +analyze_ticket(ticket_id)
+  }
+
+  class IntentClassifier
+  class RiskScorer
+  class DecisionRules
+  class RouterEngine
+  class ResponseSuggester
+  class EscalationBuilder
+}
+
+package "Services" as SV {
+  class ConversationService
+  class TicketService
+  class EmailService
+  class WhatsAppService
+  class VoiceCallService
+  class NotificationService
+  class DecisionEngineService
+}
+
+' Associations (kept minimal for readability)
+User "1" -- "0..*" Conversation
+Conversation "1" -- "0..*" Message
+Conversation "1" -- "0..*" Ticket
+Ticket "1" -- "0..*" DecisionLog
+User "1" -- "0..*" Notification
+User "1" -- "0..1" GmailCredential
+
+' Component links
+DecisionEngine --> IntentClassifier
+DecisionEngine --> RiskScorer
+DecisionEngine --> DecisionRules
+DecisionEngine --> RouterEngine
+DecisionEngine --> ResponseSuggester
+DecisionEngine --> EscalationBuilder
+DecisionEngineService --> DecisionEngine
+
+ConversationService --> Conversation
+ConversationService --> Message
+TicketService --> Ticket
+EmailService --> Email
+WhatsAppService --> Conversation
+VoiceCallService --> VoiceCallLog
+NotificationService --> Notification
+
+@enduml

@@ -1,0 +1,68 @@
+@startuml
+left to right direction
+scale 1.4
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam usecasePadding 16
+skinparam packagePadding 20
+skinparam actorMargin 50
+title AI Support Agent Platform - Global Use Case Diagram
+
+actor Client
+actor "Support Agent" as Agent
+actor Admin
+
+rectangle "AI Support Agent Platform" {
+  usecase "Authenticate" as UC_Auth
+  usecase "Start Conversation" as UC_StartConversation
+  usecase "Send Message / Attachment" as UC_SendMessage
+  usecase "Create Ticket" as UC_CreateTicket
+  usecase "Use Voice Support" as UC_Voice
+  usecase "Use WhatsApp Support" as UC_WhatsApp
+  usecase "View Replies and Status" as UC_ViewStatus
+
+  usecase "Manage Conversation Queue" as UC_Queue
+  usecase "Reply to Customer" as UC_Reply
+  usecase "Update Ticket Status" as UC_TicketStatus
+  usecase "Run AI Decision Analysis" as UC_Decision
+  usecase "Generate Assisted Draft" as UC_Draft
+  usecase "Escalate to Human/Admin" as UC_Escalate
+
+  usecase "Manage Users and Roles" as UC_Users
+  usecase "Configure Settings" as UC_Settings
+  usecase "Maintain Agent Skills" as UC_Skills
+  usecase "Review Audit Logs" as UC_Audit
+  usecase "Monitor Dashboards" as UC_Dashboard
+  usecase "Control Voice Agents" as UC_VoiceAgents
+}
+
+Client --> UC_Auth
+Client --> UC_StartConversation
+Client --> UC_SendMessage
+Client --> UC_CreateTicket
+Client --> UC_Voice
+Client --> UC_WhatsApp
+Client --> UC_ViewStatus
+
+Agent --> UC_Auth
+Agent --> UC_Queue
+Agent --> UC_Reply
+Agent --> UC_TicketStatus
+Agent --> UC_Decision
+Agent --> UC_Draft
+Agent --> UC_Escalate
+Agent --> UC_Dashboard
+
+Admin --> UC_Auth
+Admin --> UC_Users
+Admin --> UC_Settings
+Admin --> UC_Skills
+Admin --> UC_Audit
+Admin --> UC_Dashboard
+Admin --> UC_VoiceAgents
+
+UC_Reply .> UC_Draft : <<include>>
+UC_Decision .> UC_Escalate : <<extend>>
+UC_Queue .> UC_Decision : <<include>>
+
+@enduml

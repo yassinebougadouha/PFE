@@ -1,0 +1,35 @@
+@startuml
+autonumber
+skinparam shadowing false
+title Sequence - Voice Message to Ticket Workflow
+
+actor Client
+participant "Frontend" as FE
+participant "Voice Route" as VoiceAPI
+participant "TranscriptionService" as STT
+participant "EmailService" as EmailSvc
+participant "TicketService" as TicketSvc
+participant "DecisionEngineService" as DecisionSvc
+database "PostgreSQL" as DB
+
+Client -> FE : Upload/send voice message
+FE -> VoiceAPI : POST /api/v1/voice/message (audio file)
+VoiceAPI -> STT : transcribe(audio)
+STT --> VoiceAPI : transcript text
+
+VoiceAPI -> EmailSvc : create_email_from_voice(transcript)
+EmailSvc -> DB : Insert Email
+EmailSvc --> VoiceAPI : email_id
+
+VoiceAPI -> TicketSvc : create_ticket_from_email(email_id)
+TicketSvc -> DB : Insert Ticket
+TicketSvc --> VoiceAPI : ticket_id
+
+VoiceAPI -> DecisionSvc : analyze_ticket(ticket_id)
+DecisionSvc -> DB : Insert DecisionLog
+DecisionSvc --> VoiceAPI : decision summary
+
+VoiceAPI --> FE : 201 transcript + ticket + decision
+FE --> Client : Show ticket created confirmation
+
+@enduml

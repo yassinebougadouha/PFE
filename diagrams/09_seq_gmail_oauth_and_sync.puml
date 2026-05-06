@@ -1,0 +1,40 @@
+@startuml
+autonumber
+skinparam shadowing false
+title Sequence - Gmail OAuth2 Connection and Sync
+
+actor Agent
+participant "Frontend" as FE
+participant "Gmail Route" as GmailAPI
+participant "GmailService" as GmailSvc
+participant "Google OAuth/Gmail API" as Google
+participant "PostgreSQL" as DB
+participant "Celery (gmail queue)" as Queue
+participant "Celery Worker" as Worker
+
+Agent -> FE : Click "Connect Gmail"
+FE -> GmailAPI : GET /api/v1/gmail/authorize
+GmailAPI -> GmailSvc : build_authorization_url(user_id)
+GmailSvc --> FE : auth URL
+
+Agent -> Google : Grant consent
+Google -> GmailAPI : GET /api/v1/gmail/callback?code=...
+GmailAPI -> GmailSvc : exchange_code_for_tokens(code)
+GmailSvc -> Google : token exchange
+GmailSvc -> DB : Upsert GmailCredential
+GmailAPI --> FE : Connection success
+
+opt manual sync
+  FE -> GmailAPI : POST /api/v1/gmail/sync
+  GmailAPI -> Queue : enqueue sync_gmail_for_user_task
+end
+
+opt scheduled sync (beat)
+  Queue -> Worker : sync_all_gmail_accounts
+end
+
+Worker -> GmailSvc : fetch_new_messages(user)
+GmailSvc -> Google : Gmail API list/get messages
+GmailSvc -> DB : Insert Email + optional Ticket
+
+@enduml

@@ -1,0 +1,49 @@
+@startuml
+autonumber
+skinparam shadowing false
+title Sequence - Ticket Decision Analysis Pipeline
+
+actor Agent
+participant "Decision Engine Route" as Route
+participant "DecisionEngine" as Engine
+participant "IntentClassifier" as Classifier
+participant "RiskScorer" as Scorer
+participant "DecisionRules" as Rules
+participant "RouterEngine" as Router
+participant "ResponseSuggester" as Suggester
+participant "EscalationBuilder" as Escalator
+database "PostgreSQL" as DB
+
+Agent -> Route : POST /api/v1/decision-engine/analyze/{ticket_id}
+Route -> Engine : analyze_ticket(ticket_id)
+Engine -> DB : fetch ticket + history + metadata
+
+Engine -> Classifier : classify(subject + body)
+Classifier --> Engine : intent_category + confidence
+
+Engine -> Scorer : score(ticket, intent, context)
+Scorer --> Engine : risk_score + risk_level
+
+Engine -> Rules : evaluate(confidence, risk, policy)
+Rules --> Engine : decision_outcome
+
+opt outcome needs agent routing
+  Engine -> Router : route(ticket, required_skill)
+  Router --> Engine : best_agent + route_reason
+end
+
+opt outcome needs response suggestion
+  Engine -> Suggester : suggest(ticket, intent)
+  Suggester --> Engine : suggestions[]
+end
+
+opt outcome is escalation
+  Engine -> Escalator : build_package(ticket, risk, reason)
+  Escalator --> Engine : escalation_package
+end
+
+Engine -> DB : persist DecisionLog
+Engine --> Route : analysis_result
+Route --> Agent : 200 decision details
+
+@enduml

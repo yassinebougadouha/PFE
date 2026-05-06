@@ -1,0 +1,45 @@
+@startuml
+autonumber
+skinparam shadowing false
+title Sequence - Chat Message with Assisted Draft and Human Review
+
+actor Client
+participant "Frontend" as FE
+participant "Conversations API" as API
+participant "ConversationService" as CS
+participant "TicketService" as TS
+participant "DecisionEngineService" as DES
+participant "NotificationService" as NS
+database "PostgreSQL" as DB
+
+Client -> FE : Send chat message
+FE -> API : POST /api/v1/conversations/{id}/messages
+API -> CS : add_message(conversation_id, payload)
+CS -> DB : Insert Message
+CS -> TS : ensure_ticket_for_conversation(...)
+TS -> DB : Insert/Update Ticket
+
+API -> DES : analyze_ticket(ticket_id)
+DES -> DB : Load ticket + context
+DES -> DES : classify + score + decide
+
+alt Outcome = SUGGEST_RESPONSE
+  DES --> API : assisted_draft
+  API -> NS : notify_agent(conversation_id, ticket_id)
+  NS -> DB : Insert Notification
+  API --> FE : 201 message + draft + pending_agent_action
+  FE --> Client : Show "agent will review" state
+else Outcome = AUTO_RESOLVE
+  DES --> API : auto_response
+  API -> CS : add_assistant_message(...)
+  CS -> DB : Insert assistant message
+  API --> FE : 201 message + immediate reply
+  FE --> Client : Render AI reply
+else Outcome = ESCALATE_TO_HUMAN
+  DES --> API : escalation_package
+  API -> NS : notify_admin_and_senior_agents(...)
+  NS -> DB : Insert escalation notifications
+  API --> FE : 202 escalated
+end
+
+@enduml

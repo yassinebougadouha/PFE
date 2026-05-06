@@ -1,0 +1,39 @@
+@startuml
+skinparam shadowing false
+title Ticket Handling and AI Decision Flow - Activity Diagram
+
+start
+:Receive customer input\n(chat/email/whatsapp/voice);
+:Create or update Conversation;
+:Create Ticket (if needed);
+:Run Decision Engine analysis;
+
+:Classify intent;
+:Score risk;
+:Apply decision rules;
+
+if (Outcome?) then (AUTO_RESOLVE)
+  :Generate automated response;
+  :Send response to customer;
+  :Set ticket status CLOSED/RESOLVED;
+  :Write DecisionLog + AuditLog;
+elseif (SUGGEST_RESPONSE)
+  :Generate assisted draft for agent;
+  :Notify assigned/support agent;
+  :Await human review and send;
+  :Update ticket status IN_PROGRESS;
+elseif (MONITOR_AND_LEARN)
+  :Assign to best-fit agent;
+  :Collect additional context;
+  :Keep ticket OPEN with monitoring flag;
+else (ESCALATE_TO_HUMAN)
+  :Build escalation package;
+  :Escalate to admin/senior queue;
+  :Notify stakeholders;
+  :Set ticket priority HIGH/CRITICAL;
+endif
+
+:Persist all updates\n(ticket/conversation/notifications);
+stop
+
+@enduml
