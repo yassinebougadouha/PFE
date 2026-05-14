@@ -18,6 +18,19 @@ class TicketCreate(BaseModel):
     channel_source: ChannelType = ChannelType.TICKET
     conversation_id: Optional[uuid.UUID] = None
     source_voice_call_id: Optional[uuid.UUID] = None
+    # GLPI sync options
+    glpi_category_id: Optional[int] = None
+    glpi_requester_id: Optional[int] = None
+
+
+class GlpiTicketIngestRequest(BaseModel):
+    glpi_ticket_id: int = Field(..., ge=1)
+    subject: str = Field(..., min_length=1, max_length=500)
+    description: str = Field(..., min_length=1)
+    priority: TicketPriority = TicketPriority.MEDIUM
+    channel_source: ChannelType = ChannelType.TICKET
+    creator_email: Optional[str] = None
+    creator_name: Optional[str] = None
 
 
 class TicketUpdate(BaseModel):
@@ -52,6 +65,10 @@ class TicketResponse(BaseModel):
     source_voice_call_id: Optional[uuid.UUID]
     solved_by_id: Optional[uuid.UUID]
     resolved_at: Optional[datetime]
+    # GLPI sync info
+    glpi_ticket_id: Optional[int] = None
+    glpi_sync_status: str = "pending"
+    glpi_sync_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -70,3 +87,15 @@ class TicketTotalsResponse(BaseModel):
     escalated: int
     resolved: int
     closed: int
+
+
+class TicketGlpiSyncResponse(BaseModel):
+    """Response for manual GLPI sync operations."""
+    success: bool
+    ticket_id: uuid.UUID
+    glpi_ticket_id: Optional[int] = None
+    sync_status: str
+    message: str
+    error: Optional[str] = None
+
+    model_config = {"from_attributes": True}

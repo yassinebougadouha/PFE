@@ -27,6 +27,9 @@ class DummyDB:
     async def refresh(self, _item):
         self.refresh_count += 1
 
+    async def get(self, model, id):
+        return None
+
 
 def _runtime_config() -> DecisionEngineRuntimeConfig:
     return DecisionEngineRuntimeConfig(
@@ -165,11 +168,12 @@ def test_ticket_creation_runs_decision_engine(monkeypatch):
         ticket.assigned_agent_id = assigned_agent_id
         ticket.status = TicketStatus.IN_PROGRESS
         return SimpleNamespace(
-            decision_outcome=DecisionOutcome.ROUTE_AGENT,
-            response_suggestions=[],
-            confidence_score=0.8,
-            risk_score=0.2,
-        )
+                decision_outcome=DecisionOutcome.ROUTE_AGENT,
+                response_suggestions=[],
+                confidence_score=0.8,
+                risk_score=0.2,
+                escalation_summary=None,
+            )
 
     async def fake_notify_new_ticket(ticket):
         calls["new_ticket"] = ticket.id

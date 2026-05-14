@@ -60,17 +60,39 @@ class PDFIngestionService:
 
     # ── List available PDFs ───────────────────────────────
 
-    def list_pdfs(self) -> PDFListResponse:
-        """List all PDF files in the documents directory."""
+    async def list_pdfs(self) -> PDFListResponse:
+        """List all PDF files in the documents directory with ingestion status."""
         pdf_paths = list_pdf_files(self.documents_dir)
+        
+        # Get all articles that have a PDF source to avoid N+1 queries
+        stmt = select(KnowledgeArticle).where(
+            and_(
+                KnowledgeArticle.source.like("pdf:%"),
+                KnowledgeArticle.is_deleted == False
+            )
+        )
+        result = await self.db.execute(stmt)
+        articles = result.scalars().all()
+        
+        # Map source to article info
+        source_map = {a.source: a for a in articles}
+        
         files = []
         for p in pdf_paths:
             stat = p.stat()
+            source_tag = f"pdf:{p.name}"
+            article = source_map.get(source_tag)
+            
             files.append(PDFFileInfo(
                 filename=p.name,
                 size_bytes=stat.st_size,
                 size_human=_human_size(stat.st_size),
+                modified_at=datetime.fromtimestamp(stat.st_mtime),
+                is_ingested=article is not None,
+                article_id=article.id if article else None,
+                chunks_count=article.chunks_count if article else 0,
             ))
+            
         return PDFListResponse(
             directory=str(self.documents_dir),
             files=files,

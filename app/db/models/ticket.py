@@ -4,7 +4,7 @@ Ticket model — support ticketing channel.
 
 import uuid
 
-from sqlalchemy import String, Text, Boolean, Enum, ForeignKey, Index, DateTime
+from sqlalchemy import String, Text, Boolean, Enum, ForeignKey, Index, DateTime, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,6 +39,16 @@ class Ticket(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # ── GLPI Integration Fields ───────────────────────
+    glpi_ticket_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    glpi_sync_status: Mapped[str] = mapped_column(
+        String(20), 
+        default="pending",  # pending, synced, failed
+        nullable=False,
+        index=True
+    )
+    glpi_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # ── Foreign keys ──────────────────────────────
     creator_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True,
@@ -72,4 +82,5 @@ class Ticket(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         Index("ix_tickets_agent_status", "assigned_agent_id", "status"),
         Index("ix_tickets_deleted_created", "is_deleted", "created_at"),
         Index("ix_tickets_deleted_status_created", "is_deleted", "status", "created_at"),
+        Index("ix_tickets_glpi_sync", "glpi_ticket_id", "glpi_sync_status"),
     )

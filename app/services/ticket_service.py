@@ -5,19 +5,26 @@ Ticket service â€” CRUD, assignment, auto-routing, and status transitions.
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.enums import TicketPriority, TicketStatus, UserRole, UserStatus
+from app.core.config import get_settings
+from app.db.models.enums import ChannelType, TicketPriority, TicketStatus, UserRole, UserStatus
 from app.db.models.ticket import Ticket
 from app.db.models.user import User
+from app.db.session import laravel_session_factory
 from app.decision_engine.decision_engine import analyze_ticket
 from app.decision_engine.enums import DecisionOutcome
 from app.decision_engine.classifier import classify_text
 from app.decision_engine.models import AgentSkill
-from app.schemas.ticket import TicketCreate, TicketStatusUpdate, TicketUpdate
+from app.integrations.glpi_client import GlpiClient, GlpiClientError
+from app.schemas.ticket import GlpiTicketIngestRequest, TicketCreate, TicketStatusUpdate, TicketUpdate
 from app.services.ticket_notification_service import TicketNotificationService
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 OPEN_WORKLOAD_STATUSES = {
     TicketStatus.OPEN,
@@ -42,6 +49,7 @@ class TicketService:
             conversation_id=payload.conversation_id,
             source_voice_call_id=payload.source_voice_call_id,
             creator_id=creator_id,
+            glpi_sync_status="pending" if settings.GLPI_AUTO_SYNC else "skipped",
         )
         self.db.add(ticket)
         await self.db.flush()
@@ -56,6 +64,10 @@ class TicketService:
         await self.db.flush()
         await self.db.refresh(ticket)
 
+        # Auto-sync to GLPI if enabled
+        if settings.GLPI_AUTO_SYNC:
+            await self.sync_to_glpi(ticket, escalation_summary=decision.escalation_summary)
+
         if decision.decision_outcome != DecisionOutcome.AUTO_RESOLVE:
             await self.notification_service.notify_new_ticket(ticket)
         if ticket.assigned_agent_id:
@@ -63,6 +75,54 @@ class TicketService:
         await self._notify_creator_decision_action(ticket, decision)
 
         return ticket
+
+    async def ingest_glpi_ticket(self, creator_id: uuid.UUID, payload: GlpiTicketIngestRequest) -> tuple[Ticket, object]:
+        result = await self.db.execute(
+            select(Ticket).where(
+                Ticket.glpi_ticket_id == payload.glpi_ticket_id,
+                Ticket.is_deleted == False,
+            )
+        )
+        ticket = result.scalar_one_or_none()
+        if ticket:
+            ticket.subject = payload.subject
+            ticket.description = payload.description
+            ticket.priority = payload.priority
+            ticket.channel_source = payload.channel_source
+            ticket.creator_id = creator_id
+            ticket.glpi_ticket_id = payload.glpi_ticket_id
+            ticket.glpi_sync_status = "synced"
+            ticket.glpi_sync_error = None
+        else:
+            ticket = Ticket(
+                subject=payload.subject,
+                description=payload.description,
+                priority=payload.priority,
+                channel_source=payload.channel_source,
+                creator_id=creator_id,
+                glpi_ticket_id=payload.glpi_ticket_id,
+                glpi_sync_status="synced",
+                glpi_sync_error=None,
+            )
+            self.db.add(ticket)
+
+        await self.db.flush()
+
+        decision = await analyze_ticket(
+            db=self.db,
+            ticket=ticket,
+            auto_assign=True,
+            auto_update_priority=True,
+        )
+
+        await self.db.flush()
+        await self.db.refresh(ticket)
+
+        # Sync any auto-actions back to GLPI
+        if settings.GLPI_AUTO_SYNC:
+            await self.sync_to_glpi(ticket, escalation_summary=decision.escalation_summary)
+
+        return ticket, decision
 
     async def _notify_creator_decision_action(self, ticket: Ticket, decision) -> None:
         first_suggestion = decision.response_suggestions[0] if decision.response_suggestions else None
@@ -110,6 +170,7 @@ class TicketService:
         self,
         creator_id: Optional[uuid.UUID] = None,
         assigned_agent_id: Optional[uuid.UUID] = None,
+        include_unassigned: bool = False,
         status: Optional[TicketStatus] = None,
         priority: Optional[TicketPriority] = None,
         include_total: bool = True,
@@ -123,8 +184,22 @@ class TicketService:
             query = query.where(Ticket.creator_id == creator_id)
             count_q = count_q.where(Ticket.creator_id == creator_id)
         if assigned_agent_id:
-            query = query.where(Ticket.assigned_agent_id == assigned_agent_id)
-            count_q = count_q.where(Ticket.assigned_agent_id == assigned_agent_id)
+            if include_unassigned:
+                query = query.where(
+                    or_(
+                        Ticket.assigned_agent_id == assigned_agent_id,
+                        Ticket.assigned_agent_id == None,
+                    )
+                )
+                count_q = count_q.where(
+                    or_(
+                        Ticket.assigned_agent_id == assigned_agent_id,
+                        Ticket.assigned_agent_id == None,
+                    )
+                )
+            else:
+                query = query.where(Ticket.assigned_agent_id == assigned_agent_id)
+                count_q = count_q.where(Ticket.assigned_agent_id == assigned_agent_id)
         if status:
             query = query.where(Ticket.status == status)
             count_q = count_q.where(Ticket.status == status)
@@ -142,6 +217,7 @@ class TicketService:
         self,
         creator_id: Optional[uuid.UUID] = None,
         assigned_agent_id: Optional[uuid.UUID] = None,
+        include_unassigned: bool = False,
         priority: Optional[TicketPriority] = None,
     ) -> dict[TicketStatus, int]:
         query = select(Ticket.status, func.count(Ticket.id)).where(Ticket.is_deleted == False)
@@ -149,7 +225,15 @@ class TicketService:
         if creator_id:
             query = query.where(Ticket.creator_id == creator_id)
         if assigned_agent_id:
-            query = query.where(Ticket.assigned_agent_id == assigned_agent_id)
+            if include_unassigned:
+                query = query.where(
+                    or_(
+                        Ticket.assigned_agent_id == assigned_agent_id,
+                        Ticket.assigned_agent_id == None,
+                    )
+                )
+            else:
+                query = query.where(Ticket.assigned_agent_id == assigned_agent_id)
         if priority:
             query = query.where(Ticket.priority == priority)
 
@@ -165,10 +249,13 @@ class TicketService:
         ticket = await self.get_ticket(ticket_id)
         if not ticket:
             return None
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        payload_data = payload.model_dump(exclude_unset=True)
+        for field, value in payload_data.items():
             setattr(ticket, field, value)
         await self.db.flush()
         await self.db.refresh(ticket)
+        if payload_data and settings.GLPI_AUTO_SYNC:
+            await self.sync_to_glpi(ticket)
         return ticket
 
     async def assign_agent(self, ticket_id: uuid.UUID, agent_id: uuid.UUID) -> Optional[Ticket]:
@@ -193,6 +280,8 @@ class TicketService:
             ticket.status = TicketStatus.IN_PROGRESS
         await self.db.flush()
         await self.db.refresh(ticket)
+        if settings.GLPI_AUTO_SYNC:
+            await self.sync_to_glpi(ticket)
         await self.notification_service.notify_assignment(ticket, assignee.id)
         return ticket
 
@@ -232,6 +321,11 @@ class TicketService:
 
         await self.db.flush()
         await self.db.refresh(ticket)
+        
+        # Sync status update to GLPI if enabled
+        if settings.GLPI_AUTO_SYNC:
+            await self.sync_to_glpi(ticket)
+        
         await self.notification_service.notify_status_change(
             ticket=ticket,
             previous_status=previous_status,
@@ -246,6 +340,8 @@ class TicketService:
         ticket.is_deleted = True
         ticket.deleted_at = datetime.now(timezone.utc)
         await self.db.flush()
+        if settings.GLPI_AUTO_SYNC:
+            await self.delete_from_glpi(ticket)
         return True
 
     async def _select_auto_assignee(self, *, ticket: Ticket, method: str) -> Optional[User]:
@@ -380,3 +476,181 @@ class TicketService:
 
         best_skill = sorted(skills, key=skill_key)[0]
         return candidate_lookup.get(best_skill.agent_id)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # GLPI SYNCHRONIZATION
+    # ──────────────────────────────────────────────────────────────────────
+
+    async def sync_to_glpi(self, ticket: Ticket, escalation_summary: Optional[str] = None) -> bool:
+        """
+        Synchronize ticket to GLPI.
+        
+        Args:
+            ticket: Ticket to synchronize
+            escalation_summary: Optional summary to add as followup if escalated
+            
+        Returns:
+            True if sync succeeded, False otherwise
+        """
+        if not settings.GLPI_ENABLED:
+            logger.debug("GLPI sync disabled")
+            return False
+
+        glpi_client = GlpiClient()
+        try:
+            # Use Laravel platform admin/super_admin users for GLPI user IDs
+            requester_glpi_id = None
+            assigned_glpi_id = None
+            try:
+                async with laravel_session_factory() as laravel_db:
+                    result = await laravel_db.execute(
+                        text(
+                            "SELECT glpi_user_id FROM users "
+                            "WHERE glpi_user_id IS NOT NULL "
+                            "AND role IN ('admin', 'super_admin') "
+                            "ORDER BY glpi_user_id LIMIT 1"
+                        )
+                    )
+                    row = result.fetchone()
+                    if row:
+                        requester_glpi_id = int(row[0])
+                        assigned_glpi_id = int(row[0])
+            except Exception as e:
+                logger.warning("Could not fetch Laravel admin GLPI ID: %s", e)
+
+            # If already synced, update; otherwise create
+            if ticket.glpi_ticket_id:
+                logger.info(f"Updating GLPI ticket {ticket.glpi_ticket_id} for ticket {ticket.id}")
+                await glpi_client.update_ticket(
+                    ticket.glpi_ticket_id,
+                    title=ticket.subject,
+                    description=ticket.description,
+                    status=ticket.status,
+                    priority=ticket.priority,
+                    resolution_note=ticket.resolution_note,
+                    assigned_agent_id=assigned_glpi_id,
+                )
+            else:
+                logger.info(f"Creating new GLPI ticket for ticket {ticket.id}")
+                result = await glpi_client.create_ticket(
+                    title=ticket.subject,
+                    description=ticket.description,
+                    priority=ticket.priority,
+                    requester_id=requester_glpi_id,
+                )
+                glpi_ticket_id = result.get('id') or result.get('glpi_ticket_id')
+                if glpi_ticket_id:
+                    ticket.glpi_ticket_id = int(glpi_ticket_id)
+                    # If we have an assignee, update it now that we have a GLPI ID
+                    if assigned_glpi_id:
+                        await glpi_client.update_ticket(
+                            ticket.glpi_ticket_id,
+                            assigned_agent_id=assigned_glpi_id
+                        )
+
+            # Add escalation summary as private followup if provided
+            if escalation_summary and ticket.glpi_ticket_id:
+                logger.info(f"Adding escalation followup to GLPI ticket {ticket.glpi_ticket_id}")
+                await glpi_client.add_followup(
+                    ticket.glpi_ticket_id,
+                    content=escalation_summary,
+                    is_private=True
+                )
+
+            ticket.glpi_sync_status = "synced"
+            ticket.glpi_sync_error = None
+            await self.db.flush()
+            # No refresh here to avoid clearing unsaved state if any, though flush should be fine
+            logger.info(f"Successfully synced ticket {ticket.id} to GLPI")
+            return True
+
+        except GlpiClientError as e:
+            logger.error(f"Failed to sync ticket {ticket.id} to GLPI: {str(e)}")
+            ticket.glpi_sync_status = "failed"
+            ticket.glpi_sync_error = str(e)
+            await self.db.flush()
+            return False
+        finally:
+            await glpi_client.close()
+
+    async def delete_from_glpi(self, ticket: Ticket) -> bool:
+        """
+        Delete a local ticket's GLPI counterpart when the local ticket is soft-deleted.
+        """
+        if not settings.GLPI_ENABLED:
+            logger.debug("GLPI delete sync disabled")
+            return False
+
+        if not ticket.glpi_ticket_id:
+            logger.debug("Ticket %s has no GLPI ticket to delete", ticket.id)
+            return True
+
+        glpi_client = GlpiClient()
+        try:
+            logger.info(f"Deleting GLPI ticket {ticket.glpi_ticket_id} for ticket {ticket.id}")
+            await glpi_client.delete_ticket(ticket.glpi_ticket_id)
+            ticket.glpi_sync_status = "synced"
+            ticket.glpi_sync_error = None
+            await self.db.flush()
+            return True
+        except GlpiClientError as e:
+            logger.error(f"Failed to delete GLPI ticket for {ticket.id}: {str(e)}")
+            ticket.glpi_sync_status = "failed"
+            ticket.glpi_sync_error = str(e)
+            await self.db.flush()
+            return False
+        finally:
+            await glpi_client.close()
+
+    async def sync_from_glpi(self, glpi_ticket_id: int) -> Optional[Ticket]:
+        """
+        Fetch ticket from GLPI and update local database.
+        
+        Args:
+            glpi_ticket_id: GLPI ticket ID
+            
+        Returns:
+            Updated Ticket or None if not found
+        """
+        if not settings.GLPI_ENABLED:
+            logger.debug("GLPI sync disabled")
+            return None
+
+        glpi_client = GlpiClient()
+        try:
+            # Fetch from GLPI
+            glpi_data = await glpi_client.get_ticket(glpi_ticket_id)
+            
+            # Find or create local ticket
+            result = await self.db.execute(
+                select(Ticket).where(
+                    Ticket.glpi_ticket_id == glpi_ticket_id,
+                    Ticket.is_deleted == False
+                )
+            )
+            ticket = result.scalar_one_or_none()
+            
+            if not ticket:
+                logger.warning(f"No local ticket found for GLPI ID {glpi_ticket_id}")
+                return None
+
+            # Update from GLPI data
+            ticket.subject = glpi_data.get('name', ticket.subject)
+            ticket.description = glpi_data.get('content', ticket.description)
+            status_code = glpi_data.get('status', 2)
+            ticket.status = GlpiClient.map_glpi_to_fastapi_status(status_code)
+            priority_code = glpi_data.get('priority', 3)
+            ticket.priority = GlpiClient.map_glpi_to_fastapi_priority(priority_code)
+            ticket.glpi_sync_status = "synced"
+            ticket.glpi_sync_error = None
+
+            await self.db.flush()
+            await self.db.refresh(ticket)
+            logger.info(f"Successfully synced ticket {ticket.id} from GLPI")
+            return ticket
+
+        except GlpiClientError as e:
+            logger.error(f"Failed to sync from GLPI ticket {glpi_ticket_id}: {str(e)}")
+            return None
+        finally:
+            await glpi_client.close()

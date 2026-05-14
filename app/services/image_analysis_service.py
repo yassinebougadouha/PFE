@@ -146,7 +146,10 @@ async def analyze_chat_image(
             f"{_GEMINI_BASE_URL}/{settings.GEMINI_IMAGE_ANALYSIS_MODEL}:generateContent?key={settings.current_gemini_key}",
             json=payload,
         )
-        response.raise_for_status()
+        if not response.is_success:
+            error_body = response.text[:500]
+            logger.warning("Gemini image analysis HTTP %s: %s", response.status_code, error_body)
+            return {"summary": "", "visible_text": "", "issue_signals": [], "suggested_focus": ""}
         data = response.json()
 
     result = _normalize_analysis_payload(data)

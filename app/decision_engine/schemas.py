@@ -109,7 +109,7 @@ class AgentSkillCreate(BaseModel):
     agent_id: uuid.UUID
     skill_category: IntentCategory
     proficiency: float = Field(0.5, ge=0.0, le=1.0)
-    max_concurrent_tickets: int = Field(10, ge=1, le=100)
+    max_concurrent_tickets: int = Field(10, ge=1, le=1000)
 
 
 class AgentSkillResponse(BaseModel):

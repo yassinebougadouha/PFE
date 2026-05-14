@@ -541,6 +541,8 @@ class ConversationPlaybookService:
 
         await self.db.flush()
         await self.db.refresh(ticket)
+        if settings.GLPI_AUTO_SYNC:
+            await ticket_service.sync_to_glpi(ticket)
         return ticket
 
     async def _apply_escalation(
@@ -609,6 +611,8 @@ class ConversationPlaybookService:
                             existing_ticket.id,
                             exc_info=True,
                         )
+            if settings.GLPI_AUTO_SYNC:
+                await ticket_service.sync_to_glpi(existing_ticket)
             return existing_ticket
 
         summary_context = await self._build_ai_summary_context(conversation)
@@ -666,6 +670,8 @@ class ConversationPlaybookService:
 
         await self.db.flush()
         await self.db.refresh(ticket)
+        if settings.GLPI_AUTO_SYNC:
+            await ticket_service.sync_to_glpi(ticket)
 
         if created_ticket:
             handoff_text = self._build_customer_handoff_message(ticket.id)

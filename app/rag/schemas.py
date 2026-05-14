@@ -80,6 +80,7 @@ class ArticleResponse(BaseModel):
     is_indexed: bool
     chunk_count: int
     total_tokens: int
+    chunks: list[ArticleChunkResponse] = Field(default_factory=list)
     created_by: Optional[uuid.UUID]
     updated_by: Optional[uuid.UUID]
     created_at: datetime

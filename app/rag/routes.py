@@ -117,7 +117,7 @@ async def list_articles(
     db: DB,
     user: AgentOrAdmin,
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     category: Optional[ArticleCategory] = None,
     article_status: Optional[ArticleStatus] = Query(None, alias="status"),
     language: Optional[str] = None,
@@ -376,7 +376,7 @@ async def list_documents(
 ):
     """List all PDF files available in the documents folder."""
     svc = PDFIngestionService(db)
-    return svc.list_pdfs()
+    return await svc.list_pdfs()
 
 
 @router.post(

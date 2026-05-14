@@ -1,0 +1,96 @@
+version: "3.8"
+
+services:
+  # -------------------------
+  # Laravel (Sail)
+  # -------------------------
+  laravel.test:
+    build:
+      context: ./vendor/laravel/sail/runtimes/8.5
+      dockerfile: Dockerfile
+      args:
+        WWWGROUP: ${WWWGROUP}
+    image: sail-8.5/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${APP_PORT:-8000}:80"
+      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
+    environment:
+      WWWUSER: ${WWWUSER}
+      LARAVEL_SAIL: 1
+    volumes:
+      - .:/var/www/html
+    networks:
+      - sail
+    depends_on:
+      - pgsql
+
+  pgsql:
+    image: postgres:16-alpine
+    ports:
+      - "${FORWARD_DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    volumes:
+      - sail-pgsql:/var/lib/postgresql/data
+    networks:
+      - sail
+
+  scheduler:
+    image: sail-8.5/app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      - pgsql
+    command: php artisan schedule:work
+    networks:
+      - sail
+
+  # -------------------------
+  # GLPI (separate stack)
+  # -------------------------
+  glpi_db:
+    image: mariadb:10.7
+    container_name: glpi_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: glpidb
+      MYSQL_USER: glpi
+      MYSQL_PASSWORD: glpipass
+    volumes:
+      - glpi_db_data:/var/lib/mysql
+    networks:
+      - sail
+
+  glpi:
+    image: diouxx/glpi
+    container_name: glpi_app
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      TIMEZONE: Africa/Tunis
+    depends_on:
+      - glpi_db
+    volumes:
+      - glpi_data:/var/www/html/glpi
+    networks:
+      - sail
+
+# -------------------------
+# Networks & volumes
+# -------------------------
+networks:
+  sail:
+    driver: bridge
+
+volumes:
+  sail-pgsql:
+  glpi_db_data:
+  glpi_data:

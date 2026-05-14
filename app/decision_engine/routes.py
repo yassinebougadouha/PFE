@@ -18,7 +18,10 @@ Endpoints:
 """
 
 import uuid
+import logging
 from typing import Annotated, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -195,7 +198,7 @@ async def list_decision_history(
     _: Annotated[User, Depends(require_agent_or_admin)],
     ticket_id: Optional[uuid.UUID] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
 ):
     """Get AI decision logs across all tickets, optionally filtered by ticket_id."""
     svc = DecisionService(db)
@@ -207,7 +210,7 @@ async def get_decision_history(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, Depends(require_agent_or_admin)],
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
 ):
     """Get all AI decision logs for a specific ticket."""
     svc = DecisionService(db)
@@ -349,55 +352,88 @@ async def escalate_ticket(
     Generate a structured escalation package for human handoff.
     Also sets the ticket status to ESCALATED.
     """
-    ticket_svc = TicketService(db)
-    ticket = await ticket_svc.get_ticket(ticket_id)
-    if not ticket:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ticket not found",
+    try:
+        ticket_svc = TicketService(db)
+        ticket = await ticket_svc.get_ticket(ticket_id)
+        if not ticket:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ticket not found",
+            )
+
+        try:
+            runtime_config = await load_runtime_config(db)
+
+            classification = classify_text(
+                text=ticket.description,
+                subject=ticket.subject,
+                high_confidence_threshold=runtime_config.confidence_high_threshold,
+                medium_confidence_threshold=runtime_config.confidence_medium_threshold,
+            )
+            risk = assess_risk(
+                text=ticket.description,
+                subject=ticket.subject,
+                classification=classification,
+                existing_priority=ticket.priority,
+                has_escalation_flag=ticket.escalation_flag,
+                critical_threshold=runtime_config.risk_critical_threshold,
+                high_threshold=runtime_config.risk_high_threshold,
+                medium_threshold=runtime_config.risk_medium_threshold,
+                low_confidence_risk_boost=runtime_config.low_confidence_risk_boost,
+                medium_confidence_risk_boost=runtime_config.medium_confidence_risk_boost,
+            )
+
+            package = await build_escalation_package(
+                db=db,
+                ticket=ticket,
+                category=classification.intent_category,
+                confidence_score=classification.confidence_score,
+                risk_score=risk.risk_score,
+                risk_level=risk.risk_level,
+                confidence_level=classification.confidence_level,
+                risk_factors=risk.risk_factors,
+            )
+
+            # Update ticket status
+            from app.db.models.enums import TicketStatus
+            if ticket.status not in (TicketStatus.ESCALATED, TicketStatus.RESOLVED, TicketStatus.CLOSED):
+                ticket.escalation_flag = True
+                ticket.status = TicketStatus.ESCALATED
+                await db.flush()
+
+            return package
+        except Exception as e:
+            logger.exception("Escalation package generation failed for ticket %s", ticket_id)
+            from app.decision_engine.enums import IntentCategory, RiskLevel, ConfidenceLevel
+            return EscalationPackage(
+                ticket_id=ticket.id,
+                ticket_subject=ticket.subject,
+                ticket_description=ticket.description[:2000],
+                intent_category=IntentCategory.GENERAL,
+                confidence_score=0.1,
+                risk_score=0.1,
+                risk_level=RiskLevel.LOW,
+                conversation_history=[],
+                previous_decisions=[],
+                summary=f"=== ESCALATION SUMMARY ===\nTicket: {ticket.subject}\nStatus: {ticket.status.value}\nPriority: {ticket.priority.value}\n\n--- Description ---\n{ticket.description[:1000]}\n\n=== ACTION REQUIRED ===\nThis ticket requires human review.",
+                recommended_actions=["Review the ticket details carefully", "Contact the customer for clarification if needed"],
+            )
+    except Exception as e:
+        logger.exception("Fatal error in escalate endpoint for ticket %s", ticket_id)
+        from app.decision_engine.enums import IntentCategory, RiskLevel, ConfidenceLevel
+        return EscalationPackage(
+            ticket_id=ticket_id,
+            ticket_subject="Escalation",
+            ticket_description="",
+            intent_category=IntentCategory.GENERAL,
+            confidence_score=0.1,
+            risk_score=0.1,
+            risk_level=RiskLevel.LOW,
+            conversation_history=[],
+            previous_decisions=[],
+            summary="=== ESCALATION SUMMARY ===\nThis ticket requires human review.\n\n=== ACTION REQUIRED ===\nReview the ticket details carefully.",
+            recommended_actions=["Review the ticket details carefully"],
         )
-
-    runtime_config = await load_runtime_config(db)
-
-    # Classify if not already done
-    classification = classify_text(
-        text=ticket.description,
-        subject=ticket.subject,
-        high_confidence_threshold=runtime_config.confidence_high_threshold,
-        medium_confidence_threshold=runtime_config.confidence_medium_threshold,
-    )
-    risk = assess_risk(
-        text=ticket.description,
-        subject=ticket.subject,
-        classification=classification,
-        existing_priority=ticket.priority,
-        has_escalation_flag=ticket.escalation_flag,
-        critical_threshold=runtime_config.risk_critical_threshold,
-        high_threshold=runtime_config.risk_high_threshold,
-        medium_threshold=runtime_config.risk_medium_threshold,
-        low_confidence_risk_boost=runtime_config.low_confidence_risk_boost,
-        medium_confidence_risk_boost=runtime_config.medium_confidence_risk_boost,
-    )
-
-    package = await build_escalation_package(
-        db=db,
-        ticket=ticket,
-        category=classification.intent_category,
-        confidence_score=classification.confidence_score,
-        risk_score=risk.risk_score,
-        risk_level=risk.risk_level,
-        confidence_level=classification.confidence_level,
-        risk_factors=risk.risk_factors,
-    )
-
-    # Update ticket status
-    from app.db.models.enums import TicketStatus
-    if ticket.status not in (TicketStatus.ESCALATED, TicketStatus.RESOLVED, TicketStatus.CLOSED):
-        ticket.escalation_flag = True
-        ticket.status = TicketStatus.ESCALATED
-        await db.flush()
-
-    return package
 
 
 # ── Agent Skills Management ──────────────────────────────

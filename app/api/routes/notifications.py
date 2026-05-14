@@ -36,7 +36,7 @@ async def list_notifications(
     current_user: Annotated[User, Depends(get_current_user)],
     unread_only: bool = Query(False),
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
 ):
     service = NotificationService(db)
     items, total, unread_count = await service.list_for_user(

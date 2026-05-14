@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.schemas.common import MessageOut
 from app.schemas.ticket import (
     TicketCreate,
+    TicketGlpiSyncResponse,
     TicketListResponse,
     TicketResponse,
     TicketStatusUpdate,
@@ -38,6 +39,7 @@ from app.decision_engine.response_suggester import get_response_suggestions
 from app.decision_engine.rules import apply_rules
 from app.services.settings_service import SettingsService
 from app.services.ticket_service import TicketService
+from app.services.glpi_ticket_service import list_glpi_tickets
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -179,7 +181,12 @@ async def find_similar_tickets(
     if current_user.role == UserRole.CLIENT:
         visibility_filter.append(Ticket.creator_id == current_user.id)
     elif current_user.role == UserRole.AGENT:
-        visibility_filter.append(Ticket.assigned_agent_id == current_user.id)
+        visibility_filter.append(
+            or_(
+                Ticket.assigned_agent_id == current_user.id,
+                Ticket.assigned_agent_id == None,
+            )
+        )
 
     query_stmt = (
         select(Ticket)
@@ -219,21 +226,24 @@ async def list_tickets(
     priority: Optional[TicketPriority] = Query(None),
     include_total: bool = Query(True),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
 ):
-    """List tickets. Clients see own. Agents see assigned. Admins see all."""
+    """List tickets. Clients see own. Agents see assigned + unassigned. Admins see all."""
     svc = TicketService(db)
 
     creator_id = None
     assigned_agent_id = None
+    include_unassigned = False
     if current_user.role == UserRole.CLIENT:
         creator_id = current_user.id
     elif current_user.role == UserRole.AGENT:
         assigned_agent_id = current_user.id
+        include_unassigned = True
 
     tickets, total = await svc.list_tickets(
         creator_id=creator_id,
         assigned_agent_id=assigned_agent_id,
+        include_unassigned=include_unassigned,
         status=status_filter,
         priority=priority,
         include_total=include_total,
@@ -254,14 +264,17 @@ async def get_ticket_totals(
 
     creator_id = None
     assigned_agent_id = None
+    include_unassigned = False
     if current_user.role == UserRole.CLIENT:
         creator_id = current_user.id
     elif current_user.role == UserRole.AGENT:
         assigned_agent_id = current_user.id
+        include_unassigned = True
 
     counts = await svc.count_by_status(
         creator_id=creator_id,
         assigned_agent_id=assigned_agent_id,
+        include_unassigned=include_unassigned,
         priority=priority,
     )
     open_count = counts.get(TicketStatus.OPEN, 0)
@@ -281,6 +294,20 @@ async def get_ticket_totals(
         resolved=int(resolved_count),
         closed=int(closed_count),
     )
+
+
+@router.get("/glpi-list", response_model=dict)
+async def list_glpi_tickets_endpoint(
+    range: str = Query("0-999"),
+    db: Annotated[AsyncSession, Depends(get_db)] = None,
+    _: Annotated[User, Depends(require_agent_or_admin)] = None,
+):
+    """List all tickets from GLPI via the Laravel proxy, with local UUID mapping."""
+    from sqlalchemy import select
+    result = await db.execute(select(Ticket.glpi_ticket_id, Ticket.id).where(Ticket.glpi_ticket_id.isnot(None)))
+    uuid_map = {int(row[0]): str(row[1]) for row in result.all() if row[0]}
+    tickets = await list_glpi_tickets(range_str=range, glpi_to_uuid_map=uuid_map)
+    return {"tickets": tickets, "total": len(tickets)}
 
 
 @router.get("/{ticket_id}", response_model=TicketResponse)
@@ -418,3 +445,79 @@ async def delete_ticket(
 
     await svc.soft_delete(ticket_id)
     return {"message": "Ticket deleted"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GLPI SYNCHRONIZATION ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/{ticket_id}/glpi/sync", response_model=TicketGlpiSyncResponse)
+async def sync_ticket_to_glpi(
+    ticket_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, Depends(require_admin)],
+):
+    """
+    Manually sync ticket to GLPI.
+    Admin only.
+    """
+    svc = TicketService(db)
+    ticket = await svc.get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    success = await svc.sync_to_glpi(ticket)
+    
+    return TicketGlpiSyncResponse(
+        success=success,
+        ticket_id=ticket.id,
+        glpi_ticket_id=ticket.glpi_ticket_id,
+        sync_status=ticket.glpi_sync_status,
+        message="Ticket synced to GLPI" if success else "Failed to sync ticket to GLPI",
+        error=ticket.glpi_sync_error,
+    )
+
+
+@router.post("/glpi/{glpi_ticket_id}/sync", response_model=TicketResponse)
+async def sync_ticket_from_glpi(
+    glpi_ticket_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, Depends(require_admin)],
+):
+    """
+    Fetch ticket from GLPI and update local database.
+    Admin only.
+    """
+    svc = TicketService(db)
+    ticket = await svc.sync_from_glpi(glpi_ticket_id)
+    if not ticket:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ticket not found in GLPI or local database"
+        )
+    return ticket
+
+
+@router.get("/{ticket_id}/glpi/status", response_model=dict)
+async def get_glpi_sync_status(
+    ticket_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Get GLPI sync status for a ticket."""
+    svc = TicketService(db)
+    ticket = await svc.get_ticket(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    # Clients can only view their own tickets
+    if current_user.role == UserRole.CLIENT and ticket.creator_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    return {
+        "ticket_id": str(ticket.id),
+        "glpi_ticket_id": ticket.glpi_ticket_id,
+        "sync_status": ticket.glpi_sync_status,
+        "sync_error": ticket.glpi_sync_error,
+        "synced_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
+    }

@@ -74,6 +74,10 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         String(1000),
         nullable=True,
     )
+    glpi_user_id: Mapped[int | None] = mapped_column(
+        nullable=True,
+        index=True,
+    )
 
     # ── Relationships ──────────────────────────────
     conversations = relationship("Conversation", back_populates="user", lazy="selectin")

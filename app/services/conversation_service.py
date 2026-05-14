@@ -251,14 +251,16 @@ class ConversationService:
 
         response_channel = self._resolve_response_channel(conversation.channel)
 
-        conversation_history, attachment_context = await asyncio.gather(
-            self._build_conversation_history(
-                conversation_id=conversation.id,
-                customer_id=customer.id,
-                latest_message_id=latest_message.id,
-            ),
-            self._build_attachment_context(latest_message),
+        # Keep database-backed work on this shared AsyncSession sequential.
+        # asyncpg allows only one operation at a time per connection, so
+        # gathering these coroutines can intermittently raise
+        # "another operation is in progress" during assisted draft creation.
+        conversation_history = await self._build_conversation_history(
+            conversation_id=conversation.id,
+            customer_id=customer.id,
+            latest_message_id=latest_message.id,
         )
+        attachment_context = await self._build_attachment_context(latest_message)
         query = self._build_reply_query(
             latest_message,
             attachment_context=attachment_context,
@@ -450,7 +452,7 @@ class ConversationService:
                     **image_analysis,
                 }
             except Exception:
-                logger.warning("Image attachment analysis failed for message %s", message.id, exc_info=True)
+                logger.warning("Image attachment analysis failed for message %s", message.id)
                 return {
                     "kind": "image",
                     "filename": filename,

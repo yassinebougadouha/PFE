@@ -204,6 +204,39 @@ def test_build_support_reply_request_uses_whatsapp_channel(monkeypatch):
     assert attachment_context is None
 
 
+def test_build_support_reply_request_does_not_overlap_shared_db_work(monkeypatch):
+    conversation_id = uuid.uuid4()
+    expected_customer_id = uuid.uuid4()
+    conversation = _conversation(conversation_id, expected_customer_id, ChannelType.CHAT)
+    latest = _message(uuid.uuid4(), conversation_id, expected_customer_id, "I need help")
+    state = {"history_running": False}
+
+    async def fake_build_history(self, conversation_id, customer_id, latest_message_id):
+        state["history_running"] = True
+        await asyncio.sleep(0)
+        state["history_running"] = False
+        return []
+
+    async def fake_attachment_context(self, message):
+        assert state["history_running"] is False
+        return None
+
+    monkeypatch.setattr(ConversationService, "_build_conversation_history", fake_build_history)
+    monkeypatch.setattr(ConversationService, "_build_attachment_context", fake_attachment_context)
+
+    service = ConversationService(db=DummySession())
+    request, attachment_context = asyncio.run(
+        service.build_support_reply_request(
+            conversation=conversation,
+            customer=SimpleNamespace(id=expected_customer_id),
+            latest_message=latest,
+        )
+    )
+
+    assert request.channel == ResponseChannel.CHAT
+    assert attachment_context is None
+
+
 def test_conversation_auto_reply_response_marks_whatsapp_assisted_draft_available(monkeypatch):
     conversation = _conversation(uuid.uuid4(), uuid.uuid4(), ChannelType.WHATSAPP)
 

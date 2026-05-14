@@ -1,9 +1,9 @@
 """
 Internal API routes for service-to-service communication.
 
-These endpoints are protected by a shared service key (INTERNAL_SERVICE_KEY)
-instead of JWT auth, allowing internal services (e.g. voice agents) to
-access the RAG knowledge base and response providers without user tokens.
+These endpoints are open while backend auth is disabled, allowing internal
+services (e.g. voice agents) to access the RAG knowledge base and response
+providers without user tokens.
 
 Prefix: /internal
 Tag: Internal Services
@@ -30,7 +30,7 @@ from app.schemas.support_call_screen_context import (
     SupportCallScreenContextSnapshotResponse,
 )
 from app.schemas.voice_agent import VoiceEscalationRequest, VoiceEscalationResponse
-from app.schemas.ticket import TicketCreate, TicketUpdate
+from app.schemas.ticket import GlpiTicketIngestRequest, TicketCreate, TicketResponse, TicketUpdate
 from app.db.models.enums import ChannelType, TicketPriority, TicketStatus, UserRole, UserStatus
 from app.db.models.user import User
 from app.services.ticket_service import TicketService
@@ -48,15 +48,10 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 # ── Service key dependency ────────────────────────────────
 
 async def verify_service_key(
-    x_service_key: str = Header(..., alias="X-Service-Key"),
+    x_service_key: Optional[str] = Header(None, alias="X-Service-Key"),
 ) -> str:
-    """Verify the internal service key from the request header."""
-    if x_service_key != settings.INTERNAL_SERVICE_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid service key",
-        )
-    return x_service_key
+    """Accept internal requests without requiring a service key."""
+    return x_service_key or ""
 
 
 ServiceKey = Annotated[str, Depends(verify_service_key)]
@@ -158,6 +153,53 @@ async def internal_clear_support_call_screen_context(
     return SupportCallScreenContextClearResponse(room_name=room_name, cleared=cleared)
 
 
+async def _resolve_internal_user(
+    db: AsyncSession,
+    *,
+    email: str,
+    full_name: str,
+    role: UserRole = UserRole.CLIENT,
+) -> User:
+    result = await db.execute(
+        select(User).where(
+            User.email == email,
+            User.is_deleted == False,
+        )
+    )
+    system_user = result.scalar_one_or_none()
+    if not system_user:
+        system_user = User(
+            email=email,
+            full_name=full_name,
+            hashed_password="!no_login",
+            role=role,
+            status=UserStatus.ACTIVE,
+        )
+        db.add(system_user)
+        await db.flush()
+    return system_user
+
+
+@router.post(
+    "/tickets/glpi-ingest",
+    response_model=TicketResponse,
+    summary="Ingest a GLPI ticket into the backend",
+    description="Creates or updates a local backend ticket from a GLPI-created ticket and runs the decision engine.",
+)
+async def internal_ingest_glpi_ticket(
+    payload: GlpiTicketIngestRequest,
+    db: DB,
+    _key: ServiceKey,
+) -> TicketResponse:
+    creator_email = (payload.creator_email or "glpi_ingest_system@local").strip().lower()
+    creator_name = (payload.creator_name or "GLPI Ingest System").strip() or "GLPI Ingest System"
+    creator = await _resolve_internal_user(db, email=creator_email, full_name=creator_name)
+
+    ticket_service = TicketService(db)
+    ticket, _decision = await ticket_service.ingest_glpi_ticket(creator.id, payload)
+    return ticket
+
+
 @router.post(
     "/voice/escalations",
     response_model=VoiceEscalationResponse,
@@ -174,23 +216,12 @@ async def internal_create_voice_escalation(
     if not room_name or not reason:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="room_name and reason are required")
 
-    result = await db.execute(
-        select(User).where(
-            User.email == "voice_agent_system@local",
-            User.is_deleted == False,
-        )
+    system_user = await _resolve_internal_user(
+        db,
+        email="voice_agent_system@local",
+        full_name="Voice Agent System",
+        role=UserRole.CLIENT,
     )
-    system_user = result.scalar_one_or_none()
-    if not system_user:
-        system_user = User(
-            email="voice_agent_system@local",
-            full_name="Voice Agent System",
-            hashed_password="!no_login",
-            role=UserRole.CLIENT,
-            status=UserStatus.ACTIVE,
-        )
-        db.add(system_user)
-        await db.flush()
 
     description_parts = [
         f"**Escalation Reason:** {reason}",

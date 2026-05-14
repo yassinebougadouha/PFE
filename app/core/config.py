@@ -171,6 +171,13 @@ class Settings(BaseSettings):
     INTERNAL_SERVICE_KEY: str = "change-me-internal-key"
     INTERNAL_API_BASE_URL: str = "http://api:8000"
 
+    # ── GLPI Integration ─────────────────────────────────
+    GLPI_API_URL: str = "http://localhost:8001/api/v1"  # Laravel proxy URL
+    GLPI_ENABLED: bool = True
+    GLPI_AUTO_SYNC: bool = True  # automatically sync tickets to GLPI
+    LARAVEL_DATABASE_URL: str = "postgresql+asyncpg://sail:password@platform-glpi-main-pgsql-1:5432/laravel"
+    GLPI_LIST_URL: str = "http://platform-glpi-main-laravel.test-1/api/v1/glpi/items/Ticket"
+
     # ── Channel Auto-Replies (RAG-powered) ───────────────
     EMAIL_AUTO_REPLY_ENABLED: bool = True
     WHATSAPP_AUTO_REPLY_ENABLED: bool = True

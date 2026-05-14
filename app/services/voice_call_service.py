@@ -208,10 +208,11 @@ class VoiceCallService:
         if candidate.exists():
             return candidate
 
+        configured_candidate = VoiceCallService._recordings_dir() / candidate.name
+        if candidate.name and configured_candidate.exists():
+            return configured_candidate
+
         if candidate.is_absolute():
-            configured_candidate = VoiceCallService._recordings_dir() / candidate.name
-            if configured_candidate.exists():
-                return configured_candidate
             return candidate
 
         return (Path.cwd() / candidate).resolve()

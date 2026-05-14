@@ -26,6 +26,20 @@ async_session_factory = async_sessionmaker(
     expire_on_commit=False,
 )
 
+# Laravel platform database engine
+laravel_engine = create_async_engine(
+    settings.LARAVEL_DATABASE_URL,
+    echo=False,
+    pool_size=5,
+    max_overflow=2,
+)
+
+laravel_session_factory = async_sessionmaker(
+    laravel_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
 
 async def get_db() -> AsyncSession:
     """FastAPI dependency — yields an async session, auto-closes."""
@@ -36,5 +50,14 @@ async def get_db() -> AsyncSession:
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await session.close()
+
+
+async def get_laravel_db() -> AsyncSession:
+    """FastAPI dependency — yields a read-only Laravel DB session."""
+    async with laravel_session_factory() as session:
+        try:
+            yield session
         finally:
             await session.close()

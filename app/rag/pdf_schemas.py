@@ -22,6 +22,10 @@ class PDFFileInfo(BaseModel):
     filename: str
     size_bytes: int
     size_human: str
+    modified_at: datetime
+    is_ingested: bool = False
+    article_id: Optional[uuid.UUID] = None
+    chunks_count: int = 0
 
 
 class PDFListResponse(BaseModel):

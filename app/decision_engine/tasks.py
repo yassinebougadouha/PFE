@@ -97,6 +97,18 @@ def analyze_ticket_task(
                 outcome=outcome,
             )
 
+            # Build escalation summary if needed
+            escalation_summary = None
+            if outcome == DecisionOutcome.ESCALATE_HUMAN:
+                from app.decision_engine.escalation import _generate_summary
+                escalation_summary = _generate_summary(
+                    ticket=ticket,
+                    category=classification.intent_category,
+                    confidence=classification.confidence_score,
+                    risk=risk.risk_score,
+                    risk_factors=risk.risk_factors,
+                )
+
             suggested_agent_id = None
             if outcome in (
                 DecisionOutcome.ROUTE_AGENT,
@@ -181,6 +193,7 @@ def analyze_ticket_task(
                     f"Decision: {outcome.value}."
                 ),
                 matched_rules={"rules": matched_rules},
+                escalation_summary=escalation_summary,
             )
             db.add(decision_log)
 
@@ -225,6 +238,73 @@ def analyze_ticket_task(
                 ticket.status = TicketStatus.WAITING_ON_CUSTOMER
 
             db.commit()
+
+            # ── Sync to GLPI (Sync version) ───────────────────
+            if settings.GLPI_ENABLED and settings.GLPI_AUTO_SYNC:
+                try:
+                    from app.integrations.glpi_client import GlpiClient
+                    glpi_client = GlpiClient()
+                    
+                    # Prepare user IDs for GLPI
+                    requester_glpi_id = None
+                    assigned_glpi_id = None
+                    
+                    if ticket.creator_id:
+                        creator = db.get(User, ticket.creator_id)
+                        if creator:
+                            requester_glpi_id = creator.glpi_user_id
+                    
+                    if ticket.assigned_agent_id:
+                        assignee = db.get(User, ticket.assigned_agent_id)
+                        if assignee:
+                            assigned_glpi_id = assignee.glpi_user_id
+
+                    if ticket.glpi_ticket_id:
+                        logger.info(f"Syncing GLPI update for ticket {ticket.id}")
+                        glpi_client.update_ticket_sync(
+                            ticket.glpi_ticket_id,
+                            title=ticket.subject,
+                            description=ticket.description,
+                            status=ticket.status,
+                            priority=ticket.priority,
+                            resolution_note=ticket.resolution_note,
+                            assigned_agent_id=assigned_glpi_id,
+                        )
+                    else:
+                        logger.info(f"Creating new GLPI ticket for ticket {ticket.id}")
+                        result = glpi_client.create_ticket_sync(
+                            title=ticket.subject,
+                            description=ticket.description,
+                            priority=ticket.priority,
+                            requester_id=requester_glpi_id,
+                        )
+                        glpi_ticket_id = result.get('id') or result.get('glpi_ticket_id')
+                        if glpi_ticket_id:
+                            ticket.glpi_ticket_id = int(glpi_ticket_id)
+                            db.commit()
+                            if assigned_glpi_id:
+                                glpi_client.update_ticket_sync(
+                                    ticket.glpi_ticket_id,
+                                    assigned_agent_id=assigned_glpi_id
+                                )
+
+                    if escalation_summary and ticket.glpi_ticket_id:
+                        glpi_client.add_followup_sync(
+                            ticket.glpi_ticket_id,
+                            content=escalation_summary,
+                            is_private=True
+                        )
+                    
+                    ticket.glpi_sync_status = "synced"
+                    ticket.glpi_sync_error = None
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"GLPI sync failed in background task: {e}")
+                    ticket.glpi_sync_status = "failed"
+                    ticket.glpi_sync_error = str(e)
+                    db.commit()
+                finally:
+                    glpi_client.close_sync()
 
             logger.info(
                 f"[Decision Engine Task] Ticket {ticket_id} analyzed: "

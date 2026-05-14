@@ -49,6 +49,7 @@ services:
       LIVEKIT_URL: ws://livekit:7880
       BACKEND_API_URL: http://localhost:8000
       VOICE_AGENTS_CONTROL_URL: http://livekit:8001
+      GLPI_API_URL: http://platform-glpi-main-laravel.test-1/api/v1
       API_RELOAD: ${API_RELOAD:-false}
       API_WORKERS: ${API_WORKERS:-4}
     depends_on:
@@ -56,6 +57,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - default
+      - sail
     volumes:
       - .:/app
     command: >
@@ -84,6 +88,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - default
+      - sail
     volumes:
       - .:/app
     command: python scripts/dev_celery.py worker
@@ -193,6 +200,13 @@ services:
     volumes:
       - ./recordings:/app/recordings
     restart: unless-stopped
+
+networks:
+  default:
+    name: ai_support_network
+  sail:
+    external: true
+    name: platform-glpi-main_sail
 
 volumes:
   pgdata:

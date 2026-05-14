@@ -41,7 +41,7 @@ async def list_voice_calls(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, Depends(get_current_user)],
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
 ):
     """
     List all recorded voice calls and transcripts.
