@@ -246,6 +246,10 @@
   letter-spacing: -0.02em;
   color: #1e293b;
 }
+table.tk-table{
+  width: 100% !important;
+  table-layout: auto;
+}
 table.tk-table thead tr{
   background: #f8fafc;
 }
@@ -540,7 +544,7 @@ table.tk-table td{
             'resolved'    => ['st-resolved',   'Résolu',    'check_circle'],
             'closed'      => ['st-closed',     'Clôturé',   'lock'],
           ];
-          $st = $stMap[$ticket->status] ?? ['st-pending','Inconnu','help'];
+          $st = $stMap[$ticket->status ?? $ticket->sync_status ?? 'pending'] ?? ['st-pending','En attente','schedule'];
         @endphp
         <tr id="ticket-{{ $ticket->id }}"
             onclick="window.location='{{ route('super-admin.decision-engine') }}?ticket={{ $ticket->id }}'">
@@ -579,10 +583,22 @@ table.tk-table td{
           </td>
           <td>{!! $ctBadge !!}</td>
           <td>
-            <div class="d-flex flex-column">
-              <span style="font-size:13px;font-weight:600;color:#1e293b;">{{ $cat[1] }}</span>
-              <span style="font-size:11px;color:#94a3b8;">{{ $cat[0] }} Catégorie</span>
-            </div>
+            @php
+              $catColors = [
+                'incident_technique' => ['#fee2e2','#dc2626'],
+                'integration_api'    => ['#dbeafe','#2563eb'],
+                'facturation'        => ['#fef9c3','#ca8a04'],
+                'plateforme'         => ['#dcfce7','#16a34a'],
+                'paiement_mobile'    => ['#ffedd5','#ea580c'],
+                'autre'              => ['#f1f5f9','#64748b'],
+              ];
+              $catKey   = $ticket->category ?? 'autre';
+              $catColor = $catColors[$catKey] ?? $catColors['autre'];
+            @endphp
+            <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:10px;font-size:12px;font-weight:700;background:{{ $catColor[0] }};color:{{ $catColor[1] }};">
+              <span style="width:7px;height:7px;border-radius:50%;background:{{ $catColor[1] }};flex-shrink:0;"></span>
+              {{ $cat[1] }}
+            </span>
           </td>
           <td>
             <span class="prio prio-{{ $p }}">{{ $pLabels[$p] ?? 'Moyenne' }}</span>

@@ -25,6 +25,7 @@ _model: Optional[SentenceTransformer] = None
 
 
 def _get_model() -> SentenceTransformer:
+    global _model
     """Lazy-load the embedding model (singleton)."""
     global _model
     if _model is None:

@@ -90,11 +90,13 @@ class AiController extends Controller
         $ticketId = $request->input('ticket_id');
         $ticket   = Ticket::with('comments.user')->findOrFail($ticketId);
 
+        // Commentaires — avec auteur + date pour contexte complet
         $comments = $ticket->comments
             ->sortBy('created_at')
             ->map(fn($c) => '[' . ($c->user->name ?? 'Client') . ' — ' . $c->created_at->format('d/m H:i') . '] ' . $c->content)
             ->toArray();
 
+        // Historique réponses de CET admin (style learning)
         $pastResponses = Ticket::where('solved_by', auth()->id())
             ->whereNotNull('solution')
             ->where('category', $ticket->category)
@@ -103,6 +105,7 @@ class AiController extends Controller
             ->pluck('solution')
             ->toArray();
 
+        // Fallback si IA indisponible
         if (!$this->ai->isAvailable()) {
             return response()->json([
                 'available' => false,
@@ -151,52 +154,94 @@ class AiController extends Controller
     public function adminLeaderboard()
     {
         $admins = User::where('role', 'admin')
-            ->where(function ($query) {
-                $query->where('is_active', true)->orWhereNull('is_active');
+            ->where(function($q) {
+                $q->where('is_active', true)
+                  ->orWhere('is_active', 1)
+                  ->orWhereNull('is_active');
             })
             ->get()
             ->map(function ($admin) {
 
-                $assignedIds = Ticket::where('assigned_to', $admin->id)->pluck('id');
-                $total = $assignedIds->count();
+                // ── Activité RÉELLE de l'admin ─────────────────────────────────
+                // On compte TOUT ce qu'il a fait, même si assigned_to est vide
 
-                $repliedTicketIds = \App\Models\TicketComment::where('user_id', $admin->id)
+                // Commentaires/réponses postés par cet admin (sur n'importe quel ticket)
+                $commentedTicketIds = \App\Models\TicketComment::where('user_id', $admin->id)
                     ->distinct('ticket_id')
                     ->pluck('ticket_id');
+                $answered = $commentedTicketIds->count();
 
-                $answered = $repliedTicketIds->intersect($assignedIds)->count();
-
-                $resolved = Ticket::whereIn('id', $assignedIds)
+                // Tickets résolus PAR cet admin (solved_by) ou dans son portefeuille
+                $resolvedBySelf = Ticket::where('solved_by', $admin->id)
                     ->whereIn('sync_status', ['resolved', 'closed', 'synced'])
                     ->count();
 
-                $avgHours = Ticket::whereIn('id', $assignedIds)
+                // Tickets assignés à cet admin
+                $assignedIds = Ticket::where('assigned_to', $admin->id)->pluck('id');
+                $totalAssigned = $assignedIds->count();
+
+                // Résolus dans son portefeuille
+                $resolvedAssigned = Ticket::whereIn('id', $assignedIds)
+                    ->whereIn('sync_status', ['resolved', 'closed', 'synced'])
+                    ->count();
+
+                // Total resolved = union des deux
+                $resolved = max($resolvedBySelf, $resolvedAssigned);
+
+                // Tickets en attente dans son portefeuille
+                $pending = Ticket::whereIn('id', $assignedIds)
+                    ->whereIn('sync_status', ['pending', 'in_progress'])->count();
+
+                // Total = tickets commentés OU assignés (son activité globale)
+                $total = max($answered, $totalAssigned);
+
+                // Temps moyen résolution (tickets résolus par lui)
+                $avgHours = Ticket::where('solved_by', $admin->id)
                     ->whereIn('sync_status', ['resolved', 'closed', 'synced'])
                     ->whereNotNull('resolved_at')
                     ->get()
                     ->avg(fn($t) => $t->created_at->diffInHours($t->resolved_at));
 
-                $urgentIds = Ticket::whereIn('id', $assignedIds)->where('priority', '>=', 4)->pluck('id');
-                $urgentHandled = $repliedTicketIds->intersect($urgentIds)->count();
+                // Tickets urgents traités (commentés ou résolus)
+                $urgentHandled = \App\Models\TicketComment::where('user_id', $admin->id)
+                    ->whereHas('ticket', fn($q) => $q->where('priority', '>=', 4))
+                    ->distinct('ticket_id')
+                    ->count();
 
-                $pending = Ticket::whereIn('id', $assignedIds)
-                    ->whereIn('sync_status', ['pending', 'in_progress'])->count();
-
+                // ── Score (0-100) ────────────────────────────────────────────────
+                // Score basé sur l'activité réelle, pas seulement les assignations
                 $score = 0;
-                if ($total > 0) {
-                    $answerRatio   = ($answered / max($total, 1)) * 40;
-                    $speedBonus    = $avgHours !== null
-                        ? max(0, 30 - min(30, (int)($avgHours / 2)))
-                        : 15;
-                    $urgentBonus   = min(20, $urgentHandled * 5);
-                    $resolvedBonus = min(10, (int)(($resolved / max($total, 1)) * 10));
 
-                    $score = min(100, (int)($answerRatio + $speedBonus + $urgentBonus + $resolvedBonus));
+                // 1. Réponses données (35 pts max) — 5 pts par ticket répondu, max 35
+                $answerPts = min(35, $answered * 5);
+
+                // 2. Tickets résolus (30 pts max) — 6 pts par résolution, max 30
+                $resolvedPts = min(30, $resolved * 6);
+
+                // 3. Rapidité (20 pts max) — si temps moyen < 2h = 20pts, < 8h = 15pts, etc.
+                $speedPts = 10; // par défaut si pas de données
+                if ($avgHours !== null) {
+                    if ($avgHours <= 2)  $speedPts = 20;
+                    elseif ($avgHours <= 8)  $speedPts = 15;
+                    elseif ($avgHours <= 24) $speedPts = 10;
+                    elseif ($avgHours <= 72) $speedPts = 5;
+                    else $speedPts = 2;
                 }
+
+                // 4. Tickets urgents traités (15 pts max)
+                $urgentPts = min(15, $urgentHandled * 5);
+
+                $score = min(100, (int)($answerPts + $resolvedPts + $speedPts + $urgentPts));
+
+                // Temps de service (ancienneté en jours)
+                $daysSinceCreation = $admin->created_at
+                    ? (int) $admin->created_at->diffInDays(now())
+                    : 0;
 
                 return [
                     'id'             => $admin->id,
                     'name'           => $admin->name,
+                    'email'          => $admin->email,
                     'resolved'       => $resolved,
                     'answered'       => $answered,
                     'total'          => $total,
@@ -204,6 +249,7 @@ class AiController extends Controller
                     'avg_hours'      => $avgHours ? round($avgHours, 1) : null,
                     'urgent_handled' => $urgentHandled,
                     'score'          => $score,
+                    'days_active'    => $daysSinceCreation,
                     'suggestion'     => $this->adminSuggestion($score, $answered, $avgHours, $urgentHandled, $total),
                 ];
             })
@@ -224,13 +270,14 @@ class AiController extends Controller
     {
         $tickets = Ticket::with('user')
             ->whereIn('sync_status', ['pending', 'in_progress'])
-            ->where(function ($query) {
-                $query->where('priority', '>=', 4)
-                      ->orWhere(function ($sub) {
-                          $sub->where('priority', '>=', 3)
-                              ->where('created_at', '<=', now()->subHours(20));
-                      });
-            })
+            ->where(function($q) {
+        $q->where('priority', '>=', 4)
+      ->orWhere(function($q2) {
+          // Priority 3 (Moyenne) ouverts depuis plus de 20h = urgent aussi
+          $q2->where('priority', '>=', 3)
+             ->where('created_at', '<=', now()->subHours(20));
+      });
+      })
             ->orderByDesc('priority')
             ->orderBy('created_at')
             ->limit(5)
@@ -244,7 +291,7 @@ class AiController extends Controller
                     2 => (int) \App\Models\Setting::get('sla_basse',      '48'),
                     1 => (int) \App\Models\Setting::get('sla_basse',      '48'),
                 ];
-                $slaLimit = $slaMap[$t->priority] ?? 8;
+                $slaLimit  = $slaMap[$t->priority] ?? 8;
                 return [
                     'id'         => $t->id,
                     'title'      => $t->title,
@@ -261,119 +308,73 @@ class AiController extends Controller
     }
 
     // GET /super-admin/urgent-tickets — vue blade liste complète
-    public function urgentTicketsList()
-    {
-        $adminGlpiId = auth()->user()->glpi_user_id;
-        $allTickets  = [];
+public function urgentTicketsList()
+{
+    $slaMap = [
+        5 => (int) \App\Models\Setting::get('sla_très haute', '4'),
+        4 => (int) \App\Models\Setting::get('sla_haute',      '8'),
+        3 => (int) \App\Models\Setting::get('sla_moyenne',    '24'),
+        2 => (int) \App\Models\Setting::get('sla_basse',      '48'),
+        1 => (int) \App\Models\Setting::get('sla_basse',      '48'),
+    ];
 
-        if ($adminGlpiId) {
-            try {
-                $glpi = app(GlpiService::class);
-                $glpi->initSession();
-                $rawTickets = $glpi->getAllItems('Ticket', ['range' => '0-9999', 'order' => 'DESC']);
+    $tickets = Ticket::with('user')
+        ->whereIn('sync_status', ['pending', 'in_progress'])
+        ->where(function($q) {
+            $q->where('priority', '>=', 4)
+              ->orWhere(function($q2) {
+                  $q2->where('priority', '>=', 3)
+                     ->where('created_at', '<=', now()->subHours(20));
+              });
+        })
+        ->orderBy('created_at')
+        ->get()
+        ->map(function ($t) use ($slaMap) {
+            $hoursOpen = (int) round($t->created_at->floatDiffInHours(now()));
+            $slaLimit  = $slaMap[$t->priority] ?? 8;
+            $slaUsed   = $slaLimit > 0 ? ($hoursOpen / $slaLimit) * 100 : 100;
+            $hoursLeft = $slaLimit - $hoursOpen;
 
-                // Build ticket-to-assignee map using the same session
-                $ticketAssignees = [];
-                try {
-                    $tuList = $glpi->getAllItems('Ticket_User', ['range' => '0-9999']);
-                    foreach ($tuList as $tu) {
-                        if (isset($tu['tickets_id'], $tu['users_id'], $tu['type']) && (int)$tu['type'] === 2) {
-                            $ticketAssignees[(int)$tu['tickets_id']] = (int)$tu['users_id'];
-                        }
-                    }
-                } catch (\Exception $e2) {
-                    \Log::warning('TU fetch failed: ' . $e2->getMessage());
-                }
+            return (object)[
+                'id'           => $t->id,
+                'title'        => $t->title,
+                'client'       => $t->user->name ?? 'N/A',
+                'priority'     => $t->priority,
+                'hours_open'   => $hoursOpen,
+                'sla_limit'    => $slaLimit,
+                'sla_used'     => round($slaUsed, 1),
+                'sla_risk'     => !($hoursLeft < 0) && $slaUsed >= 80,
+                'sla_breached' => $hoursLeft < 0,
+                'hours_left'   => $hoursLeft,
+                'sla_ratio'    => $slaLimit > 0 ? $hoursOpen / $slaLimit : 999,
+                'created_at'   => $t->created_at,
+                'status'       => $t->sync_status,
+            ];
+        })
+        ->sortByDesc('sla_ratio')
+        ->values();
 
-                $glpi->killSession();
+    $role = auth()->user()->role;
+    $view = $role === 'admin' ? 'admin.urgent-tickets' : 'super-admin.urgent-tickets';
 
-                // Transform
-                $statusMap = [1 => 'pending', 2 => 'in_progress', 3 => 'in_progress', 4 => 'in_progress', 5 => 'resolved', 6 => 'closed'];
-                foreach ($rawTickets as $t) {
-                    $tid = (int)($t['id'] ?? 0);
-                    $obj = new \stdClass();
-                    $obj->id = $tid;
-                    $obj->glpi_id = $tid;
-                    $obj->title = $t['name'] ?? '';
-                    $obj->description = $t['content'] ?? '';
-                    $obj->sync_status = $statusMap[(int)($t['status'] ?? 1)] ?? 'pending';
-                    $obj->priority = (int)($t['priority'] ?? 3);
-                    $obj->user_id = $t['users_id_recipient'] ?? null;
-                    $obj->assigned_to = $ticketAssignees[$tid] ?? (int)($t['users_id_lastupdater'] ?? 0);
-                    $obj->created_at = \Carbon\Carbon::parse($t['date_creation'] ?? $t['date'] ?? now());
-                    $allTickets[] = $obj;
-                }
-            } catch (\Exception $e) {
-                \Log::error('GLPI urgent tickets fetch failed: ' . $e->getMessage());
-            }
-        }
+    return view($view, compact('tickets'));
 
-        if (empty($allTickets)) {
-            $allTickets = [];
-        }
-
-        $slaMap = [
-            5 => (int) \App\Models\Setting::get('sla_très haute', '4'),
-            4 => (int) \App\Models\Setting::get('sla_haute',      '8'),
-            3 => (int) \App\Models\Setting::get('sla_moyenne',    '24'),
-            2 => (int) \App\Models\Setting::get('sla_basse',      '48'),
-            1 => (int) \App\Models\Setting::get('sla_basse',      '48'),
-        ];
-
-        $tickets = collect($allTickets)
-            ->filter(fn($t) => (int)$t->assigned_to === (int)$adminGlpiId)
-            ->filter(fn($t) => in_array($t->sync_status, ['pending', 'in_progress']))
-            ->filter(function ($t) {
-                $p = (int)$t->priority;
-                $created = \Carbon\Carbon::parse($t->created_at);
-                return $p >= 4 || ($p >= 3 && $created->lte(now()->subHours(20)));
-            })
-            ->sortBy('created_at')
-            ->map(function ($t) use ($slaMap) {
-                $created   = \Carbon\Carbon::parse($t->created_at);
-                $hoursOpen = (int) round($created->floatDiffInHours(now()));
-                $slaLimit  = $slaMap[(int)$t->priority] ?? 8;
-                $slaUsed   = $slaLimit > 0 ? ($hoursOpen / $slaLimit) * 100 : 100;
-                $hoursLeft = $slaLimit - $hoursOpen;
-
-                return (object)[
-                    'id'           => $t->glpi_id,
-                    'title'        => $t->title,
-                    'client'       => 'Client #' . ($t->user_id ?? '?'),
-                    'priority'     => (int)$t->priority,
-                    'hours_open'   => $hoursOpen,
-                    'sla_limit'    => $slaLimit,
-                    'sla_used'     => round($slaUsed, 1),
-                    'sla_risk'     => !($hoursLeft < 0) && $slaUsed >= 80,
-                    'sla_breached' => $hoursLeft < 0,
-                    'hours_left'   => $hoursLeft,
-                    'sla_ratio'    => $slaLimit > 0 ? $hoursOpen / $slaLimit : 999,
-                    'created_at'   => $t->created_at,
-                    'status'       => $t->sync_status,
-                ];
-            })
-            ->sortByDesc('sla_ratio')
-            ->values();
-
-        $role = auth()->user()->role;
-        $view = $role === 'admin' ? 'admin.urgent-tickets' : 'super-admin.urgent-tickets';
-
-        return view($view, compact('tickets'));
-    }
+    return view($view, compact('tickets'));
+}
 
     // GET /super-admin/ai/weekly-report — rapport IA hebdo
     public function weeklyReport()
     {
         $stats = [
-            'total_tickets' => Ticket::whereBetween('created_at', [now()->subDays(7), now()])->count(),
-            'resolved'      => Ticket::whereBetween('created_at', [now()->subDays(7), now()])
-                                   ->whereIn('sync_status', ['resolved', 'closed'])->count(),
-            'urgent'        => Ticket::whereBetween('created_at', [now()->subDays(7), now()])
-                                   ->where('priority', '>=', 4)->count(),
-            'by_category'   => Ticket::whereBetween('created_at', [now()->subDays(7), now()])
-                                   ->selectRaw('category, count(*) as total')
-                                   ->groupBy('category')->pluck('total', 'category'),
-            'active_admins' => User::where('role', 'admin')->where('is_active', true)->count(),
+            'total_tickets'   => Ticket::whereBetween('created_at', [now()->subDays(7), now()])->count(),
+            'resolved'        => Ticket::whereBetween('created_at', [now()->subDays(7), now()])
+                                    ->whereIn('sync_status', ['resolved', 'closed'])->count(),
+            'urgent'          => Ticket::whereBetween('created_at', [now()->subDays(7), now()])
+                                    ->where('priority', '>=', 4)->count(),
+            'by_category'     => Ticket::whereBetween('created_at', [now()->subDays(7), now()])
+                                    ->selectRaw('category, count(*) as total')
+                                    ->groupBy('category')->pluck('total', 'category'),
+            'active_admins'   => User::where('role', 'admin')->where('is_active', true)->count(),
         ];
 
         $report = $this->ai->isAvailable()
@@ -386,23 +387,11 @@ class AiController extends Controller
         ]);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // PRIVATE HELPERS
-    // ═══════════════════════════════════════════════════════════
 
     private function fallbackSummary(Ticket $ticket): string
     {
-        $cat  = [
-            'incident_technique' => 'Incident technique',
-            'integration_api'    => 'Problème API',
-            'facturation'        => 'Facturation',
-            'plateforme'         => 'Plateforme',
-            'paiement_mobile'    => 'Paiement mobile',
-            'autre'              => 'Demande',
-        ][$ticket->category] ?? 'Demande';
-
+        $cat  = ['incident_technique' => 'Incident technique', 'integration_api' => 'Problème API', 'facturation' => 'Facturation', 'plateforme' => 'Plateforme', 'paiement_mobile' => 'Paiement mobile', 'autre' => 'Demande'][$ticket->category] ?? 'Demande';
         $prio = ['', 'très basse', 'basse', 'moyenne', 'haute', 'critique'][$ticket->priority ?? 3] ?? 'moyenne';
-
         return "{$cat} — priorité {$prio}. \"" . substr($ticket->title, 0, 80) . "\" — " . $ticket->created_at->diffForHumans() . ".";
     }
 
@@ -414,9 +403,7 @@ class AiController extends Controller
             'facturation'        => "Bonjour,\n\nVotre demande a été transmise à notre service comptabilité. Vous recevrez une réponse dans les 24h ouvrées.\n\nCordialement,\nL'équipe Support L2T",
             'plateforme'         => "Bonjour,\n\nMerci de nous avoir signalé ce problème. Essayez de vider le cache de votre navigateur et de vous reconnecter. Si le problème persiste, notre équipe prend en charge votre demande.\n\nCordialement,\nL'équipe Support L2T",
         ];
-
-        return $responses[$ticket->category]
-            ?? "Bonjour,\n\nNous avons bien reçu votre demande et notre équipe vous répondra dans les meilleurs délais.\n\nCordialement,\nL'équipe Support L2T";
+        return $responses[$ticket->category] ?? "Bonjour,\n\nNous avons bien reçu votre demande et notre équipe vous répondra dans les meilleurs délais.\n\nCordialement,\nL'équipe Support L2T";
     }
 
     private function assessUrgency(Ticket $ticket): array
@@ -429,9 +416,7 @@ class AiController extends Controller
             2 => (int) \App\Models\Setting::get('sla_basse',      '48'),
             1 => (int) \App\Models\Setting::get('sla_basse',      '48'),
         ][$ticket->priority ?? 3] ?? 24;
-
-        $slaUsed = min(100, (int)(($hoursOpen / $slaLimit) * 100));
-
+        $slaUsed   = min(100, (int)(($hoursOpen / $slaLimit) * 100));
         return [
             'is_urgent'  => ($ticket->priority ?? 3) >= 4 || $slaUsed >= 80,
             'hours_open' => $hoursOpen,
@@ -442,16 +427,13 @@ class AiController extends Controller
 
     private function adminSuggestion(int $score, int $answered, ?float $avgHours, int $urgentHandled, int $total = 0): string
     {
-        if ($total === 0)            return "Aucun ticket assigné pour le moment.";
-        if ($score >= 80)            return "Excellente performance — top performer de l'équipe. 🏆";
-        if ($score >= 60)            return "Bonne performance — continuer sur cette lancée !";
-        if ($answered === 0)         return "A reçu des tickets mais n'a pas encore répondu.";
-        if ($avgHours !== null && $avgHours > 48)
-                                     return "Délai moyen élevé (" . round($avgHours) . "h) — prioriser les tickets urgents.";
-        if ($urgentHandled === 0 && $total > 2)
-                                     return "N'a pas traité de tickets urgents — les inclure en priorité.";
-        if ($total > 0 && $answered > 0)
-                                     return "A traité {$answered}/{$total} tickets — bonne réactivité.";
+        if ($total === 0) return "Aucun ticket assigné pour le moment.";
+        if ($score >= 80) return "Excellente performance — top performer de l'équipe. 🏆";
+        if ($score >= 60) return "Bonne performance — continuer sur cette lancée !";
+        if ($answered === 0) return "A reçu des tickets mais n'a pas encore répondu.";
+        if ($avgHours !== null && $avgHours > 48) return "Délai moyen élevé (" . round($avgHours) . "h) — prioriser les tickets urgents.";
+        if ($urgentHandled === 0 && $total > 2) return "N'a pas traité de tickets urgents — les inclure en priorité.";
+        if ($total > 0 && $answered > 0) return "A traité {$answered}/{$total} tickets — bonne réactivité.";
         return "Performance en cours d'évaluation — données insuffisantes.";
     }
 }

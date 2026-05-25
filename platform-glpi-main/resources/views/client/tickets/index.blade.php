@@ -11,7 +11,7 @@
          style="background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);">
       <div class="d-flex align-items-center justify-content-between">
         <div class="d-flex align-items-center">
-          <div class="avatar avatar-xl bg-white border-radius-lg p-2 me-3 shadow dark-bg-card">
+          <div class="avatar avatar-xl bg-white border-radius-lg p-2 me-3 shadow">
             <i class="material-symbols-rounded" style="font-size:36px; color:var(--color-primary);">confirmation_number</i>
           </div>
           <div>
@@ -20,7 +20,7 @@
           </div>
         </div>
         <a href="{{ route('tickets.create') }}"
-           class="btn bg-white mb-0 dark-bg-card" style="color:var(--color-primary); font-weight:600;">
+           class="btn bg-white mb-0" style="color:var(--color-primary); font-weight:600;">
           <i class="material-symbols-rounded me-1" style="font-size:18px;vertical-align:middle;">add</i>
           Nouveau Ticket
         </a>
@@ -47,47 +47,9 @@
 @php
   $total    = $tickets->count();
   $pending  = $tickets->where('sync_status','pending')->count();
-  $inprog   = $tickets->whereIn('sync_status',['in_progress','synced','escalated'])->count();
+  $inprog   = $tickets->whereIn('sync_status',['in_progress','synced'])->count();
   $resolved = $tickets->whereIn('sync_status',['resolved','closed'])->count();
 @endphp
-
-<div class="row mb-3">
-  <div class="col-md-8">
-    <div class="input-group input-group-outline border-radius-lg shadow-sm overflow-hidden" 
-         style="border: 1px solid var(--border-color); background: var(--input-bg); transition: all 0.2s ease;">
-      <span class="input-group-text text-body bg-transparent border-0 pe-0">
-        <i class="material-symbols-rounded text-secondary" style="font-size: 20px;">search</i>
-      </span>
-      <input type="text" id="ticketSearch" class="form-control border-0 ps-2" 
-             placeholder="Rechercher par titre ou description..." 
-             style="height: 46px; box-shadow: none !important; background: transparent !important;"
-             onkeyup="searchTickets(this.value)">
-    </div>
-  </div>
-  <div class="col-md-4 mt-md-0 mt-3">
-    <div class="d-flex align-items-center justify-content-end h-100">
-      <div class="dropdown w-100">
-        <button class="btn mb-0 dropdown-toggle w-100" type="button" 
-                id="categoryFilterBtn" data-bs-toggle="dropdown" aria-expanded="false"
-                style="border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main); text-transform: none; font-weight: 600;">
-          <i class="material-symbols-rounded me-1" style="font-size:18px;vertical-align:middle;">filter_alt</i>
-          Toutes catégories
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end p-2 border-radius-lg shadow-lg border-0" aria-labelledby="categoryFilterBtn">
-          <li><a class="dropdown-item border-radius-md" href="javascript:;" onclick="filterByCategory('all')">Toutes catégories</a></li>
-          <li><hr class="dropdown-divider"></li>
-          <li><a class="dropdown-item border-radius-md" href="javascript:;" onclick="filterByCategory('incident_technique')">🔴 Incident technique</a></li>
-          <li><a class="dropdown-item border-radius-md" href="javascript:;" onclick="filterByCategory('integration_api')">🔵 Intégration API SMS</a></li>
-          <li><a class="dropdown-item border-radius-md" href="javascript:;" onclick="filterByCategory('facturation')">🟡 Facturation</a></li>
-          <li><a class="dropdown-item border-radius-md" href="javascript:;" onclick="filterByCategory('plateforme')">🟢 Plateforme L2T</a></li>
-          <li><a class="dropdown-item border-radius-md" href="javascript:;" onclick="filterByCategory('paiement_mobile')">🟠 Paiement Mobile</a></li>
-          <li><a class="dropdown-item border-radius-md" href="javascript:;" onclick="filterByCategory('autre')">⚪ Autre</a></li>
-        </ul>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div class="row mb-4" id="statsRow">
   <div class="col-6 col-md-3 mb-3">
     <div class="card text-center p-3 stat-card" data-filter="all"
@@ -156,7 +118,6 @@
           $statusData = [
             'pending'     => ['warning',   'En attente', 'schedule'],
             'in_progress' => ['info',      'En cours',   'autorenew'],
-            'escalated'   => ['danger',    'Escaladé',   'priority_high'],
             'resolved'    => ['success',   'Résolu',     'check_circle'],
             'closed'      => ['secondary', 'Clôturé',    'lock'],
             'local'       => ['warning',   'En attente', 'schedule'],
@@ -170,54 +131,56 @@
           // ✅ Filtre JS — classe pour filtrage côté client
           $filterClass = match(true) {
             in_array($ticket->sync_status, ['resolved', 'closed']) => 'filter-resolved',
-            in_array($ticket->sync_status, ['in_progress', 'synced', 'escalated']) => 'filter-in_progress',
+            in_array($ticket->sync_status, ['in_progress', 'synced']) => 'filter-in_progress',
             default => 'filter-pending',
           };
-          $categoryClass = 'cat-' . ($ticket->category ?? 'autre');
 
           // ✅ Date corrigée — timezone Tunis
           $createdAt = $ticket->created_at->timezone('Africa/Tunis')->format('d/m/Y à H:i');
         @endphp
 
         {{-- TICKET CARD --}}
-        <div class="px-4 py-3 mb-3 mx-4 border-radius-lg ticket-item {{ $filterClass }} {{ $categoryClass }}"
-             id="ticket-{{ $ticket->id }}"
-             style="background: #fff; border: 1px solid #f1f5f9; transition: all 0.2s ease; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.02);"
-             onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.06)'; this.style.borderColor='var(--color-primary)';"
-             onmouseleave="this.style.transform='none'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.02)'; this.style.borderColor='#f1f5f9';"
-             onclick="window.location.href='{{ route('tickets.show', $ticket->id) }}'">
+        <div class="px-4 py-3 border-bottom ticket-item {{ $filterClass }}"
+             id="ticket-{{ $ticket->id }}">
 
-          <div class="d-flex align-items-center justify-content-between">
-            <div class="d-flex align-items-center flex-grow-1 min-width-0">
+          {{-- HEADER TICKET --}}
+          <div class="d-flex align-items-start justify-content-between"
+               style="cursor:pointer;"
+               onclick="window.location.href='{{ route('tickets.show', $ticket->id) }}'"
+               onmouseenter="this.parentElement.style.background=(document.documentElement.getAttribute('data-bs-theme')==='dark' ? 'rgba(255,255,255,0.04)' : '#f8f9ff')"
+               onmouseleave="this.parentElement.style.background='transparent'">
+
+            <div class="d-flex align-items-start flex-grow-1">
               <div class="me-3 flex-shrink-0">
-                <div class="avatar avatar-md border-radius-lg bg-light d-flex align-items-center justify-content-center" 
-                     style="background: #f0f4ff !important; width: 48px; height: 48px;">
-                  <span class="font-weight-bold" style="color: var(--color-primary); font-size: 14px;">#{{ $ticket->id }}</span>
-                </div>
+                <span class="badge text-white text-xs"
+                      style="background: linear-gradient(135deg,var(--color-primary),var(--color-secondary)); min-width:40px;">
+                  #{{ $loop->iteration }}
+                </span>
               </div>
-              <div class="flex-grow-1 min-width-0 pe-3">
+              <div class="flex-grow-1">
                 <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
-                  <h6 class="text-sm font-weight-bold mb-0 text-truncate ticket-title">{{ $ticket->title }}</h6>
-                  <span class="badge text-dark text-xs font-weight-normal py-1 px-2 ticket-category-label"
-                        style="background:#f8fafc; border:1px solid #e2e8f0; font-size:10px;">
+                  <p class="text-sm font-weight-bold mb-0">{{ $ticket->title }}</p>
+                  <span class="badge text-dark text-xs"
+                        style="background:#f0f4ff; border:1px solid #d0d8f0; font-size:10px;">
                     {{ $cat[0] }} {{ $cat[1] }}
                   </span>
                   @if($commentCount > 0)
-                  <span class="badge bg-light text-primary text-xs font-weight-bold py-1 px-2" style="font-size: 10px;">
-                    <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">chat</i>
-                    {{ $commentCount }}
+                  <span class="badge bg-gradient-info text-xs">
+                    <i class="material-symbols-rounded me-1" style="font-size:10px;vertical-align:middle;">chat</i>
+                    {{ $commentCount }} commentaire(s)
                   </span>
                   @endif
                 </div>
-                <p class="text-xs text-secondary mb-1 text-truncate ticket-desc">{{ $ticket->description }}</p>
+                <p class="text-xs text-secondary mb-1">{{ Str::limit($ticket->description, 80) }}</p>
                 <div class="d-flex align-items-center gap-3">
-                  <span class="text-xxs text-secondary">
-                    <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">calendar_today</i>
+                  {{-- ✅ Date avec timezone corrigé --}}
+                  <span class="text-xs text-secondary">
+                    <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">calendar_today</i>
                     {{ $createdAt }}
                   </span>
                   @if($ticket->solution)
-                  <span class="text-xxs text-success font-weight-bold">
-                    <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">verified</i>
+                  <span class="text-xs text-success font-weight-bold">
+                    <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">mark_email_read</i>
                     Réponse disponible
                   </span>
                   @endif
@@ -225,43 +188,167 @@
               </div>
             </div>
 
-            <div class="d-flex align-items-center gap-3 flex-shrink-0">
-              <span class="badge bg-gradient-{{ $st[0] }} text-xxs px-3 py-1 border-radius-pill">
+            <div class="d-flex align-items-center ms-3 flex-shrink-0 gap-2">
+              <span class="badge bg-gradient-{{ $st[0] }}">
                 <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">{{ $st[2] }}</i>
                 {{ $st[1] }}
               </span>
-              
-              <div class="dropdown" onclick="event.stopPropagation()">
-                <button class="btn btn-link text-secondary mb-0 p-0" type="button" data-bs-toggle="dropdown">
-                  <i class="material-symbols-rounded" style="font-size: 20px;">more_vert</i>
+
+              @if($isPending)
+              <form method="POST" action="{{ route('tickets.destroy', $ticket->id) }}"
+                    onclick="event.stopPropagation()"
+                    onsubmit="return confirm('Supprimer ce ticket définitivement ?')">
+                @csrf @method('DELETE')
+                <button type="submit" class="btn btn-sm btn-outline-danger mb-0 px-2 py-1" title="Supprimer">
+                  <i class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;">delete</i>
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end p-2 border-radius-lg shadow-lg border-0">
-                  <li><a class="dropdown-item border-radius-md text-sm" href="{{ route('tickets.show', $ticket->id) }}">
-                    <i class="material-symbols-rounded me-2" style="font-size:16px;vertical-align:middle;">visibility</i>Voir les détails</a></li>
-                  @if($isPending)
-                  <li><hr class="dropdown-divider"></li>
-                  <li>
-                    <form method="POST" action="{{ route('tickets.destroy', $ticket->id) }}" onsubmit="return confirm('Supprimer ce ticket ?')">
-                      @csrf @method('DELETE')
-                      <button type="submit" class="dropdown-item border-radius-md text-sm text-danger">
-                        <i class="material-symbols-rounded me-2" style="font-size:16px;vertical-align:middle;">delete</i>Supprimer
-                      </button>
-                    </form>
-                  </li>
-                  @endif
-                  @if($ticket->sync_status === 'failed')
-                  <li><hr class="dropdown-divider"></li>
-                  <li>
-                    <form method="POST" action="{{ route('tickets.retry', $ticket->id) }}">
-                      @csrf
-                      <button type="submit" class="dropdown-item border-radius-md text-sm text-warning">
-                        <i class="material-symbols-rounded me-2" style="font-size:16px;vertical-align:middle;">refresh</i>Réessayer
-                      </button>
-                    </form>
-                  </li>
-                  @endif
-                </ul>
+              </form>
+              @endif
+
+              @if($ticket->sync_status === 'failed')
+              <form method="POST" action="{{ route('tickets.retry', $ticket->id) }}"
+                    onclick="event.stopPropagation()">
+                @csrf
+                <button type="submit"
+                        class="btn btn-sm mb-0 px-2 py-1"
+                        style="background:#fff8e1;color:#f57c00;border:1px solid #ffcc02;"
+                        title="Réessayer la synchronisation">
+                  <i class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;">refresh</i>
+                </button>
+              </form>
+              @endif
+
+              <i class="material-symbols-rounded text-secondary"
+                 style="font-size:20px; transition:transform 0.2s;">chevron_right</i>
+            </div>
+          </div>
+
+          {{-- DÉTAIL EXPANDABLE --}}
+          <div id="ticket-detail-{{ $ticket->id }}" class="d-none mt-3">
+            <div class="border-radius-lg p-3" style="background:#f8f9ff; border:1px solid #e0e7ff;">
+
+              <div class="mb-3">
+                <p class="text-xs font-weight-bold text-uppercase text-secondary mb-1">
+                  <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">description</i>
+                  Description complète
+                </p>
+                <p class="text-sm mb-0">{{ $ticket->description }}</p>
               </div>
+
+              @if($ticket->attachments)
+              @php $files = json_decode($ticket->attachments, true) ?? []; @endphp
+              @if(count($files) > 0)
+              <div class="mb-3">
+                <p class="text-xs font-weight-bold text-uppercase text-secondary mb-2">
+                  <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">attach_file</i>
+                  Pièces jointes
+                </p>
+                @foreach($files as $file)
+                <a href="{{ asset('storage/' . $file) }}" target="_blank"
+                   class="badge bg-gradient-secondary me-1 mb-1">
+                  📎 {{ basename($file) }}
+                </a>
+                @endforeach
+              </div>
+              @endif
+              @endif
+
+              @if($ticket->solution)
+              <div class="border-radius-md p-3 mb-3" style="background:#e8f5e9; border-left:3px solid #4caf50;">
+                <p class="text-xs font-weight-bold text-uppercase mb-1" style="color:#2e7d32;">
+                  <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">support_agent</i>
+                  Réponse de notre équipe support
+                </p>
+                <p class="text-sm mb-0">{{ $ticket->solution }}</p>
+              </div>
+              @else
+              <div class="border-radius-md p-3 mb-3" style="background:#fff8e1; border-left:3px solid #ffc107;">
+                <p class="text-xs text-secondary mb-0">
+                  <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">hourglass_empty</i>
+                  Notre équipe est en train de traiter votre demande.
+                </p>
+              </div>
+              @endif
+
+              @if($ticket->comments->count() > 0)
+              <div class="mb-3">
+                <p class="text-xs font-weight-bold text-uppercase text-secondary mb-2">
+                  <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">chat</i>
+                  Commentaires ({{ $ticket->comments->count() }})
+                </p>
+                @foreach($ticket->comments as $comment)
+                <div class="d-flex mb-2">
+                  <div class="avatar avatar-sm me-2 flex-shrink-0"
+                       style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;">
+                    <span class="text-white text-xs font-weight-bold">
+                      {{ strtoupper(substr($comment->user->name, 0, 1)) }}
+                    </span>
+                  </div>
+                  <div class="flex-grow-1">
+                    <div class="border-radius-md p-2" style="background:#eff6ff;">
+                      <div class="d-flex justify-content-between mb-1">
+                        <span class="text-xs font-weight-bold" style="color:#3730a3;">{{ $comment->user->name }}</span>
+                        {{-- ✅ Date commentaire corrigée --}}
+                        <span class="text-xs text-secondary">
+                          {{ $comment->created_at->timezone('Africa/Tunis')->format('d/m/Y H:i') }}
+                        </span>
+                      </div>
+                      <p class="text-xs mb-0">{{ $comment->content }}</p>
+                      @if($comment->attachment_path)
+                      <a href="{{ asset('storage/' . $comment->attachment_path) }}" target="_blank"
+                         class="text-xs text-primary">
+                        📎 Voir le fichier joint
+                      </a>
+                      @endif
+                    </div>
+                  </div>
+                </div>
+                @endforeach
+              </div>
+              @endif
+
+              @if(!in_array($ticket->sync_status, ['closed']))
+              <div class="mt-3">
+                <p class="text-xs font-weight-bold text-uppercase text-secondary mb-2">
+                  <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">add_comment</i>
+                  Ajouter un commentaire
+                </p>
+                <form method="POST"
+                      action="{{ route('tickets.comment', $ticket->id) }}"
+                      enctype="multipart/form-data">
+                  @csrf
+                  <div class="mb-2">
+                    <textarea name="content" rows="3" class="form-control form-control-sm"
+                              placeholder="Décrivez votre problème complémentaire ou informations supplémentaires..."
+                              required></textarea>
+                  </div>
+                  <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                      <label class="btn btn-sm btn-outline-secondary mb-0 px-2 py-1" style="cursor:pointer;">
+                        <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">attach_file</i>
+                        Joindre un fichier
+                        <input type="file" name="attachment" class="d-none"
+                               onchange="document.getElementById('fileName-{{ $ticket->id }}').textContent = this.files[0]?.name || ''">
+                      </label>
+                      <small id="fileName-{{ $ticket->id }}" class="text-xs text-secondary ms-2"></small>
+                    </div>
+                    <button type="submit" class="btn btn-sm text-white mb-0"
+                            style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                      <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">send</i>
+                      Envoyer
+                    </button>
+                  </div>
+                </form>
+              </div>
+              @else
+              <div class="border-radius-md p-2 mt-2" style="background:#f1f5f9;border-left:3px solid #94a3b8;">
+                <p class="text-xs text-secondary mb-0">
+                  <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">lock</i>
+                  Ce ticket est clôturé. Créez un nouveau ticket si nécessaire.
+                </p>
+              </div>
+              @endif
+
             </div>
           </div>
         </div>
@@ -297,65 +384,32 @@
 </div>
 
 <script>
-// ── ✅ Recherche et Filtres ────────────────────────────────────────────────
-var currentFilter   = 'all';
-var currentCategory = 'all';
-var searchQuery     = '';
-
-function updateDisplay() {
-  var items    = document.querySelectorAll('.ticket-item');
-  var visible  = 0;
-  var noResult = document.getElementById('noFilterResult');
-
-  items.forEach(function(item) {
-    var matchesStatus   = (currentFilter === 'all') || 
-                          (currentFilter === 'resolved' && item.classList.contains('filter-resolved')) ||
-                          (currentFilter === 'in_progress' && item.classList.contains('filter-in_progress')) ||
-                          (currentFilter === 'pending' && item.classList.contains('filter-pending'));
-    
-    var matchesCategory = (currentCategory === 'all') || item.classList.contains('cat-' + currentCategory);
-    
-    var title = item.querySelector('.ticket-title').textContent.toLowerCase();
-    var desc  = item.querySelector('.ticket-desc').textContent.toLowerCase();
-    var matchesSearch   = !searchQuery || title.includes(searchQuery) || desc.includes(searchQuery);
-
-    if (matchesStatus && matchesCategory && matchesSearch) {
-      item.style.display = '';
-      visible++;
-    } else {
-      item.style.display = 'none';
-    }
-  });
-
-  document.getElementById('ticketCount').textContent = visible + ' ticket(s)';
-  noResult.style.display = (visible === 0) ? 'block' : 'none';
+// ── Toggle ticket detail ────────────────────────────────────────────────────
+function toggleTicket(id) {
+  // Redirected to show page — accordion disabled
+  window.location.href = '/tickets/' + id;
+  return;
+  var detail  = document.getElementById('ticket-detail-' + id);
+  var chevron = document.querySelector('.chevron-' + id);
+  if (detail.classList.contains('d-none')) {
+    detail.classList.remove('d-none');
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+  } else {
+    detail.classList.add('d-none');
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+  }
 }
 
-function searchTickets(val) {
-  searchQuery = val.toLowerCase().trim();
-  updateDisplay();
-}
-
-function filterByCategory(cat) {
-  currentCategory = cat;
-  var btn = document.getElementById('categoryFilterBtn');
-  var labels = {
-    'all': 'Toutes catégories',
-    'incident_technique': '🔴 Incident technique',
-    'integration_api': '🔵 Intégration API SMS',
-    'facturation': '🟡 Facturation',
-    'plateforme': '🟢 Plateforme L2T',
-    'paiement_mobile': '🟠 Paiement Mobile',
-    'autre': '⚪ Autre'
-  };
-  btn.innerHTML = '<i class="material-symbols-rounded me-1" style="font-size:18px;vertical-align:middle;">filter_alt</i> ' + (labels[cat] || 'Filtrer');
-  updateDisplay();
-}
+// ── ✅ Filtre par statut au clic sur les cards stats ────────────────────────
+var currentFilter = 'all';
 
 function applyFilter(filter) {
   currentFilter = filter;
+  var items      = document.querySelectorAll('.ticket-item');
   var label      = document.getElementById('filterLabel');
   var labelText  = document.getElementById('filterLabelText');
+  var countEl    = document.getElementById('ticketCount');
+  var noResult   = document.getElementById('noFilterResult');
 
   // Mettre à jour les cards stats (active state)
   document.querySelectorAll('.stat-card').forEach(function(card) {
@@ -374,22 +428,48 @@ function applyFilter(filter) {
   var activeCard = document.querySelector('.stat-card[data-filter="' + filter + '"]');
   if (activeCard) {
     activeCard.style.border = '2px solid ' + getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim();
-    activeCard.style.boxShadow = '0 4px 15px rgba(102,126,234,0.15)';
+    activeCard.style.boxShadow = '0 4px 15px rgba(102,126,234,0.25)';
     activeCard.style.transform = 'translateY(-2px)';
   }
 
+  // Afficher/masquer le label filtre
   if (filter === 'all') {
     label.style.display = 'none';
   } else {
     label.style.display = 'block';
-    labelText.textContent = 'Statut : ' + labels[filter];
+    labelText.textContent = 'Filtre : ' + labels[filter];
   }
 
-  updateDisplay();
-  
-  if (window.innerWidth < 768) {
-    document.getElementById('ticketsContainer').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+  // Filtrer les tickets
+  var visible = 0;
+  items.forEach(function(item) {
+    var show = false;
+    if (filter === 'all') {
+      show = true;
+    } else if (filter === 'resolved') {
+      show = item.classList.contains('filter-resolved');
+    } else if (filter === 'in_progress') {
+      show = item.classList.contains('filter-in_progress');
+    } else if (filter === 'pending') {
+      show = item.classList.contains('filter-pending');
+    }
+
+    if (show) {
+      item.style.display = '';
+      visible++;
+    } else {
+      item.style.display = 'none';
+    }
+  });
+
+  // Compteur
+  countEl.textContent = visible + ' ticket(s)';
+
+  // Message si aucun résultat
+  noResult.style.display = (visible === 0) ? 'block' : 'none';
+
+  // Scroll vers la liste
+  document.getElementById('ticketsContainer').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ── Clic sur les cards stats ────────────────────────────────────────────────

@@ -9,6 +9,7 @@ Bridges PDF extraction (pdf_loader) with the knowledge base service:
 
 from __future__ import annotations
 
+import datetime
 import logging
 import uuid
 from pathlib import Path
@@ -87,10 +88,10 @@ class PDFIngestionService:
                 filename=p.name,
                 size_bytes=stat.st_size,
                 size_human=_human_size(stat.st_size),
-                modified_at=datetime.fromtimestamp(stat.st_mtime),
+                modified_at=datetime.datetime.fromtimestamp(stat.st_mtime),
                 is_ingested=article is not None,
                 article_id=article.id if article else None,
-                chunks_count=article.chunks_count if article else 0,
+                chunks_count=article.chunk_count if article else 0,
             ))
             
         return PDFListResponse(

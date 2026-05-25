@@ -76,19 +76,56 @@ class FetchSupportEmails extends Command
                         continue;
                     }
 
+                    // ── FIX : si user existant avec client_type='user' sans glpi_user_id → vérifier GLPI ──
+                    if ($user && $user->client_type === 'user' && !$user->glpi_user_id) {
+                        try {
+                            $glpi     = app(GlpiService::class);
+                            $glpiUser = $glpi->findUserByEmail($senderEmail);
+                            $glpiId   = $glpiUser['id'] ?? $glpiUser[1] ?? null;
+                            if ($glpiId) {
+                                $user->update([
+                                    'client_type'  => 'client',
+                                    'glpi_user_id' => (int) $glpiId,
+                                ]);
+                                Log::info("[FetchSupportEmails] client_type upgradé vers 'client' pour {$senderEmail}");
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning("[FetchSupportEmails] GLPI check for existing user failed: " . $e->getMessage());
+                        }
+                    }
+
                     if (!$user) {
-                        // Nouveau client → compte auto-créé, type = 'user' (non classifié)
+                        // ── FIX : vérifier GLPI avant de créer pour assigner le bon client_type ──
+                        $glpi       = app(GlpiService::class);
+                        $glpiUser   = null;
+                        $glpiId     = null;
+                        $clientType = 'user'; // par défaut : inconnu
+
+                        try {
+                            $glpiUser = $glpi->findUserByEmail($senderEmail);
+                            $rawId    = $glpiUser['id'] ?? $glpiUser[1] ?? null;
+                            if ($rawId) {
+                                $glpiId     = (int) $rawId;
+                                $clientType = 'client'; // déjà connu dans GLPI → client classifié ✅
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning("[FetchSupportEmails] GLPI pre-check failed: " . $e->getMessage());
+                        }
+
                         $plainPassword = Str::random(12);
                         $user = User::create([
                             'name'                 => $senderName,
                             'email'                => $senderEmail,
                             'password'             => Hash::make($plainPassword),
                             'role'                 => 'client',
-                            'client_type'          => 'user',   // ← 🟠 Nouveau non classifié
+                            'client_type'          => $clientType, // ✅ 'client' si GLPI le connaît, 'user' sinon
                             'is_active'            => true,
                             'must_change_password' => true,
                             'email_verified_at'    => now(),
                         ]);
+
+                        // ── Sync GLPI : on passe le glpiId déjà résolu pour éviter un double appel API ──
+                        $this->syncUserToGlpi($user, $senderEmail, $senderName, $plainPassword, $glpiId);
 
                         AuditLog::log('CREATE', 'Users',
                             "Compte auto-créé depuis email: {$senderName} ({$senderEmail})");
@@ -110,7 +147,7 @@ class FetchSupportEmails extends Command
                             Log::error("[FetchSupportEmails] Email bienvenue failed: " . $e->getMessage());
                         }
 
-                        $this->info("[FetchSupportEmails] Nouveau client créé: {$senderEmail}");
+                        $this->info("[FetchSupportEmails] Nouveau client créé: {$senderEmail} (client_type={$clientType})");
                     }
 
                     // ── 3. Classification IA ───────────────────────────────────
@@ -147,7 +184,7 @@ class FetchSupportEmails extends Command
                         'source'      => 'email',
                     ]);
 
-                    // ── 5. SLA par défaut (adapté à la priorité IA)
+                    // ── 5. SLA par défaut ──────────────────────────────────────
                     $slaHours = [1 => 72, 2 => 48, 3 => 24, 4 => 8, 5 => 4];
                     $ticket->update(['sla_due_at' => now()->addHours($slaHours[$aiPriority] ?? 24)]);
 
@@ -174,7 +211,6 @@ class FetchSupportEmails extends Command
                         'ticket_id' => $ticket->id,
                     ];
                     Notification::sendToAdmins($notifData);
-                    // Super admin ne reçoit pas les notifications de nouveaux tickets email (géré par les admins)
 
                     // ── 7. Notification Teams ──────────────────────────────────
                     try {
@@ -222,28 +258,30 @@ class FetchSupportEmails extends Command
                         Log::warning("[FetchSupportEmails] Confirmation email failed: " . $e->getMessage());
                     }
 
-                    // ── 10. Sync GLPI ───────────────────────────────────────────
+                    // ── 10. Sync ticket dans GLPI ──────────────────────────────
                     try {
                         $glpi   = app(GlpiService::class);
                         $result = $glpi->createTicket([
-                            'name'    => $ticket->title,
-                            'content' => $ticket->description,
-                            'urgency' => $ticket->urgency,
-                            'impact'  => $ticket->impact,
-                            'priority'=> $ticket->priority,
-                        ]);
+    'title'        => $ticket->title,
+    'description'  => $ticket->description,  // ← haka (mich 'content')
+    'urgency'      => $ticket->urgency,
+    'impact'       => $ticket->impact,
+    'priority'     => $ticket->priority,
+    'glpi_user_id' => $user->glpi_user_id ?? null,
+]);
 
                         if (!empty($result['id'])) {
                             $ticket->update([
                                 'glpi_ticket_id' => $result['id'],
                                 'sync_status'    => 'synced',
                             ]);
+                            Log::info("[FetchSupportEmails] Ticket #{$ticket->id} synced to GLPI (id={$result['id']})");
                         }
                     } catch (\Exception $e) {
-                        Log::warning("[FetchSupportEmails] GLPI sync failed: " . $e->getMessage());
+                        Log::warning("[FetchSupportEmails] GLPI ticket sync failed: " . $e->getMessage());
                     }
 
-                    // ── 11. Marquer comme lu dans Gmail ─────────────────────────
+                    // ── 11. Marquer comme lu dans Gmail ───────────────────────
                     $this->markRead($service, $msgRef->getId());
 
                     $created++;
@@ -251,7 +289,6 @@ class FetchSupportEmails extends Command
 
                 } catch (\Exception $e) {
                     Log::error("[FetchSupportEmails] Erreur traitement email: " . $e->getMessage());
-                    // On continue avec le prochain email même en cas d'erreur
                 }
             }
 
@@ -260,6 +297,59 @@ class FetchSupportEmails extends Command
         } catch (\Exception $e) {
             Log::error("[FetchSupportEmails] Fatal: " . $e->getMessage());
             $this->error("[FetchSupportEmails] Erreur: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Sync user vers GLPI.
+     * Si $knownGlpiId fourni (déjà résolu avant) → évite un double appel API.
+     */
+    private function syncUserToGlpi(
+        User $user,
+        string $email,
+        string $name,
+        string $plainPassword,
+        ?int $knownGlpiId = null
+    ): void {
+        try {
+            $glpi = app(GlpiService::class);
+
+            // Si le glpiId n'a pas encore été résolu, chercher maintenant
+            if (!$knownGlpiId) {
+                $existing   = $glpi->findUserByEmail($email);
+                $existingId = $existing['id'] ?? $existing[1] ?? null;
+                if ($existingId) {
+                    $knownGlpiId = (int) $existingId;
+                }
+            }
+
+            if ($knownGlpiId) {
+                // ✅ Déjà dans GLPI → update password + assigner profile Client
+                $glpi->updateItem('User', $knownGlpiId, [
+                    'password'  => $plainPassword,
+                    'password2' => $plainPassword,
+                ]);
+                $user->update(['glpi_user_id' => $knownGlpiId]);
+                $glpi->assignProfileToUser($knownGlpiId, 'Client'); // connu dans GLPI → Client
+                Log::info("[FetchSupportEmails] GLPI user existant mis à jour: {$email} (id={$knownGlpiId})");
+            } else {
+                // ✅ Pas dans GLPI → créer + assigner profile Observer (non classifié)
+                $glpiResult = $glpi->createUser([
+                    'name'      => $email,
+                    'realname'  => $name,
+                    'email'     => $email,
+                    'password'  => $plainPassword,
+                    'password2' => $plainPassword,
+                    'is_active' => 1,
+                ]);
+                if (!empty($glpiResult['id'])) {
+                    $user->update(['glpi_user_id' => $glpiResult['id']]);
+                    $glpi->assignProfileToUser($glpiResult['id'], 'Observer'); // nouveau → Observer
+                    Log::info("[FetchSupportEmails] GLPI user créé: {$email} (id={$glpiResult['id']})");
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('[FetchSupportEmails] GLPI user sync failed: ' . $e->getMessage());
         }
     }
 
@@ -292,17 +382,14 @@ class FetchSupportEmails extends Command
 
     private function extractBody($payload): string
     {
-        // Chercher text/plain d'abord, puis text/html
         $body = $this->getPartBody($payload, 'text/plain')
               ?: $this->getPartBody($payload, 'text/html')
               ?: '';
 
-        // Nettoyer HTML basique
         if (str_contains($body, '<')) {
             $body = strip_tags($body);
         }
 
-        // Supprimer les lignes de citation (>) communes dans les réponses email
         $lines = explode("\n", $body);
         $lines = array_filter($lines, fn($l) => !str_starts_with(trim($l), '>'));
         $body  = implode("\n", $lines);
@@ -347,10 +434,10 @@ class FetchSupportEmails extends Command
         if ($admins->isEmpty()) return null;
 
         return match ($method) {
-            'Round-robin' => $this->roundRobin($admins),
+            'Round-robin'   => $this->roundRobin($admins),
             'Par catégorie' => $this->byCategory($ticket, $admins),
-            'Par charge' => $this->byWorkload($admins),
-            default => $this->roundRobin($admins),
+            'Par charge'    => $this->byWorkload($admins),
+            default         => $this->roundRobin($admins),
         };
     }
 
@@ -366,7 +453,6 @@ class FetchSupportEmails extends Command
 
     private function byCategory(Ticket $ticket, $admins): int
     {
-        // Assigner à l'admin avec le plus de tickets résolus dans cette catégorie
         $best = $admins->sortByDesc(function ($admin) use ($ticket) {
             return Ticket::where('assigned_to', $admin->id)
                 ->where('category', $ticket->category)
@@ -379,7 +465,6 @@ class FetchSupportEmails extends Command
 
     private function byWorkload($admins): int
     {
-        // Assigner à l'admin avec le moins de tickets ouverts
         $least = $admins->sortBy(function ($admin) {
             return Ticket::where('assigned_to', $admin->id)
                 ->whereNotIn('sync_status', ['resolved', 'closed', 'synced'])

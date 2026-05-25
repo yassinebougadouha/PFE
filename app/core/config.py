@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # ── API ───────────────────────────────────────────────
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: List[str] = ["*"]
-    BACKEND_API_URL: str = "http://localhost:8000"  # URL for file serving, sent to frontend
+    BACKEND_API_URL: str = "http://localhost:8600"  # URL for file serving, sent to frontend
 
     # ── Database ─────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/support_db"
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     GMAIL_CLIENT_ID: str = ""
     GMAIL_CLIENT_SECRET: str = ""
     GMAIL_REFRESH_TOKEN: str = ""
-    GMAIL_REDIRECT_URI: str = "http://localhost:8000/api/v1/gmail/callback"
+    GMAIL_REDIRECT_URI: str = "http://localhost:8600/api/v1/gmail/callback"
     GMAIL_SCOPES: List[str] = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify"]
     GMAIL_POLL_INTERVAL_SECONDS: int = 60
     SMTP_FROM_EMAIL: str = ""
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     WHATSAPP_VERIFY_TOKEN: str = "my-whatsapp-verify-token"
     WHATSAPP_API_VERSION: str = "v21.0"
     # Bridge settings (whatsapp-web.js via HTTP wrapper)
-    WHATSAPP_BRIDGE_URL: str = "http://localhost:3000"  # URL of the bridge server
+    WHATSAPP_BRIDGE_URL: str = "http://localhost:8602"  # URL of the bridge server
     WHATSAPP_BRIDGE_API_KEY: str = ""  # optional API key for bridge auth
 
     # ── Voice (STT / TTS) ────────────────────────────────
@@ -169,10 +169,10 @@ class Settings(BaseSettings):
 
     # ── Internal Service-to-Service Auth ─────────────────
     INTERNAL_SERVICE_KEY: str = "change-me-internal-key"
-    INTERNAL_API_BASE_URL: str = "http://api:8000"
+    INTERNAL_API_BASE_URL: str = "http://api:8600"
 
     # ── GLPI Integration ─────────────────────────────────
-    GLPI_API_URL: str = "http://localhost:8001/api/v1"  # Laravel proxy URL
+    GLPI_API_URL: str = "http://localhost:8603/api/v1"  # Laravel proxy URL
     GLPI_ENABLED: bool = True
     GLPI_AUTO_SYNC: bool = True  # automatically sync tickets to GLPI
     LARAVEL_DATABASE_URL: str = "postgresql+asyncpg://sail:password@platform-glpi-main-pgsql-1:5432/laravel"

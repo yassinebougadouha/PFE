@@ -8,7 +8,6 @@
 $statusData = [
     'pending'     => ['warning',   'En attente',   'hourglass_empty'],
     'in_progress' => ['info',      'En cours',     'autorenew'],
-    'escalated'   => ['danger',    'Escaladé',     'priority_high'],
     'synced'      => ['info',      'En cours',     'autorenew'],
     'resolved'    => ['success',   'Résolu',       'check_circle'],
     'closed'      => ['secondary', 'Clôturé',      'lock'],
@@ -51,183 +50,112 @@ $cat = $catLabels[$ticket->category] ?? ['🎫', ucfirst($ticket->category ?? 'A
     <div class="col-lg-8 mb-4">
 
         {{-- Header ticket --}}
-        <div class="card mb-4 border-0 shadow-sm overflow-hidden" style="border-radius: 16px;">
-            <div class="card-body p-0">
-                <div class="p-4" style="background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);">
-                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="bg-white border-radius-lg p-2 d-flex align-items-center justify-content-center shadow-sm" 
-                                 style="width:54px; height:54px; border-radius: 12px !important;">
-                                <span class="font-weight-bold" style="color: var(--color-primary); font-size: 18px;">#{{ $ticket->id }}</span>
-                            </div>
-                            <div>
-                                <h4 class="text-white mb-0 font-weight-bolder" style="letter-spacing: -0.02em;">{{ $ticket->title }}</h4>
-                                <div class="d-flex align-items-center gap-2 mt-1">
-                                    <span class="text-white text-xs opacity-8">
-                                        <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">calendar_today</i>
-                                        Ouvert le {{ $ticket->created_at->timezone('Africa/Tunis')->format('d/m/Y à H:i') }}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="badge bg-white text-dark px-3 py-2 border-radius-pill shadow-sm" style="font-size: 11px; font-weight: 700;">
-                                {{ $cat[0] }} {{ $cat[1] }}
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body px-4 py-4">
+                <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge text-white px-3 py-1"
+                                  style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));font-size:13px;">
+                                #{{ $ticket->id }}
+                            </span>
+                            <span class="badge bg-gradient-{{ $st[0] }} px-2 py-1 text-white">
+                                <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">{{ $st[2] }}</i>
+                                {{ $st[1] }}
                             </span>
                         </div>
+                        <h5 class="font-weight-bolder mb-1">{{ $ticket->title }}</h5>
+                        <p class="text-xs text-secondary mb-0">
+                            <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">calendar_today</i>
+                            {{ $ticket->created_at->timezone('Africa/Tunis')->format('d/m/Y à H:i') }}
+                        </p>
                     </div>
-                </div>
-                <div class="p-4 bg-white">
-                    <div class="d-flex align-items-center gap-3 flex-wrap">
-                        <span class="badge bg-gradient-{{ $st[0] }} px-3 py-2 border-radius-pill">
-                            <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">{{ $st[2] }}</i>
-                            {{ $st[1] }}
-                        </span>
-                        <span class="badge bg-light text-dark px-3 py-2 border-radius-pill border" style="font-size: 11px;">
-                            Priorité: <span class="text-{{ $prioColors[$ticket->priority] ?? 'warning' }} font-weight-bold">{{ $prioMap[$ticket->priority] ?? 'Moyenne' }}</span>
-                        </span>
+                    <div class="text-end">
+                        <span class="badge bg-gradient-{{ $prioColors[$ticket->priority] ?? 'warning' }} text-white px-2">
+                            {{ $prioMap[$ticket->priority] ?? 'Moyenne' }}
+                        </span><br>
+                        <small class="text-secondary text-xs">{{ $cat[0] }} {{ $cat[1] }}</small>
                     </div>
                 </div>
             </div>
         </div>
 
         {{-- Description --}}
-        <div class="card mb-4 border-0 shadow-sm" style="border-radius: 16px;">
-            <div class="card-header bg-transparent pb-0 pt-4 px-4 border-0">
-                <h6 class="mb-0 font-weight-bold d-flex align-items-center gap-2">
-                    <div style="width:32px; height:32px; background: #f0f4ff; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                        <i class="material-symbols-rounded" style="font-size:18px; color:var(--color-primary);">description</i>
-                    </div>
-                    Description du problème
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header pb-0 pt-3 px-4">
+                <h6 class="mb-0 font-weight-bold">
+                    <i class="material-symbols-rounded me-1" style="font-size:16px;vertical-align:middle;color:var(--color-primary);">description</i>
+                    Description
                 </h6>
             </div>
             <div class="card-body px-4 pb-4">
-                <div class="p-3 border-radius-lg" style="background: #f8fafc; border: 1px solid #f1f5f9;">
-                    <p class="text-sm mb-0 text-dark" style="line-height:1.8;white-space:pre-wrap; font-weight: 400;">{{ $ticket->description }}</p>
-                </div>
-                
-                {{-- ✅ Pièces jointes du ticket --}}
-                @if($ticket->attachments)
-                <div class="mt-4">
-                    <p class="text-xs font-weight-bold text-uppercase text-secondary mb-3">
-                        <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">attach_file</i>
-                        Fichiers joints
-                    </p>
-                    <div class="row g-2">
-                        @foreach(json_decode($ticket->attachments) as $path)
+                <p class="text-sm mb-0" style="line-height:1.8;white-space:pre-wrap;">{{ $ticket->description }}</p>
+            </div>
+        </div>
+
+        {{-- Réponse admin --}}
+        @if($ticket->solution)
+        <div class="card mb-4 shadow-sm" style="border-left:4px solid #22c55e;">
+            <div class="card-header pb-0 pt-3 px-4">
+                <h6 class="mb-0 font-weight-bold" style="color:#166534;">
+                    <i class="material-symbols-rounded me-1" style="font-size:16px;vertical-align:middle;">support_agent</i>
+                    Réponse de notre équipe support
+                </h6>
+            </div>
+            <div class="card-body px-4 pb-4">
+                <p class="text-sm mb-0" style="line-height:1.8;white-space:pre-wrap;color:#166534;">{{ $ticket->solution }}</p>
+            </div>
+        </div>
+        @endif
+
+        {{-- Commentaires --}}
+        @if($ticket->comments->count() > 0)
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header pb-0 pt-3 px-4">
+                <h6 class="mb-0 font-weight-bold">
+                    <i class="material-symbols-rounded me-1" style="font-size:16px;vertical-align:middle;color:var(--color-primary);">chat</i>
+                    Commentaires ({{ $ticket->comments->count() }})
+                </h6>
+            </div>
+            <div class="card-body px-4 pb-3">
+                @foreach($ticket->comments->sortBy('created_at') as $comment)
+                <div class="d-flex gap-3 mb-3 pb-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                    <div class="flex-shrink-0 d-flex align-items-center justify-content-center border-radius-md"
+                         style="width:36px;height:36px;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                        <span class="text-white text-xs font-weight-bold">
+                            {{ strtoupper(substr($comment->user->name ?? 'U', 0, 2)) }}
+                        </span>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="text-sm font-weight-bold">{{ $comment->user->name ?? 'Vous' }}</span>
+                            <span class="text-xs text-secondary">
+                                {{ $comment->created_at->timezone('Africa/Tunis')->format('d/m/Y à H:i') }}
+                            </span>
+                        </div>
+                        <p class="text-sm mb-0" style="line-height:1.7;">{{ $comment->content }}</p>
+                        @if($comment->attachment_path)
                         @php
-                            $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-                            $isImg = in_array($ext, ['jpg','jpeg','png','gif','webp']);
-                            $icon = $isImg ? 'image' : ($ext === 'pdf' ? 'picture_as_pdf' : 'description');
+                          $paths = json_decode($comment->attachment_path, true);
+                          if (!is_array($paths)) $paths = [$comment->attachment_path];
                         @endphp
-                        <div class="col-sm-6 col-md-4">
-                            <a href="{{ asset('storage/' . $path) }}" target="_blank" 
-                               class="d-flex align-items-center p-2 border border-radius-lg text-decoration-none transition-all hover-shadow"
-                               style="background: #fff; border-color: #e2e8f0;">
-                                <div class="avatar avatar-sm bg-light border-radius-md me-2 d-flex align-items-center justify-content-center">
-                                    <i class="material-symbols-rounded text-primary" style="font-size: 18px;">{{ $icon }}</i>
-                                </div>
-                                <div class="min-width-0">
-                                    <p class="text-xs font-weight-bold text-dark mb-0 text-truncate">{{ basename($path) }}</p>
-                                    <p class="text-xxs text-secondary mb-0">{{ strtoupper($ext) }}</p>
-                                </div>
-                            </a>
+                        <div class="mt-2 d-flex flex-wrap gap-2">
+                          @foreach($paths as $ap)
+                          <a href="{{ asset('storage/' . $ap) }}" target="_blank"
+                             class="text-xs text-primary d-inline-flex align-items-center gap-1"
+                             style="background:#f0f4ff;border-radius:6px;padding:3px 8px;text-decoration:none;">
+                            <i class="material-symbols-rounded" style="font-size:13px;">attach_file</i>
+                            {{ basename($ap) }}
+                          </a>
+                          @endforeach
                         </div>
-                        @endforeach
+                        @endif
                     </div>
                 </div>
-                @endif
+                @endforeach
             </div>
         </div>
-
-        {{-- FIL DE DISCUSSION (TIMELINE) --}}
-        <div class="card mb-4 border-0 shadow-sm" style="border-radius: 16px;">
-            <div class="card-header bg-transparent pb-0 pt-4 px-4 border-0">
-                <h6 class="mb-0 font-weight-bold d-flex align-items-center gap-2">
-                    <div style="width:32px; height:32px; background: #fff7ed; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                        <i class="material-symbols-rounded" style="font-size:18px; color:#ea580c;">forum</i>
-                    </div>
-                    Échanges et Historique
-                </h6>
-            </div>
-            <div class="card-body px-4 pb-4">
-                <div class="timeline timeline-one-side">
-                    
-                    {{-- Création du ticket --}}
-                    <div class="timeline-block mb-4">
-                        <span class="timeline-step">
-                            <i class="material-symbols-rounded text-primary">add_circle</i>
-                        </span>
-                        <div class="timeline-content">
-                            <h6 class="text-dark text-sm font-weight-bold mb-0">Ticket créé</h6>
-                            <p class="text-secondary font-weight-bold text-xs mt-1 mb-0">
-                                {{ $ticket->created_at->timezone('Africa/Tunis')->format('d/m/Y à H:i') }}
-                            </p>
-                        </div>
-                    </div>
-
-                    {{-- Solution (si présente) --}}
-                    @if($ticket->solution)
-                    <div class="timeline-block mb-4">
-                        <span class="timeline-step">
-                            <i class="material-symbols-rounded text-success">check_circle</i>
-                        </span>
-                        <div class="timeline-content">
-                            <div class="d-flex align-items-center justify-content-between">
-                                <h6 class="text-success text-sm font-weight-bold mb-0">Réponse de l'équipe support</h6>
-                                <span class="text-xs text-secondary">{{ $ticket->updated_at->format('d/m/Y H:i') }}</span>
-                            </div>
-                            <div class="mt-2 p-3 border-radius-lg" style="background:#f0fdf4; border: 1px solid #bbf7d0;">
-                                <p class="text-sm mb-0" style="white-space:pre-wrap;">{{ $ticket->solution }}</p>
-                            </div>
-                        </div>
-                    </div>
-                    @endif
-
-                    {{-- Commentaires --}}
-                    @foreach($ticket->comments->sortBy('created_at') as $comment)
-                    @php
-                        $isAdmin = in_array($comment->user->role, ['admin', 'super_admin']);
-                    @endphp
-                    <div class="timeline-block mb-4">
-                        <span class="timeline-step">
-                            <i class="material-symbols-rounded {{ $isAdmin ? 'text-info' : 'text-dark' }}">
-                                {{ $isAdmin ? 'support_agent' : 'person' }}
-                            </i>
-                        </span>
-                        <div class="timeline-content">
-                            <div class="d-flex align-items-center justify-content-between">
-                                <h6 class="text-dark text-sm font-weight-bold mb-0">
-                                    {{ $comment->user->name ?? 'Utilisateur' }}
-                                    @if($isAdmin) <span class="badge bg-light text-info text-xxs ms-1">Support</span> @endif
-                                </h6>
-                                <span class="text-xs text-secondary">{{ $comment->created_at->timezone('Africa/Tunis')->format('d/m/Y H:i') }}</span>
-                            </div>
-                            <div class="mt-2 p-3 border-radius-lg" style="background: {{ $isAdmin ? '#f0f9ff' : '#f8fafc' }}; border: 1px solid {{ $isAdmin ? '#e0f2fe' : '#f1f5f9' }};">
-                                <p class="text-sm mb-0" style="white-space:pre-wrap;">{{ $comment->content }}</p>
-                                
-                                @if($comment->attachment_path)
-                                @php
-                                    $paths = json_decode($comment->attachment_path, true);
-                                    if (!is_array($paths)) $paths = [$comment->attachment_path];
-                                @endphp
-                                <div class="mt-2 d-flex flex-wrap gap-2">
-                                    @foreach($paths as $ap)
-                                    <a href="{{ asset('storage/' . $ap) }}" target="_blank"
-                                       class="badge bg-white text-primary border text-xxs d-inline-flex align-items-center gap-1 py-2">
-                                        <i class="material-symbols-rounded" style="font-size:14px;">attach_file</i>
-                                        {{ basename($ap) }}
-                                    </a>
-                                    @endforeach
-                                </div>
-                                @endif
-                            </div>
-                        </div>
-                    </div>
-                    @endforeach
-                </div>
-            </div>
-        </div>
+        @endif
 
         {{-- ✅ Bouton clôturer ticket --}}
         @if($appSettings['allow_client_close'] ?? false)
@@ -335,79 +263,47 @@ $cat = $catLabels[$ticket->category] ?? ['🎫', ucfirst($ticket->category ?? 'A
 
     </div>
 
-    {{-- Colonne latérale (Informations) --}}
-    <div class="col-lg-4">
-        <div class="sticky-top" style="top: 20px;">
-            <div class="card mb-4 border-0 shadow-sm" style="border-radius: 16px;">
-                <div class="card-header bg-transparent pb-0 pt-4 px-4 border-0">
-                    <h6 class="mb-0 font-weight-bold d-flex align-items-center gap-2">
-                        <div style="width:32px; height:32px; background: #fdf2f8; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                            <i class="material-symbols-rounded" style="font-size:18px; color:#db2777;">info</i>
-                        </div>
-                        Informations
-                    </h6>
-                </div>
-                <div class="card-body px-4 pb-4">
-                    <div class="mb-3 pb-3 border-bottom">
-                        <p class="text-xs font-weight-bold text-uppercase text-secondary mb-2">Demandeur</p>
-                        <div class="d-flex align-items-center gap-2">
-                            <div class="avatar avatar-sm bg-gradient-primary border-radius-pill">
-                                <span class="text-xs font-weight-bold text-white">{{ strtoupper(substr($ticket->user->name ?? 'U', 0, 1)) }}</span>
-                            </div>
-                            <div>
-                                <p class="text-sm font-weight-bold mb-0">{{ $ticket->user->name }}</p>
-                                <p class="text-xxs text-secondary mb-0">{{ $ticket->user->email }}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mb-3 pb-3 border-bottom">
-                        <p class="text-xs font-weight-bold text-uppercase text-secondary mb-2">Statut du ticket</p>
-                        <div class="d-flex align-items-center justify-content-between">
-                            <span class="text-sm font-weight-bold text-dark">{{ $st[1] }}</span>
-                            <i class="material-symbols-rounded text-{{ $st[0] }}" style="font-size:20px;">{{ $st[2] }}</i>
-                        </div>
-                    </div>
-
-                    <div class="mb-3 pb-3 border-bottom">
-                        <p class="text-xs font-weight-bold text-uppercase text-secondary mb-2">Priorité</p>
-                        <div class="d-flex align-items-center justify-content-between">
-                            <span class="text-sm font-weight-bold text-{{ $prioColors[$ticket->priority] ?? 'warning' }}">
-                                {{ $prioMap[$ticket->priority] ?? 'Moyenne' }}
-                            </span>
-                            <div class="d-flex gap-1">
-                                @for($i=1; $i<=5; $i++)
-                                <div style="width:8px; height:8px; border-radius: 50%; background: {{ $i <= $ticket->priority ? 'var(--bs-'.$prioColors[$ticket->priority].')' : '#e2e8f0' }}"></div>
-                                @endfor
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mb-0">
-                        <p class="text-xs font-weight-bold text-uppercase text-secondary mb-2">Actions rapides</p>
-                        <div class="d-grid gap-2">
-                            <button type="button" class="btn btn-outline-secondary btn-sm mb-0 d-flex align-items-center justify-content-center gap-2" onclick="window.print()">
-                                <i class="material-symbols-rounded" style="font-size:16px;">print</i> Imprimer
-                            </button>
-                            <a href="mailto:support@l2t.tn?subject=Ticket%20#{{ $ticket->id }}%20-%20{{ urlencode($ticket->title) }}" 
-                               class="btn btn-outline-secondary btn-sm mb-0 d-flex align-items-center justify-content-center gap-2">
-                                <i class="material-symbols-rounded" style="font-size:16px;">alternate_email</i> Contacter support
-                            </a>
-                        </div>
-                    </div>
-                </div>
+    {{-- Colonne info --}}
+    <div class="col-lg-4 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header pb-0 pt-3 px-4">
+                <h6 class="mb-0 font-weight-bold">Informations</h6>
             </div>
-
-            {{-- Card d'aide --}}
-            <div class="card border-0 shadow-sm overflow-hidden" style="border-radius: 16px; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);">
-                <div class="card-body p-4 text-center">
-                    <div class="bg-white shadow-sm border-radius-lg mx-auto mb-3 d-flex align-items-center justify-content-center" style="width:48px; height:48px;">
-                        <i class="material-symbols-rounded text-primary" style="font-size:24px;">help_outline</i>
-                    </div>
-                    <h6 class="font-weight-bold text-dark mb-1">Besoin d'aide ?</h6>
-                    <p class="text-xs text-secondary mb-3">Consultez notre base de connaissances pour trouver des réponses rapides.</p>
-                    <a href="#" class="btn btn-link text-primary text-xs font-weight-bold mb-0 p-0">Accéder à la FAQ <i class="material-symbols-rounded align-middle" style="font-size:14px;">arrow_forward</i></a>
+            <div class="card-body px-4 pb-4">
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-xs text-secondary">Statut</span>
+                    <span class="badge bg-gradient-{{ $st[0] }} text-white text-xs">{{ $st[1] }}</span>
                 </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-xs text-secondary">Priorité</span>
+                    <span class="badge bg-gradient-{{ $prioColors[$ticket->priority] ?? 'warning' }} text-white text-xs">
+                        {{ $prioMap[$ticket->priority] ?? 'Moyenne' }}
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-xs text-secondary">Catégorie</span>
+                    <span class="text-xs font-weight-bold">{{ $cat[0] }} {{ $cat[1] }}</span>
+                </div>
+                <div class="d-flex justify-content-between border-bottom py-2">
+                    <span class="text-xs text-secondary">Créé le</span>
+                    <span class="text-xs">{{ $ticket->created_at->format('d/m/Y') }}</span>
+                </div>
+                <div class="d-flex justify-content-between py-2">
+                    <span class="text-xs text-secondary">Messages</span>
+                    <span class="badge bg-gradient-dark text-white text-xs">{{ $ticket->comments->count() }}</span>
+                </div>
+
+                @if($ticket->attachments)
+                <hr class="horizontal dark my-2">
+                <p class="text-xs text-secondary mb-2 font-weight-bold">Pièces jointes</p>
+                @foreach(json_decode($ticket->attachments) as $path)
+                <a href="{{ asset('storage/' . $path) }}" target="_blank"
+                   class="d-block text-xs text-primary mb-1">
+                    <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">attach_file</i>
+                    {{ basename($path) }}
+                </a>
+                @endforeach
+                @endif
             </div>
         </div>
     </div>

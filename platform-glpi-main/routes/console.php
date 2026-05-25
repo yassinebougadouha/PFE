@@ -10,7 +10,7 @@ Schedule::command('mail:fetch-support')->everyTwoMinutes();
 Schedule::command('tickets:auto-close')->daily();
 
 // ─── Vérification breaches SLA ────────────────────────────────────────────────
-Schedule::command('tickets:check-sla')->hourly();
+Schedule::command('glpi:check-sla')->hourly();
 
 // ─── Sync utilisateurs GLPI ────────────────────────────────────────────────────
 Schedule::command('glpi:sync-users')->dailyAt('02:00');

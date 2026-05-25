@@ -26,7 +26,7 @@ class ConversationUpdate(BaseModel):
 
 class ConversationResponse(BaseModel):
     id: uuid.UUID
-    user_id: uuid.UUID
+    user_id: int
     channel: ChannelType
     status: ConversationStatus
     subject: Optional[str]
@@ -255,7 +255,7 @@ class ConversationStreamRequest(BaseModel):
 class MessageResponse(BaseModel):
     id: uuid.UUID
     conversation_id: uuid.UUID
-    sender_id: uuid.UUID
+    sender_id: int
     content: str
     is_internal: bool
     is_read: bool

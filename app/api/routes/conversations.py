@@ -390,7 +390,11 @@ async def create_conversation(
     """Start a new conversation (any authenticated user)."""
     svc = ConversationService(db)
     return await svc.create_conversation(current_user.id, payload)
-
+def _match_id(field_value, target: str) -> bool:
+    """Compare IDs en ignorant les différences de format (UUID vs int string)."""
+    if field_value is None:
+        return False
+    return str(field_value).strip() == target
 
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
@@ -401,20 +405,54 @@ async def list_conversations(
     include_total: bool = Query(True),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    agent_id: Optional[str] = Query(None, description="Filter by agent/assigned user ID (admin only)"),
+    filter_user_id: Optional[str] = Query(None, alias="user_id", description="Filter by client user ID (admin only)"),
 ):
     """List conversations — clients see own, agents/admins see all."""
     svc = ConversationService(db)
-    user_id = current_user.id if current_user.role == UserRole.CLIENT else None
+
+    if current_user.role == UserRole.CLIENT:
+        convos, total = await svc.list_conversations(
+            user_id=current_user.id,
+            status=status_filter,
+            channel=channel,
+            include_total=include_total,
+            skip=skip,
+            limit=limit,
+        )
+        return {"conversations": convos, "total": total}
+
     convos, total = await svc.list_conversations(
-        user_id=user_id,
+        user_id=None,
         status=status_filter,
         channel=channel,
         include_total=include_total,
-        skip=skip,
-        limit=limit,
+        skip=0,
+        limit=500,
     )
-    return {"conversations": convos, "total": total}
 
+    if agent_id:
+        agent_id_str = str(agent_id).strip()
+        convos = [
+            c for c in convos
+            if _match_id(getattr(c, 'agent_id', None), agent_id_str)
+            or _match_id(getattr(c, 'assigned_agent_id', None), agent_id_str)
+            or _match_id(getattr(c, 'assigned_to', None), agent_id_str)
+        ]
+
+    if filter_user_id:
+        uid_str = str(filter_user_id).strip()
+        convos = [
+            c for c in convos
+            if _match_id(getattr(c, 'user_id', None), uid_str)
+            or _match_id(getattr(c, 'contact_id', None), uid_str)
+            or _match_id(getattr(c, 'customer_id', None), uid_str)
+        ]
+
+    total = len(convos)
+    convos = convos[skip: skip + limit]
+
+    return {"conversations": convos, "total": total}
 
 @router.get(
     "/automation/snippets",

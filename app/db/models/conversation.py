@@ -5,7 +5,7 @@ Conversation & Message models — Chat channel.
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Boolean, String, Text, Enum, ForeignKey, Index, Integer, UniqueConstraint, DateTime
+from sqlalchemy import BigInteger, Boolean, String, Text, Enum, ForeignKey, Index, Integer, UniqueConstraint, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,8 +16,8 @@ from app.db.models.enums import ConversationStatus, ChannelType
 class Conversation(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "conversations"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True,
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False, index=True,
     )
     channel: Mapped[ChannelType] = mapped_column(
         Enum(ChannelType, name="channel_type", create_constraint=True),
@@ -74,8 +74,8 @@ class Message(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False, index=True,
     )
-    sender_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True,
+    sender_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False, index=True,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_internal: Mapped[bool] = mapped_column(default=False, nullable=False)
@@ -100,11 +100,11 @@ class ConversationAgentReplySuspension(Base, UUIDPrimaryKeyMixin, TimestampMixin
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False, index=True,
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True,
+    agent_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False, index=True,
     )
-    suspended_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True,
+    suspended_by_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False, index=True,
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 

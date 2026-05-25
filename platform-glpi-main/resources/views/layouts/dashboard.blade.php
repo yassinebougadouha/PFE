@@ -522,11 +522,11 @@
 
   @include('partials.sidebar')
 
-  <main class="main-content position-relative max-height-vh-100 h-100 border-radius-lg">
+  <main class="main-content position-relative h-100 border-radius-lg" style="overflow-y: auto; max-height: 100vh;">
 
     @include('partials.navbar')
 
-    <div class="container-fluid py-3">
+    <div class="container-fluid py-4 px-4 px-xl-5">
       @yield('content')
       {{-- footer removed --}}
     </div>

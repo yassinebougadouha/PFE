@@ -3,12 +3,12 @@
 return [
 
 'whatsapp' => [
-    'qr_bridge_url' => env('VITE_QR_BRIDGE_URL', 'http://localhost:3000/qr'),
+    'qr_bridge_url' => env('VITE_QR_BRIDGE_URL', 'http://localhost:8602/qr'),
 ],
 
 'support_api' => [
-    'base_url' => env('PFE_BACKEND_URL', 'http://localhost:8000'),
-    'public_url' => env('PFE_BACKEND_PUBLIC_URL', env('VITE_API_BASE_URL', 'http://localhost:8000/api/v1')),
+    'base_url' => env('PFE_BACKEND_URL', 'http://localhost:8600'),
+    'public_url' => env('PFE_BACKEND_PUBLIC_URL', env('VITE_API_BASE_URL', 'http://localhost:8600/api/v1')),
     'prefix' => env('PFE_BACKEND_API_PREFIX', '/api/v1'),
     'timeout' => (int) env('PFE_BACKEND_TIMEOUT', 60),
     'bearer_token' => env('PFE_BACKEND_BEARER_TOKEN'),

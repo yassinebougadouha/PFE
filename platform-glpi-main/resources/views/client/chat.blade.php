@@ -52,11 +52,14 @@
 /* ══ LAYOUT ══ */
 #chatWrap{
   display:flex;
-  height:calc(100vh - 64px);
+  height:calc(100vh - 130px);
+  border-radius: 20px;
   background:var(--bg);
   font-family:var(--font);
   overflow:hidden;
   position:relative;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  border: 1px solid var(--brd);
 }
 
 /* ══ SIDEBAR ══ */
@@ -127,6 +130,22 @@
 .ci i{font-size:13px;flex-shrink:0;}
 .ci span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
 .ci-meta{font-size:10.5px;color:var(--t5);flex-shrink:0;}
+
+.ci-actions { margin-left: auto; position: relative; }
+.ci-dots {
+  background: none; border: none; color: var(--t4); cursor: pointer; padding: 2px 4px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s, background 0.2s;
+}
+.ci:hover .ci-dots { opacity: 1; }
+.ci-dots:hover { background: var(--bg3); color: var(--t1); }
+.conv-menu-item {
+  width: 100%; text-align: left; background: none; border: none;
+  padding: 8px 12px; font-size: 13px; color: var(--t2); cursor: pointer;
+  display: flex; align-items: center; gap: 8px; font-family: var(--font);
+  transition: background 0.15s;
+}
+.conv-menu-item:hover { background: var(--bg3); }
 
 .side-foot{
   padding:12px 14px;
@@ -385,7 +404,7 @@
 #callOv{
   display:none;
   position:absolute;inset:0;z-index:200;
-  background:#08071A;
+  background:var(--bg);
   flex-direction:column;
   overflow:hidden;
   font-family:var(--font);
@@ -434,9 +453,10 @@
   content:'';
   position:absolute;inset:0;
   background-image:
-    linear-gradient(rgba(108,99,255,.04) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(108,99,255,.04) 1px,transparent 1px);
+    linear-gradient(var(--brd) 1px,transparent 1px),
+    linear-gradient(90deg,var(--brd) 1px,transparent 1px);
   background-size:40px 40px;
+  opacity: 0.3;
 }
 
 /* ── Call Header ── */
@@ -453,13 +473,13 @@
 .call-live-pill{
   display:flex;align-items:center;gap:6px;
   padding:5px 12px;border-radius:99px;
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.1);
-  backdrop-filter:blur(8px);
+  background:var(--bg2);
+  border:1px solid var(--brd);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 .call-live-dot{
   width:7px;height:7px;border-radius:50%;
-  background:#6B7280;
+  background:var(--t4);
   transition:background .3s,box-shadow .3s;
 }
 .call-live-dot.active{
@@ -472,8 +492,9 @@
   50%{box-shadow:0 0 0 6px rgba(74,222,128,.08);}
 }
 .call-live-time{
-  color:rgba(255,255,255,.7);
+  color:var(--t2);
   font-size:12px;
+  font-weight: 500;
   font-variant-numeric:tabular-nums;
   letter-spacing:.02em;
 }
@@ -569,13 +590,13 @@
 .call-agent-info{text-align:center;}
 #cagn{
   font-size:22px;font-weight:600;
-  color:#F9FAFB;
+  color:var(--t1);
   letter-spacing:-.02em;
   margin:0 0 6px;
 }
 #callStatus{
-  font-size:12px;color:rgba(255,255,255,.45);
-  font-weight:400;
+  font-size:12px;color:var(--t4);
+  font-weight:500;
   transition:opacity .3s;
 }
 
@@ -599,32 +620,32 @@
   bottom:18px;right:20px;
   display:flex;align-items:center;gap:8px;
   padding:7px 12px 7px 8px;
-  background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.1);
+  background:var(--bg2);
+  border:1px solid var(--brd);
   border-radius:99px;
-  backdrop-filter:blur(12px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
   z-index:5;
-  transition:background .2s;
+  transition:border-color .2s;
 }
-.call-self-preview:hover{background:rgba(255,255,255,.09);}
+.call-self-preview:hover{border-color:var(--p);}
 .call-self-av{
   width:26px;height:26px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;
   font-size:11px;font-weight:600;
   background:rgba(108,99,255,.35);
-  border:1px solid rgba(108,99,255,.5);
-  color:#C4BFFF;
+  border:1.5px solid var(--p-mid);
+  color:var(--p);
   flex-shrink:0;
 }
-.call-self-name{font-size:11px;color:rgba(255,255,255,.55);font-weight:500;}
+.call-self-name{font-size:11px;color:var(--t3);font-weight:600;}
 .call-self-mic{
   width:16px;height:16px;
   display:flex;align-items:center;justify-content:center;
-  color:rgba(255,255,255,.3);
+  color:var(--t4);
   font-size:12px;
   flex-shrink:0;
 }
-.call-self-mic.muted{color:rgba(239,68,68,.6);}
+.call-self-mic.muted{color:#EF4444;}
 
 /* ═══════════════════════════════════════════════
    ══ IMPROVED CALL CONTROLS ══
@@ -648,56 +669,55 @@
 .cc-btn{
   width:52px;height:52px;border-radius:16px;
   display:flex;align-items:center;justify-content:center;
-  background:rgba(255,255,255,.08);
-  border:1px solid rgba(255,255,255,.1);
-  color:rgba(255,255,255,.75);
+  background:var(--bg3);
+  border:1px solid var(--brd);
+  color:var(--t3);
   font-size:18px;
   transition:all .2s cubic-bezier(.4,0,.2,1);
-  backdrop-filter:blur(8px);
   position:relative;
   overflow:hidden;
 }
 .cc-btn::before{
   content:'';
   position:absolute;inset:0;border-radius:inherit;
-  background:linear-gradient(135deg,rgba(255,255,255,.08),transparent);
+  background:linear-gradient(135deg,var(--p-soft),transparent);
   opacity:0;transition:opacity .2s;
 }
 .cc:hover .cc-btn{
-  background:rgba(255,255,255,.14);
-  border-color:rgba(255,255,255,.2);
-  color:#fff;
+  background:var(--p-soft);
+  border-color:var(--p-mid);
+  color:var(--p);
   transform:translateY(-2px);
 }
 .cc:hover .cc-btn::before{opacity:1;}
 .cc:active .cc-btn{transform:translateY(0) scale(.96);}
 .cc-label{
-  font-size:10px;color:rgba(255,255,255,.38);
-  font-weight:500;letter-spacing:.02em;
+  font-size:10px;color:var(--t4);
+  font-weight:600;letter-spacing:.02em;
   transition:color .2s;
   white-space:nowrap;
 }
-.cc:hover .cc-label{color:rgba(255,255,255,.6);}
+.cc:hover .cc-label{color:var(--p);}
 
 /* Active states */
 .cc.on .cc-btn{
-  background:rgba(108,99,255,.22);
-  border-color:rgba(108,99,255,.5);
-  color:#A5B4FC;
+  background:var(--p-soft);
+  border-color:var(--p-mid);
+  color:var(--p);
 }
-.cc.on .cc-label{color:#A5B4FC;}
+.cc.on .cc-label{color:var(--p);}
 .cc.rec-on .cc-btn{
   background:rgba(239,68,68,.18);
   border-color:rgba(239,68,68,.45);
-  color:#FCA5A5;
+  color:#EF4444;
 }
-.cc.rec-on .cc-label{color:#FCA5A5;}
+.cc.rec-on .cc-label{color:#EF4444;}
 .cc.scr-on .cc-btn{
   background:rgba(56,189,248,.15);
   border-color:rgba(56,189,248,.4);
-  color:#7DD3FC;
+  color:#0284C7;
 }
-.cc.scr-on .cc-label{color:#7DD3FC;}
+.cc.scr-on .cc-label{color:#0284C7;}
 
 /* End call button */
 .call-end-wrap{display:flex;flex-direction:column;align-items:center;gap:5px;}
@@ -706,21 +726,21 @@
   background:linear-gradient(135deg,#EF4444,#DC2626);
   border:none;color:#fff;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
-  box-shadow:0 4px 24px rgba(239,68,68,.4),0 0 0 0 rgba(239,68,68,.3);
+  box-shadow:0 4px 16px rgba(239,68,68,.3);
   transition:all .2s cubic-bezier(.4,0,.2,1);
   font-size:20px;
 }
 .cend:hover{
   transform:translateY(-2px) scale(1.04);
-  box-shadow:0 8px 32px rgba(239,68,68,.5),0 0 0 0 rgba(239,68,68,.3);
+  box-shadow:0 6px 20px rgba(239,68,68,.4);
 }
 .cend:active{transform:scale(.97);}
-.call-end-label{font-size:10px;color:rgba(239,68,68,.55);font-weight:500;letter-spacing:.02em;}
+.call-end-label{font-size:10px;color:#EF4444;font-weight:600;letter-spacing:.02em;}
 
 /* ── Divider between control groups ── */
 .ctrl-divider{
   width:1px;height:32px;
-  background:rgba(255,255,255,.08);
+  background:var(--brd);
   margin:0 4px;
   align-self:center;
 }
@@ -1783,9 +1803,196 @@ function setAgentState(state) {
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
+
+// ── GLOBAL FLOATING CONV MENU ────────────────────────────────────────────────
+(function() {
+  var gm = document.createElement('div');
+  gm.id = 'globalConvMenu';
+  gm.style.cssText = [
+    'display:none',
+    'position:fixed',
+    'background:var(--bg2)',
+    'border:1px solid var(--brd)',
+    'border-radius:10px',
+    'box-shadow:0 6px 20px rgba(0,0,0,0.15)',
+    'z-index:9999',
+    'min-width:150px',
+    'padding:5px 0',
+    'font-family:var(--font)',
+  ].join(';');
+  document.body.appendChild(gm);
+})();
+
+var _activeConvMenuId = null;
+
+function openConvMenu(id, btnEl) {
+  _activeConvMenuId = id;
+  var gm = document.getElementById('globalConvMenu');
+    console.log('Opening conversation menu for ID:', id);
+    gm.innerHTML =
+    '<button class="conv-menu-item" onclick="renameConv(' + id + ')"><i class="ti ti-pencil"></i> Renommer</button>' +
+    '<div style="height:0.5px;background:var(--brd);margin:4px 0;"></div>' +
+    '<button class="conv-menu-item" style="color:#ef4444;" onclick="deleteConv(' + id + ')"><i class="ti ti-trash"></i> Supprimer</button>';
+
+  var rect = btnEl.getBoundingClientRect();
+  var menuW = 160;
+  var left  = rect.right - menuW;
+  if (left < 4) left = 4;
+  var top = rect.bottom + 4;
+  if (top + 90 > window.innerHeight) top = rect.top - 90;
+
+  gm.style.left    = left + 'px';
+  gm.style.top     = top  + 'px';
+  gm.style.display = 'block';
+}
+
+function closeConvMenu() {
+  var gm = document.getElementById('globalConvMenu');
+  if (gm) gm.style.display = 'none';
+  _activeConvMenuId = null;
+}
+
+document.addEventListener('click', function(e) {
+  var gm = document.getElementById('globalConvMenu');
+  if (gm && !gm.contains(e.target) && !e.target.closest('.ci-dots')) closeConvMenu();
+});
+
+// ── LOAD PAST CONVERSATIONS ───────────────────────────────────────────────────
+function loadPastConversations() {
+  fetch('/chat/conversations', {
+    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
+                'Accept': 'application/json' }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var list = document.getElementById('sideList');
+    if (!list || !data.conversations) return;
+    list.innerHTML = '';
+    data.conversations.forEach(function(conv) {
+      var item = document.createElement('div');
+      item.className = 'ci';
+      item.dataset.id = conv.id;
+      var d = conv.updated_at ? new Date(conv.updated_at).toLocaleDateString('fr-FR') : '';
+      item.innerHTML = `
+        <i class="ti ti-message"></i>
+        <span>${conv.subject || 'Chat'}</span>
+        <span class="ci-meta">${d}</span>
+        <div class="ci-actions">
+          <button class="ci-dots" onclick="event.stopPropagation(); openConvMenu(${conv.id}, this)" title="Options">
+            <i class="ti ti-dots-vertical"></i>
+          </button>
+        </div>
+      `;
+      item.addEventListener('click', function() {
+        loadConversation(conv.id);
+      });
+      list.appendChild(item);
+    });
+  })
+  .catch(function(e) { console.warn('loadPastConversations error', e); });
+}
+
+// Menu action functions
+function renameConv(id) {
+  closeConvMenu();
+  var ci = document.querySelector('.ci[data-id="' + id + '"]');
+  if (!ci) return;
+  var span = ci.querySelector('span');
+  if (!span) return;
+  var original = span.textContent.trim();
+  var nextName = window.prompt('Renommer la discussion', original);
+  if (nextName === null) return;
+  nextName = nextName.trim();
+  if (!nextName) {
+    alert('Le nom ne peut pas être vide.');
+    return;
+  }
+  if (nextName === original) return;
+
+  fetch('/chat/conversations/' + id, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({ subject: nextName })
+  })
+  .then(function(r) {
+    return r.json().then(function(data) {
+      if (!r.ok) throw (data || { message: 'Erreur lors du renommage.' });
+      return data;
+    });
+  })
+  .then(function() {
+    span.textContent = nextName;
+  })
+  .catch(function(err) {
+    alert(err.message || 'Erreur lors du renommage.');
+  });
+}
+
+function deleteConv(id) {
+  closeConvMenu();
+  if (!confirm('Supprimer cette discussion ?')) return;
+  fetch('/chat/conversations/' + id, {
+    method: 'DELETE',
+    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content }
+  }).then(function() {
+    var ci = document.querySelector('.ci[data-id="' + id + '"]');
+    if (ci) ci.remove();
+    var msgs = document.getElementById('chatMsgs');
+    if (S.convId === id) {
+      S.convId = null; S.cnt = 0;
+      msgs.innerHTML = '';
+      var ws = document.createElement('div'); ws.id = 'welcomeScr';
+      ws.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 22px;text-align:center;';
+      ws.innerHTML = '<div class="wav" id="wAv"></div><h1 class="wtit">Discussion supprimée</h1><p class="wsub">Démarrez un nouveau chat.</p>';
+      msgs.appendChild(ws); renderWelcome();
+    }
+  }).catch(function() { alert('Erreur lors de la suppression.'); });
+}
+
+function isOwnMessage(msg) {
+  var currentUserId = String({{ auth()->id() }});
+  var senderId = msg && (msg.sender_id ?? msg.user_id ?? msg.author_id);
+  if (senderId !== undefined && senderId !== null) {
+    return String(senderId) === currentUserId;
+  }
+  if (typeof msg?.role === 'string') return msg.role === 'user';
+  if (typeof msg?.sender === 'string') return msg.sender === 'user';
+  if (typeof msg?.type === 'string') return msg.type === 'user';
+  return false;
+}
+
+function loadConversation(convId) {
+  S.convId = convId;
+  fetch('/chat/conversations/' + convId + '/messages', {
+    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
+                'Accept': 'application/json' }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var msgs = document.getElementById('chatMsgs');
+    msgs.innerHTML = '';
+    var list = Array.isArray(data) ? data : (data.messages || []);
+    list.forEach(function(msg) {
+        var isUser = isOwnMessage(msg);
+        var content = msg.content || msg.text || msg.message || '';
+        if (isUser) appendU(content); else appendBot(content);
+    });
+    document.querySelectorAll('.ci').forEach(function(i) { i.classList.remove('active'); });
+    var item = document.querySelector('.ci[data-id="' + convId + '"]');
+    if (item) item.classList.add('active');
+  })
+  .catch(function(e) { console.warn('loadConversation error', e); });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   renderWelcome();
   initMiniCallPanel();
+  loadPastConversations();
+  loadPastConversations();
 });
 
 function initMiniCallPanel() {

@@ -242,7 +242,7 @@ class GmailSyncService:
 
         language = self._detect_language(query)
 
-        base_url = (settings.INTERNAL_API_BASE_URL or os.getenv("INTERNAL_API_BASE_URL") or "http://api:8000").rstrip("/")
+        base_url = (settings.INTERNAL_API_BASE_URL or os.getenv("INTERNAL_API_BASE_URL") or "http://api:8600").rstrip("/")
         url = f"{base_url}{settings.API_V1_PREFIX}/internal/rag/generate"
         headers = {"X-Service-Key": settings.INTERNAL_SERVICE_KEY}
         payload = {
@@ -309,7 +309,7 @@ class GmailSyncService:
 
     def _contextual_fallback_reply(self, query: str) -> str | None:
         """Build a best-effort email answer from RAG search hits when LLM is unavailable."""
-        base_url = (settings.INTERNAL_API_BASE_URL or os.getenv("INTERNAL_API_BASE_URL") or "http://api:8000").rstrip("/")
+        base_url = (settings.INTERNAL_API_BASE_URL or os.getenv("INTERNAL_API_BASE_URL") or "http://api:8600").rstrip("/")
         url = f"{base_url}{settings.API_V1_PREFIX}/internal/rag/search"
         headers = {"X-Service-Key": settings.INTERNAL_SERVICE_KEY}
         payload = {

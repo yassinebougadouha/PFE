@@ -38,7 +38,7 @@ class TicketUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[TicketStatus] = None
     priority: Optional[TicketPriority] = None
-    assigned_agent_id: Optional[uuid.UUID] = None
+    assigned_agent_id: Optional[int] = None
     escalation_flag: Optional[bool] = None
     resolution_note: Optional[str] = None
     source_voice_call_id: Optional[uuid.UUID] = None
@@ -58,12 +58,12 @@ class TicketResponse(BaseModel):
     channel_source: ChannelType
     escalation_flag: bool
     resolution_note: Optional[str] = None
-    creator_id: uuid.UUID
-    assigned_agent_id: Optional[uuid.UUID]
+    creator_id: int
+    assigned_agent_id: Optional[int]
     source_email_id: Optional[uuid.UUID]
     conversation_id: Optional[uuid.UUID]
     source_voice_call_id: Optional[uuid.UUID]
-    solved_by_id: Optional[uuid.UUID]
+    solved_by_id: Optional[int]
     resolved_at: Optional[datetime]
     # GLPI sync info
     glpi_ticket_id: Optional[int] = None

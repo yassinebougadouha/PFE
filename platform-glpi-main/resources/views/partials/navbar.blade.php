@@ -1,5 +1,5 @@
-<nav class="navbar navbar-main navbar-expand-lg px-0 mx-4 shadow-none border-radius-xl position-sticky blur top-1 z-index-3 mt-2"
-     style="backdrop-filter: saturate(200%) blur(30px); padding-top:14px !important; padding-bottom:14px !important; min-height:70px; border-radius: 20px !important; box-shadow: var(--card-shadow) !important; border: 1px solid var(--border-color) !important;">
+<nav class="navbar navbar-main navbar-expand-lg px-4 mx-4 mx-xl-5 shadow-none border-radius-xl z-index-3 mt-2"
+     style="position: sticky; top: 0; z-index: 1030; backdrop-filter: saturate(200%) blur(30px); -webkit-backdrop-filter: saturate(200%) blur(30px); padding-top:14px !important; padding-bottom:14px !important; min-height:70px; border-radius: 20px !important; box-shadow: var(--card-shadow) !important; border: 1px solid var(--border-color) !important;">
   <div class="container-fluid px-3">
 
     {{-- Breadcrumb --}}
@@ -32,7 +32,7 @@
         </div>
         <div id="searchResults"
              class="position-absolute shadow-lg border-radius-lg d-none"
-             style="top:45px; left:0; right:0; z-index:9999; border-radius:14px; overflow:visible;
+             style="top:calc(100% + 8px); left:0; right:0; z-index:1015; border-radius:14px; overflow: hidden;
                     box-shadow:0 8px 32px rgba(0,0,0,0.13); border:1px solid var(--border-color); background: var(--bg-card);">
           <div id="searchResultsInner"
                style="max-height:400px; overflow-y:scroll; overflow-x:hidden;
@@ -92,7 +92,7 @@
           </a>
 
           <div class="dropdown-menu dropdown-menu-end notif-dropdown-menu mt-2 p-0"
-               style="min-width:390px;max-width:420px;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.15);overflow:visible;border:none;z-index:10000;">
+               style="min-width:390px;max-width:420px;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.15);overflow:hidden;border:none;z-index:1055;">
 
             {{-- Header --}}
             <div class="d-flex align-items-center justify-content-between px-3 py-3"
@@ -193,12 +193,11 @@
         /* ── Notification dropdown ── */
         .notif-dropdown-menu {
           border-radius: 14px !important;
-          overflow: visible !important;   /* MUST be visible so child scroll works */
+          overflow: visible !important;
           display: flex !important;
           flex-direction: column !important;
-          clip-path: inset(0 round 14px);  /* keeps border-radius visual without overflow:hidden */
         }
-        /* Bootstrap override — prevent .dropdown-menu from cutting scroll */
+        /* Bootstrap override */
         .notif-dropdown-menu.show {
           overflow: visible !important;
         }
@@ -494,7 +493,7 @@
 
         {{-- User Profile --}}
         {{-- User Profile --}}
-        <li class="nav-item dropdown ps-2" style="z-index:10001;">
+        <li class="nav-item dropdown ps-2" style="position:relative; z-index:1050;">
           <a href="#" class="nav-link text-body p-0 d-flex align-items-center px-3 py-2" 
              style="border-radius:16px; background:#f8fafc; border: 1.5px solid #f1f5f9; transition: all 0.2s ease;"
              onmouseover="this.style.background='#fff'; this.style.borderColor='var(--color-primary)'; this.style.transform='translateY(-1px)'"
@@ -527,7 +526,7 @@
               <i class="material-symbols-rounded ms-2" style="font-size:18px; color:#94a3b8;">expand_more</i>
             </div>
           </a>
-          <ul class="dropdown-menu dropdown-menu-end px-2 py-3 mt-2" style="min-width:280px; border-radius:20px; border:none; box-shadow: 0 10px 40px rgba(0,0,0,0.12);">
+          <ul class="dropdown-menu dropdown-menu-end px-2 py-3 mt-2" style="min-width:280px; border-radius:20px; border:none; box-shadow: 0 10px 40px rgba(0,0,0,0.12); overflow: hidden; z-index: 1055;">
             <li class="mb-2 px-2">
               <div class="d-flex align-items-center p-2" style="background:#f8fafc; border-radius:14px;">
                 <div class="avatar avatar-md shadow-sm" style="background:{{ $roleData['bg'] }};overflow:hidden; border-radius:12px !important;">

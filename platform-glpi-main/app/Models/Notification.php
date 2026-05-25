@@ -11,10 +11,14 @@ class Notification extends Model
     protected $fillable = [
         'user_id', 'type', 'icon', 'color',
         'title', 'body', 'url', 'ticket_id', 'is_read',
+        // Champs db2
+        'read_at', 'resource_type', 'resource_id', 'action_url', 'meta',
     ];
 
     protected $casts = [
-        'is_read' => 'boolean',
+        'is_read'  => 'boolean',
+        'read_at'  => 'datetime',
+        'meta'     => 'array',
     ];
 
     public function user()
@@ -27,26 +31,27 @@ class Notification extends Model
         return $this->belongsTo(Ticket::class);
     }
 
-    // ── Envoyer une notification à un user ──────────────────────────────────
     public static function send(int $userId, array $data): self
     {
         return self::create([
-            'user_id'   => $userId,
-            'type'      => $data['type'],
-            'icon'      => $data['icon']  ?? 'notifications',
-            'color'     => $data['color'] ?? 'primary',
-            'title'     => $data['title'],
-            'body'      => $data['body']  ?? null,
-            'url'       => $data['url']   ?? null,
-            'ticket_id' => $data['ticket_id'] ?? null,
-            'is_read'   => false,
+            'user_id'       => $userId,
+            'type'          => $data['type'],
+            'icon'          => $data['icon']          ?? 'notifications',
+            'color'         => $data['color']         ?? 'primary',
+            'title'         => $data['title'],
+            'body'          => $data['body']           ?? null,
+            'url'           => $data['url']            ?? null,
+            'ticket_id'     => $data['ticket_id']      ?? null,
+            'is_read'       => false,
+            'resource_type' => $data['resource_type']  ?? null,
+            'resource_id'   => $data['resource_id']    ?? null,
+            'action_url'    => $data['action_url']     ?? null,
+            'meta'          => $data['meta']           ?? null,
         ]);
     }
 
-    // ── Envoyer à tous les admins actifs ─────────────────────────────────────
     public static function sendToAdmins(array $data): void
     {
-        // is_active peut être null (anciens comptes) → on inclut null ET true
         $admins = User::where('role', 'admin')
             ->where(function ($q) {
                 $q->where('is_active', true)->orWhereNull('is_active');
@@ -58,7 +63,6 @@ class Notification extends Model
         }
     }
 
-    // ── Envoyer au super admin ───────────────────────────────────────────────
     public static function sendToSuperAdmins(array $data): void
     {
         $superAdmins = User::where('role', 'super_admin')
@@ -72,7 +76,6 @@ class Notification extends Model
         }
     }
 
-    // ── Éviter les doublons (même ticket + même type + non lu) ───────────────
     public static function sendOnce(int $userId, string $type, int $ticketId, array $data): void
     {
         $exists = self::where('user_id', $userId)

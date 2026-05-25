@@ -18,7 +18,7 @@
 
   window.supportBackendUrl = function (path) {
     if (/^https?:\/\//i.test(path)) return path;
-    var base = String(window.SUPPORT_API_PUBLIC_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+    var base = String(window.SUPPORT_API_PUBLIC_BASE_URL || 'http://localhost:8600/api/v1').replace(/\/$/, '');
     return base + '/' + String(path || '').replace(/^\//, '');
   };
 

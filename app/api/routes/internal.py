@@ -261,3 +261,98 @@ async def internal_create_voice_escalation(
         status=escalated_ticket.status.value,
         escalation_flag=bool(escalated_ticket.escalation_flag),
     )
+
+
+# ═══════════════════════════════════════════════════════════
+#  Laravel User Sync
+# ═══════════════════════════════════════════════════════════
+
+from pydantic import BaseModel
+
+class LaravelUserSyncRequest(BaseModel):
+    laravel_user_id: int
+    email: str
+    role: str = "CLIENT"
+
+@router.post(
+    "/sync-laravel-user",
+    summary="Sync Laravel user ID to support_db",
+)
+async def sync_laravel_user(
+    payload: LaravelUserSyncRequest,
+    db: DB,
+    _key: ServiceKey,
+) -> dict:
+    # Map role string to UserRole enum safely
+    try:
+        python_role = UserRole(payload.role)
+    except ValueError:
+        python_role = UserRole.CLIENT
+
+    result = await db.execute(
+        select(User).where(
+            User.email == payload.email,
+            User.is_deleted == False,
+        )
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        user = User(
+            email=payload.email,
+            full_name=payload.email,
+            hashed_password="!laravel_auth",
+            role=python_role,
+            status=UserStatus.ACTIVE,
+            laravel_user_id=payload.laravel_user_id,
+        )
+        db.add(user)
+        await db.commit()
+        logger.info(f"Created user laravel_user_id={payload.laravel_user_id} → {payload.email} role={python_role}")
+        return {"status": "created", "email": payload.email}
+
+    user.laravel_user_id = payload.laravel_user_id
+    user.role = python_role
+    await db.commit()
+    logger.info(f"Synced laravel_user_id={payload.laravel_user_id} → {payload.email} role={python_role}")
+    return {"status": "synced", "email": payload.email}
+
+# ═══════════════════════════════════════════════════════════
+#  Laravel Token — generate JWT for a synced Laravel user
+# ═══════════════════════════════════════════════════════════
+
+from app.core.security import create_access_token
+
+class LaravelTokenRequest(BaseModel):
+    laravel_user_id: int
+
+@router.post(
+    "/laravel-token",
+    summary="Get JWT token for a Laravel user by laravel_user_id",
+)
+async def get_laravel_token(
+    payload: LaravelTokenRequest,
+    db: DB,
+    _key: ServiceKey,
+) -> dict:
+    result = await db.execute(
+        select(User).where(
+            User.laravel_user_id == payload.laravel_user_id,
+            User.is_deleted == False,
+        )
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No user found with laravel_user_id={payload.laravel_user_id}. Call /sync-laravel-user first.",
+        )
+
+    access_token = create_access_token(
+        subject=str(user.id),
+        extra_claims={"role": user.role.value},
+    )
+
+    logger.info(f"Laravel token issued for laravel_user_id={payload.laravel_user_id} → {user.email}")
+    return {"access_token": access_token, "token_type": "bearer"}

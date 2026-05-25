@@ -20,7 +20,8 @@
     padding: 9px 10px !important;
     transition: background 0.15s !important;
     text-decoration: none !important;
-    white-space: nowrap !important;
+    white-space: normal !important;
+    overflow: hidden !important;
   }
   /* Themeable colors (light/dark) */
   #sidenav-main {
@@ -180,14 +181,7 @@
           </a>
         </li>
 
-        <li class="nav-item">
-          <a class="nav-link {{ request()->routeIs('voice-agents.runtime') || request()->routeIs('super-admin.voice-agents') ? 'active text-white' : 'text-dark' }}"
-             href="{{ route('voice-agents.runtime') }}"
-             style="{{ request()->routeIs('voice-agents.runtime') || request()->routeIs('super-admin.voice-agents') ? 'background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));' : '' }}">
-            <i class="material-symbols-rounded" style="font-size:23px;font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24;flex-shrink:0;">settings_voice</i>
-            <span class="nav-link-text ms-2" style="font-size:0.925rem;">Voice Agents Runtime</span>
-          </a>
-        </li>
+
 
         <li class="nav-item"><div class="nav-section">IA & Décisions</div></li>
 
@@ -326,6 +320,15 @@
           </a>
         </li>
 
+        <li class="nav-item">
+          <a class="nav-link {{ request()->routeIs('admin.decision-engine') ? 'active text-white' : 'text-dark' }}"
+             href="{{ route('admin.decision-engine') }}"
+             style="{{ request()->routeIs('admin.decision-engine') ? 'background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));' : '' }}">
+            <i class="material-symbols-rounded" style="font-size:23px;font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24;flex-shrink:0;">smart_toy</i>
+            <span class="nav-link-text ms-2" style="font-size:0.925rem;">Decision Engine</span>
+          </a>
+        </li>
+
       @else
         <li class="nav-item">
           <a class="nav-link {{ request()->routeIs('client.dashboard') ? 'active text-white' : 'text-dark' }}"
@@ -335,6 +338,7 @@
             <span class="nav-link-text ms-2" style="font-size:0.925rem;">Dashboard</span>
           </a>
         </li>
+        <li class="nav-item"><div class="nav-section">Tickets</div></li>
         <li class="nav-item">
           <a class="nav-link {{ request()->routeIs('tickets.index') ? 'active text-white' : 'text-dark' }}"
              href="{{ route('tickets.index') }}"
@@ -347,6 +351,7 @@
 
       @if(auth()->user()->role === 'client')
         
+        <li class="nav-item"><div class="nav-section">Communication</div></li>
         <li class="nav-item">
           <a class="nav-link {{ request()->routeIs('chat') ? 'active text-white' : 'text-dark' }}"
              href="{{ route('chat') }}"
@@ -356,14 +361,7 @@
           </a>
         </li>
 
-        <li class="nav-item">
-          <a class="nav-link {{ request()->routeIs('troubleshooting-wizard') ? 'active text-white' : 'text-dark' }}"
-             href="{{ route('troubleshooting-wizard') }}"
-             style="{{ request()->routeIs('troubleshooting-wizard') ? 'background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));' : '' }}">
-            <i class="material-symbols-rounded" style="font-size:23px;font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24;flex-shrink:0;">troubleshoot</i>
-            <span class="nav-link-text ms-2" style="font-size:0.925rem;">Troubleshooting Wizard</span>
-          </a>
-        </li>
+        
       @endif
 
       @if(auth()->user()->role === 'client')

@@ -22,6 +22,24 @@ class ChatController extends Controller
         return $this->jsonProxy('DELETE', "/conversations/{$id}");
     }
 
+    public function updateConversation(Request $request, string $id)
+    {
+        $subject = trim((string) $request->input('subject', ''));
+        if ($subject === '') {
+            return response()->json(['message' => 'Subject is required'], 422);
+        }
+
+        $response = $this->apiClient($request->bearerToken())
+            ->withBody(json_encode(['subject' => $subject]), 'application/json')
+            ->patch($this->apiUrl("/conversations/{$id}"));
+
+        if (!$response->successful()) {
+            return response()->json($response->json() ?: ['message' => $response->body()], $response->status());
+        }
+
+        return response()->json($response->json(), $response->status());
+    }
+
     public function send(Request $request)
     {
         $message = trim((string) $request->input('message', ''));
@@ -57,17 +75,17 @@ class ChatController extends Controller
     }
 
     private function apiClient(?string $requestToken = null)
-    {
-        $headers = ['Accept' => 'application/json'];
-        $token = $requestToken ?: config('services.support_api.bearer_token');
-        if ($token) {
-            $headers['Authorization'] = 'Bearer ' . $token;
-        }
-
-        return Http::timeout((int) config('services.support_api.timeout', 30))
-            ->withHeaders($headers);
+{
+    $headers = ['Accept' => 'application/json'];
+    $token = $requestToken 
+        ?: session('python_token') 
+        ?: config('services.support_api.bearer_token');
+    if ($token) {
+        $headers['Authorization'] = 'Bearer ' . $token;
     }
-
+    return Http::timeout((int) config('services.support_api.timeout', 30))
+        ->withHeaders($headers);
+}
     private function apiUrl(string $path): string
     {
         return rtrim((string) config('services.support_api.base_url'), '/')

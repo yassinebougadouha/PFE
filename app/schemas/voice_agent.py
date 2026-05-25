@@ -27,7 +27,7 @@ class VoiceAgentConfig(BaseModel):
     gemini_model: str = "gemini-2.5-flash-lite"
     openai_model: str = "gpt-4o-mini"
 
-    backend_api_url: str = "http://localhost:8000"
+    backend_api_url: str = "http://localhost:8600"
     internal_service_key: str = "change-me-internal-key"
 
     voice_recordings_dir: str = "recordings"

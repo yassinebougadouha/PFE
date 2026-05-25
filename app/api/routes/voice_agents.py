@@ -49,7 +49,7 @@ import httpx
 
 class VoiceAgentProcessManagerProxy:
     def __init__(self) -> None:
-        self.control_url = os.getenv("VOICE_AGENTS_CONTROL_URL", "http://voice_agents:8001")
+        self.control_url = os.getenv("VOICE_AGENTS_CONTROL_URL", "http://voice_agents:8601")
         self.project_root = Path(__file__).resolve().parents[3]
         self.runtime_dir = self.project_root / "uploads"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -69,7 +69,7 @@ class VoiceAgentProcessManagerProxy:
             gemini_api_key=settings.current_gemini_key,
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            backend_api_url=os.getenv("BACKEND_API_URL", "http://localhost:8000"),
+            backend_api_url=os.getenv("BACKEND_API_URL", "http://localhost:8600"),
             internal_service_key=settings.INTERNAL_SERVICE_KEY,
             voice_recordings_dir=os.getenv("VOICE_RECORDINGS_DIR", "recordings"),
             database_url=settings.DATABASE_URL,

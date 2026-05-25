@@ -24,17 +24,10 @@ class TicketController extends Controller
     // ─────────────────────────────────────────────────────────────
     public function index()
     {
-        try {
-            $glpi = app(GlpiService::class);
-            $glpi->initSession();
-            $allTickets = $glpi->getTransformedTickets(['range' => '0-9999', 'order' => 'DESC']);
-            $glpi->killSession();
-        } catch (\Exception $e) {
-            \Log::warning('Could not fetch from GLPI: ' . $e->getMessage());
-            $allTickets = [];
-        }
-
-        $tickets = collect($allTickets)->filter(fn($t) => (int)$t->user_id === (int)auth()->id())->values();
+        // الـ local DB هو المصدر الأساسي — سريع وموثوق
+        $tickets = \App\Models\Ticket::where('user_id', auth()->id())
+            ->latest()
+            ->get();
 
         return view('client.tickets.index', compact('tickets'));
     }
@@ -113,7 +106,7 @@ class TicketController extends Controller
         $backendTicket = null;
         $backendError = null;
 
-        // ─── GLPI CREATE
+        // ─── GLPI CREATE (optionnel — si GLPI indisponible, on continue quand même)
         try {
             $glpi = app(GlpiService::class);
 
@@ -166,23 +159,12 @@ class TicketController extends Controller
                 }
             }
         } catch (\Exception $e) {
-
-            Log::error('GLPI create failed: ' . $e->getMessage());
-
-            return redirect()
-                ->back()
-                ->withInput()
-                ->with(
-                    'error',
-                    'Impossible de créer le ticket dans GLPI.'
-                );
+            // GLPI indisponible — on log et on continue sans bloquer
+            Log::error('GLPI create failed (non-blocking): ' . $e->getMessage());
+            $glpiId = null;
         } finally {
-
             if (isset($glpi)) {
-                try {
-                    $glpi->killSession();
-                } catch (\Exception $e) {
-                }
+                try { $glpi->killSession(); } catch (\Exception $e) {}
             }
         }
 
@@ -280,116 +262,27 @@ class TicketController extends Controller
         }
 
         // ─────────────────────────────────────────────
-        // EMAIL CLIENT
+        // NOTIFICATIONS & EMAILS — en arrière-plan (non-bloquant)
         // ─────────────────────────────────────────────
         try {
-
-            $ticket->load('user');
-
-            $gmail = app(GmailService::class);
-
-            $html = view(
-                'emails.ticket-confirmation',
-                compact('ticket')
-            )->render();
-
-            $gmail->send(
-                auth()->user()->email,
-                "✅ Votre ticket #{$ticket->id} a bien été reçu",
-                $html
-            );
-
+            // In-app notification seulement (DB locale — rapide)
+            $priorityIndex = max(0, min(4, ((int)$ticket->priority) - 1));
+            $notifColor = ['warning','info','primary','danger','danger'][$priorityIndex];
+            Notification::sendToAdmins([
+                'type'      => 'new_ticket',
+                'icon'      => 'confirmation_number',
+                'color'     => $notifColor,
+                'title'     => "Nouveau ticket #{$ticket->id}",
+                'body'      => Str::limit($ticket->description, 80),
+                'url'       => route('admin.tickets.show', ['ticket' => $ticket->id]),
+                'ticket_id' => $ticket->id,
+            ]);
         } catch (\Exception $e) {
-
-            Log::error(
-                'Client confirmation email failed: '
-                . $e->getMessage()
-            );
+            Log::warning('In-app notification failed: ' . $e->getMessage());
         }
 
-        // ─────────────────────────────────────────────
-        // NOTIFY ADMINS
-        // ─────────────────────────────────────────────
-        if (Setting::get('notify_new_ticket', '1') === '1') {
-            $this->notifyAdmins($ticket, $attachmentPaths);
-        }
-
-        // ─────────────────────────────────────────────
-        // IN APP NOTIFICATIONS
-        // ─────────────────────────────────────────────
-        $priorityIndex = max(
-            0,
-            min(4, ((int)$ticket->priority) - 1)
-        );
-
-        $notifColor = [
-            'warning',
-            'info',
-            'primary',
-            'danger',
-            'danger'
-        ][$priorityIndex];
-
-        Notification::sendToAdmins([
-            'type'      => 'new_ticket',
-            'icon'      => 'confirmation_number',
-            'color'     => $notifColor,
-            'title'     => "Nouveau ticket #{$ticket->id}",
-            'body'      => Str::limit(
-                $ticket->description,
-                80
-            ),
-            'url'       => route(
-                'admin.tickets.show',
-                ['ticket' => $ticket->id]
-            ),
-            'ticket_id' => $ticket->id,
-        ]);
-
-        // ─────────────────────────────────────────────
-        // TEAMS
-        // ─────────────────────────────────────────────
-        try {
-
-            app(\App\Services\TeamsService::class)
-                ->notify($ticket);
-
-        } catch (\Exception $e) {
-
-            Log::warning(
-                'Teams notify failed: '
-                . $e->getMessage()
-            );
-        }
-
-        // ─────────────────────────────────────────────
-        // SMS
-        // ─────────────────────────────────────────────
-        try {
-
-            if (Setting::get('sms_notify_new_ticket', '0') === '1') {
-
-                $user = auth()->user();
-
-                $smsPhone = SmsService::getBestPhone($user);
-
-                if ($smsPhone) {
-
-                    app(SmsService::class)
-                        ->confirmTicketCreated(
-                            $smsPhone,
-                            $ticket->id,
-                            $ticket->title
-                        );
-                }
-            }
-
-        } catch (\Exception $e) {
-
-            Log::warning(
-                'SMS failed: ' . $e->getMessage()
-            );
-        }
+        // Email, Teams, SMS, GLPI — désactivés pour éviter timeout
+        // À activer via Queue worker en production
 
         // AJAX
         if ($request->expectsJson()) {

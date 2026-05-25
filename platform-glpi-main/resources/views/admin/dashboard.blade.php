@@ -31,74 +31,20 @@
 
 <style>
 .dash-card {
-  border-radius: 24px;
-  padding: 24px;
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 140px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius:18px;padding:22px 24px;color:#fff;
+  display:flex;align-items:center;justify-content:space-between;
+  min-height:110px;position:relative;overflow:hidden;
+  box-shadow:0 8px 28px rgba(0,0,0,.13);
+  transition:transform .18s,box-shadow .18s;
 }
-.dash-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.2);
-}
-.dash-card::before {
-  content: '';
-  position: absolute;
-  top: -20px;
-  right: -20px;
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(5px);
-}
-.dash-card-num {
-  font-size: 42px;
-  font-weight: 800;
-  line-height: 1;
-  margin-bottom: 8px;
-  letter-spacing: -0.03em;
-}
-.dash-card-label {
-  font-size: 14px;
-  opacity: 0.9;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.dash-card-icon {
-  font-size: 56px;
-  opacity: 0.2;
-  position: absolute;
-  right: 20px;
-  bottom: 20px;
-  z-index: 0;
-}
-.dash-card-link {
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 6px 12px;
-  border-radius: 10px;
-  backdrop-filter: blur(10px);
-  font-weight: 700;
-  text-decoration: none;
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 16px;
-  width: fit-content;
-  transition: all 0.2s ease;
-}
-.dash-card-link:hover {
-  background: rgba(255, 255, 255, 0.3);
-  color: #fff;
-}
+.dash-card:hover{transform:translateY(-3px);box-shadow:0 14px 36px rgba(0,0,0,.18);}
+.dash-card::before{content:'';position:absolute;top:-30px;right:-30px;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.08);}
+.dash-card::after{content:'';position:absolute;bottom:-20px;right:30px;width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.05);}
+.dash-card-num{font-size:36px;font-weight:800;line-height:1;margin-bottom:4px;}
+.dash-card-label{font-size:12px;opacity:.85;font-weight:500;}
+.dash-card-icon{font-size:48px;opacity:.3;position:absolute;right:18px;top:50%;transform:translateY(-50%);z-index:0;}
+.dash-card-link{font-size:11px;opacity:.85;font-weight:600;text-decoration:none;color:#fff;display:inline-flex;align-items:center;gap:4px;margin-top:8px;}
+.dash-card-link:hover{opacity:1;color:#fff;}
 .dash-card-sub{font-size:11px;opacity:.7;margin-top:3px;display:flex;align-items:center;gap:5px;}
 .dash-card-content{position:relative;z-index:1;}
 </style>
@@ -181,62 +127,6 @@
 {{-- Charts + Quick Stats + Urgent --}}
 <div class="row mb-4">
 
-  {{-- Urgent Tickets Card --}}
-  <div class="col-lg-4 mb-4">
-    <a href="{{ route('admin.urgent-tickets') }}" style="text-decoration:none;color:inherit;">
-      <div class="card h-100">
-        <div class="card-header pb-0 pt-3 px-4 d-flex justify-content-between align-items-center">
-          <div>
-            <h6 class="mb-0 font-weight-bold">
-              <i class="material-symbols-rounded" style="font-size:18px;vertical-align:middle;color:#ef4444;">priority_high</i>
-              Tickets urgents
-            </h6>
-            <p class="text-sm text-muted mb-0">Alerte SLA</p>
-          </div>
-          <span class="badge badge-sm" style="background:#ef4444;color:white;">
-            {{ $urgentTickets->count() ?? 0 }}
-          </span>
-        </div>
-        <div class="card-body p-3" style="max-height:300px;overflow-y:auto;">
-          @forelse($urgentTickets->take(4) as $ut)
-            <div class="d-flex align-items-center justify-content-between mb-2 p-2"
-                 style="border-radius:10px;background:rgba(239,68,68,.06);border-left:3px solid {{ $ut->sla_breached ? '#ef4444' : ($ut->sla_risk ? '#f59e0b' : '#22c55e') }};">
-              <div class="d-flex flex-column" style="min-width:0;">
-                <span style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  #{{ $ut->id }} — {{ $ut->title }}
-                </span>
-                <span style="font-size:10px;color:#64748b;">
-                  @if($ut->sla_breached)
-                    <span style="color:#ef4444;font-weight:700;">SLA dépassé!</span> +{{ abs($ut->sla_hours_left) }}h
-                  @elseif($ut->sla_risk)
-                    <span style="color:#f59e0b;font-weight:700;">SLA!</span> {{ $ut->sla_hours_left }}h restantes
-                  @else
-                    {{ $ut->sla_hours_left }}h restantes
-                  @endif
-                  · {{ $ut->sla_hours_open }}h ouvert
-                </span>
-              </div>
-              <span class="badge badge-sm ms-2" style="flex-shrink:0;background:
-                {{ $ut->priority >= 5 ? '#dc2626' : ($ut->priority >= 4 ? '#ef4444' : '#f59e0b') }};color:white;">
-                P{{ $ut->priority }}
-              </span>
-            </div>
-          @empty
-            <div class="text-center py-4">
-              <span style="font-size:32px;">🎉</span>
-              <p class="text-sm text-muted mt-2 mb-0">Aucun ticket urgent</p>
-            </div>
-          @endforelse
-        </div>
-        <div class="card-footer text-center p-2 border-0" style="background:transparent;">
-          <span class="text-sm" style="color:var(--color-primary);font-weight:600;">
-            Voir tous les tickets urgents →
-          </span>
-        </div>
-      </div>
-    </a>
-  </div>
-
   {{-- Ticket Status Chart --}}
   <div class="col-lg-4 mb-4">
     <div class="card h-100">
@@ -255,26 +145,26 @@
         <div class="chart">
           <canvas id="statusChart" height="200"></canvas>
         </div>
-        <div class="row mt-3 g-2">
+        <div class="row mt-3">
           <div class="col-4 text-center">
             <a href="{{ route('admin.tickets') }}?status=pending"
                class="badge text-white w-100 text-decoration-none d-block"
-               style="background:#ef4444;padding:6px 4px;border-radius:12px;font-size:11px;">
-              ⏳ En attente
+               style="background:#ef4444;padding:6px 4px;border-radius:8px;font-size:11px;">
+              {{ $openTickets }} EN ATTENTE
             </a>
           </div>
           <div class="col-4 text-center">
             <a href="{{ route('admin.tickets') }}?status=in_progress"
                class="badge text-white w-100 text-decoration-none d-block"
-               style="background:#f59e0b;padding:6px 4px;border-radius:12px;font-size:11px;">
-              🔄 En cours
+               style="background:#f59e0b;padding:6px 4px;border-radius:8px;font-size:11px;">
+              {{ $inProgressTickets }} EN COURS
             </a>
           </div>
           <div class="col-4 text-center">
             <a href="{{ route('admin.tickets') }}?status=resolved"
                class="badge text-white w-100 text-decoration-none d-block"
-               style="background:#22c55e;padding:6px 4px;border-radius:12px;font-size:11px;">
-              ✅ Résolu
+               style="background:#22c55e;padding:6px 4px;border-radius:8px;font-size:11px;">
+              {{ $closedTickets }} RÉSOLUS
             </a>
           </div>
         </div>
@@ -282,23 +172,124 @@
     </div>
   </div>
 
-</div>
-
-{{-- Monthly Chart --}}
-<div class="row mb-4">
-  <div class="col-12">
-    <div class="card">
+  {{-- Tickets Urgents --}}
+  <div class="col-lg-4 mb-4">
+    <div class="card h-100">
       <div class="card-header pb-0 pt-3 px-4">
-        <h6 class="mb-0 font-weight-bold">Tickets par mois</h6>
-        <p class="text-xs text-secondary mb-0">6 derniers mois</p>
-      </div>
-      <div class="card-body p-3">
-        <div style="position:relative;height:220px;">
-          <canvas id="monthlyChart" height="200"></canvas>
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="d-flex align-items-center gap-2">
+            <i class="material-symbols-rounded" style="color:#e53e3e;font-size:20px;">priority_high</i>
+            <h6 class="mb-0 font-weight-bold">Tickets urgents</h6>
+            @if($urgentTickets->count() > 0)
+              <span class="badge text-white" style="background:#e53e3e;font-size:10px;">{{ $urgentTickets->count() }}</span>
+            @endif
+          </div>
+          <a href="{{ route('admin.urgent-tickets') }}"
+             class="btn btn-sm mb-0 text-white"
+             style="background:linear-gradient(135deg,#e53e3e,#c53030);font-size:11px;padding:4px 10px;">
+            Voir tous →
+          </a>
         </div>
+      </div>
+      <div class="card-body px-3 pb-3" style="max-height:340px;overflow-y:auto;">
+        @forelse($urgentTickets as $ut)
+        @php
+          $pLabels = [5=>'CRITIQUE', 4=>'HAUTE', 3=>'MOYENNE', 2=>'BASSE', 1=>'TRÈS BASSE'];
+          $pColors = [5=>'#e53e3e', 4=>'#f59e0b', 3=>'#ecc94b', 2=>'#4299e1', 1=>'#a0aec0'];
+          $pc = $pColors[$ut->priority] ?? '#e53e3e';
+          $pl = $pLabels[$ut->priority] ?? 'HAUTE';
+          $slaBreach = $ut->sla_breached ?? false;
+          $slaRisk   = $ut->sla_risk ?? false;
+          $hoursLeft = $ut->sla_hours_left ?? null;
+        @endphp
+        <div class="d-flex align-items-center gap-2 py-2 border-bottom">
+          <div style="width:6px;height:6px;border-radius:50%;background:{{ $pc }};flex-shrink:0;"></div>
+          <div class="flex-grow-1" style="overflow:hidden;">
+            <p class="text-xs font-weight-bold mb-0" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              #{{ $ut->id }} — {{ $ut->title }}
+            </p>
+            <div class="d-flex align-items-center gap-1 mt-1">
+              <span class="badge" style="background:{{ $pc }};color:#fff;font-size:9px;padding:2px 5px;">{{ $pl }}</span>
+              <span class="text-xs text-secondary">{{ $ut->user->name ?? 'N/A' }}</span>
+            </div>
+          </div>
+          <div class="d-flex align-items-center gap-1 flex-shrink-0">
+            @if($slaBreach)
+              <span class="badge" style="background:#fef2f2;color:#dc2626;font-size:9px;padding:2px 6px;border:1px solid #fecaca;font-weight:700;">SLA!</span>
+              <span style="font-size:10px;font-weight:600;color:#dc2626;white-space:nowrap;">+{{ abs($hoursLeft) }}h</span>
+            @elseif($slaRisk)
+              <span class="badge" style="background:#fff7ed;color:#c2410c;font-size:9px;padding:2px 6px;border:1px solid #fed7aa;">Risque</span>
+              <span style="font-size:10px;font-weight:600;color:#ed8936;white-space:nowrap;">{{ $hoursLeft }}h rest.</span>
+            @endif
+            <a href="{{ route('admin.tickets.show', $ut->id) }}"
+               class="btn btn-sm mb-0 px-2 py-1"
+               style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));color:#fff;font-size:10px;min-width:24px;text-align:center;">→</a>
+          </div>
+        </div>
+        @empty
+        <div class="text-center py-4">
+          <i class="material-symbols-rounded text-success" style="font-size:36px;">check_circle</i>
+          <p class="text-xs text-secondary mt-2 mb-0">Aucun ticket urgent</p>
+        </div>
+        @endforelse
       </div>
     </div>
   </div>
+
+  {{-- Top Clients --}}
+  <div class="col-lg-4 mb-4">
+    <div class="card h-100">
+      <div class="card-header pb-0 pt-3 px-4">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <h6 class="mb-0 font-weight-bold">Top clients</h6>
+            <p class="text-sm text-muted mb-0">Les plus actifs par nombre de tickets</p>
+          </div>
+          <a href="{{ route('admin.clients') }}" class="btn btn-sm btn-outline-primary px-3" style="font-size:11px;">Voir tous →</a>
+        </div>
+      </div>
+      <div class="card-body px-4 pb-3 pt-3">
+        @php
+          $topClients = $recentClients->sortByDesc('tickets_count')->take(5);
+          $maxTickets = $topClients->max('tickets_count') ?: 1;
+        @endphp
+        @forelse($topClients as $client)
+          @php
+            $pct  = round(($client->tickets_count / $maxTickets) * 100);
+            $type = $client->client_type ?? 'user';
+            $color = $type === 'client' ? '#6d28d9' : '#adb5bd';
+            $initials = strtoupper(substr($client->name, 0, 1));
+          @endphp
+          <div class="d-flex align-items-center mb-3">
+            <div class="me-3 d-flex align-items-center justify-content-center rounded-circle text-white fw-bold"
+                 style="width:36px;height:36px;min-width:36px;background:{{ $color }};font-size:14px;">
+              {{ $initials }}
+            </div>
+            <div class="flex-grow-1" style="min-width:0;">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <a href="{{ route('admin.clients.show', $client->id) }}"
+                   class="text-dark text-decoration-none font-weight-bold text-sm text-truncate"
+                   style="max-width:140px;" title="{{ $client->name }}">
+                  {{ $client->name }}
+                </a>
+                <span class="text-xs text-muted ms-2 flex-shrink-0">
+                  {{ $client->tickets_count }} ticket{{ $client->tickets_count > 1 ? 's' : '' }}
+                </span>
+              </div>
+              <div class="progress" style="height:5px;border-radius:3px;">
+                <div class="progress-bar" role="progressbar"
+                     style="width:{{ $pct }}%;background:{{ $color }};">
+                </div>
+              </div>
+            </div>
+          </div>
+        @empty
+          <p class="text-muted text-sm text-center py-3">Aucun client pour l'instant.</p>
+        @endforelse
+      </div>
+    </div>
+  </div>
+
 </div>
 
 {{-- Recent Tickets Table --}}
@@ -325,7 +316,7 @@
 .dash-st-resolved{background:#d1fae5;color:#065f46;}
 .dash-st-closed{background:#f1f5f9;color:#475569;}
 .dash-tk-replied{background:#d1fae5;color:#065f46;font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;display:inline-block;margin-top:3px;}
-.dash-btn-reply{display:inline-flex;align-items:center;gap:5px;padding:6px 16px;border-radius:12px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));color:#fff;text-decoration:none;transition:opacity .15s;white-space:nowrap;}
+.dash-btn-reply{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:9px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));color:#fff;text-decoration:none;transition:opacity .15s;white-space:nowrap;}
 .dash-btn-reply:hover{opacity:.85;color:#fff;}
 </style>
 
@@ -445,12 +436,13 @@
 <script>
   var ctx = document.getElementById("statusChart");
   if (ctx) {
-    var _chartDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
-    var _tickClr   = _chartDark ? '#64748b' : '#aaa';
-    var _gridClr   = _chartDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
-
+    var statusUrls = [
+      '{{ route("admin.tickets") }}?status=pending',
+      '{{ route("admin.tickets") }}?status=in_progress',
+      '{{ route("admin.tickets") }}?status=resolved',
+    ];
     new Chart(ctx, {
-      type: 'doughnut',
+      type: "doughnut",
       data: {
         labels: ["En attente", "En cours", "Résolus"],
         datasets: [{
@@ -460,53 +452,10 @@
         }]
       },
       options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: function(item) { return ' ' + item.label + ' : ' + item.raw + ' ticket(s)'; }
-            }
-          }
-        },
-        cutout: '60%'
-      }
-    });
-  }
-
-  var ctxM = document.getElementById('monthlyChart');
-  if (ctxM && typeof Chart !== 'undefined') {
-    var _chartDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
-    var _tickClr   = _chartDark ? '#64748b' : '#aaa';
-    var _gridClr   = _chartDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
-    new Chart(ctxM, {
-      type: 'bar',
-      data: {
-        labels: {!! json_encode(array_column($ticketsByMonth, 'month')) !!},
-        datasets: [{
-          label: 'Tickets',
-          data: {!! json_encode(array_column($ticketsByMonth, 'count')) !!},
-          backgroundColor: 'rgba(102,126,234,0.5)',
-          borderColor: '#667eea',
-          borderWidth: 2,
-          borderRadius: 4,
-          barPercentage: 0.6
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { color: _tickClr, stepSize: 1 },
-            grid: { color: _gridClr }
-          },
-          x: {
-            ticks: { color: _tickClr },
-            grid: { display: false }
-          }
-        }
+        responsive: true, maintainAspectRatio: false, cutout: "75%",
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return ' ' + ctx.label + ': ' + ctx.raw + ' tickets'; } } } },
+        onClick: function(e, elements) { if (elements.length > 0) window.location.href = statusUrls[elements[0].index]; },
+        onHover: function(e, elements) { e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default'; }
       }
     });
   }

@@ -18,101 +18,88 @@ class AdminController extends Controller
     }
 
     public function dashboard()
- {
-     $adminId     = auth()->id();
-     $adminGlpiId = auth()->user()->glpi_user_id;
+    {
+        // ── Stats depuis DB locale ────────────────────────────────────────
+        $totalTickets      = Ticket::count();
+        $openTickets       = Ticket::where('sync_status', 'pending')->count();
+        $inProgressTickets = Ticket::where('sync_status', 'in_progress')->count();
+        $closedTickets     = Ticket::whereIn('sync_status', ['resolved', 'closed'])->count();
 
-     // Fetch all GLPI tickets, filter to this admin's assigned tickets
-     $allTickets = [];
-     if ($adminGlpiId) {
-         try {
-             $glpi = app(GlpiService::class);
-             $glpi->initSession();
-             $allTickets = $glpi->getTransformedTickets(['range' => '0-9999', 'order' => 'DESC']);
-             $glpi->killSession();
-         } catch (\Exception $e) {
-             \Log::error('GLPI dashboard fetch failed: ' . $e->getMessage());
-         }
-     }
-     $myTickets = collect($allTickets)->filter(fn($t) => (int)$t->assigned_to === (int)$adminGlpiId);
+        $ticketsAujourdhui = Ticket::whereDate('created_at', today())->count();
+        $ticketsNonResolus = Ticket::whereNotIn('sync_status', ['resolved', 'closed'])->count();
 
-     // Stats from assigned tickets
-     $totalTickets      = $myTickets->count();
-     $openTickets       = $myTickets->filter(fn($t) => $t->sync_status === 'pending')->count();
-     $inProgressTickets = $myTickets->filter(fn($t) => $t->sync_status === 'in_progress')->count();
-     $closedTickets     = $myTickets->filter(fn($t) => in_array($t->sync_status, ['resolved', 'closed']))->count();
+        $reclamationsExternes = User::where('role', 'client')
+            ->where(fn($q) => $q->where('client_type', 'user')->orWhereNull('client_type'))
+            ->count();
+        $clientsActifs = User::where('role', 'client')->where('is_active', true)
+                              ->where('client_type', 'client')->count();
+        $countClient = User::where('role', 'client')->where('client_type', 'client')->count();
+        $countNew    = User::where('role', 'client')->where(fn($q) => $q->where('client_type', 'user')->orWhereNull('client_type'))->count();
+        $totalAdmins  = User::where('role', 'admin')->count();
+        $totalClients = User::where('role', 'client')->count();
+        $myResolvedTickets = $closedTickets;
 
-     $tz = config('app.timezone', 'Africa/Tunis');
-     $startOfDay = now()->timezone($tz)->startOfDay()->utc();
-     $endOfDay   = now()->timezone($tz)->endOfDay()->utc();
-     $ticketsAujourdhui = $myTickets->filter(fn($t) =>
-         \Carbon\Carbon::parse($t->created_at)->between($startOfDay, $endOfDay)
-     )->count();
-     $ticketsNonResolus = $myTickets->filter(fn($t) => !in_array($t->sync_status, ['resolved', 'closed']))->count();
+        // ── Derniers tickets (DB locale) ──────────────────────────────────
+        $recentTickets = Ticket::with('user')->latest()->take(10)->get();
 
-     $reclamationsExternes = User::where('role', 'client')
-         ->where(fn($q) => $q->where('client_type','user')->orWhereNull('client_type'))
-         ->count();
-     $clientsActifs = User::where('role', 'client')->where('is_active', true)
-                               ->where('client_type', 'client')->count();
-     $countClient = User::where('role','client')->where('client_type','client')->count();
-     $countNew    = User::where('role','client')->where(fn($q)=>$q->where('client_type','user')->orWhereNull('client_type'))->count();
-     $totalAdmins = User::where('role', 'admin')->count();
-     $totalClients = User::where('role', 'client')->count();
-     $myResolvedTickets = $closedTickets;
+        $recentAdmins  = User::where('role', 'admin')->latest()->take(5)->get();
+        $recentClients = User::where('role', 'client')
+                             ->withCount('tickets')
+                             ->latest()
+                             ->take(5)
+                             ->get();
 
-     // Recent tickets assigned to me
-     $recentTickets = $myTickets->sortByDesc('created_at')->take(10)->values();
+        // ── Tickets par mois (DB locale) ──────────────────────────────────
+        $ticketsByMonth = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $month = now()->timezone('Africa/Tunis')->subMonths($i);
+            $count = Ticket::whereYear('created_at', $month->year)
+                           ->whereMonth('created_at', $month->month)
+                           ->count();
+            $ticketsByMonth[] = [
+                'month' => $month->locale('fr')->isoFormat('MMM YYYY'),
+                'count' => $count,
+            ];
+        }
 
-     $recentAdmins  = User::where('role', 'admin')->latest()->take(5)->get();
-     $recentClients = User::where('role', 'client')
-                          ->withCount('tickets')
-                          ->latest()
-                          ->take(5)
-                          ->get();
+        // ── Tickets urgents (DB locale) ───────────────────────────────────
+        $slaMap = [
+            5 => (int) \App\Models\Setting::get('sla_très haute', '4'),
+            4 => (int) \App\Models\Setting::get('sla_haute',      '8'),
+            3 => (int) \App\Models\Setting::get('sla_moyenne',    '24'),
+            2 => (int) \App\Models\Setting::get('sla_basse',      '48'),
+            1 => (int) \App\Models\Setting::get('sla_basse',      '48'),
+        ];
 
-     $ticketsByMonth = [];
-     for ($i = 5; $i >= 0; $i--) {
-         $month = now()->timezone('Africa/Tunis')->subMonths($i);
-         $count = $myTickets->filter(fn($t) =>
-             \Carbon\Carbon::parse($t->created_at)->year === (int)$month->year
-             && \Carbon\Carbon::parse($t->created_at)->month === (int)$month->month
-         )->count();
-         $ticketsByMonth[] = [
-             'month' => $month->locale('fr')->isoFormat('MMM YYYY'),
-             'count' => $count,
-         ];
-     }
-
-     // Urgent tickets assigned to me
-     $urgentTickets = $myTickets
-         ->filter(fn($t) => in_array($t->sync_status, ['pending', 'in_progress']) && $t->priority >= 4)
-         ->sortBy('created_at')
-         ->take(20)
-         ->map(function ($t) {
-             $slaMap = [
-                 5 => (int) \App\Models\Setting::get('sla_très haute', '4'),
-                 4 => (int) \App\Models\Setting::get('sla_haute',      '8'),
-                 3 => (int) \App\Models\Setting::get('sla_moyenne',    '24'),
-                 2 => (int) \App\Models\Setting::get('sla_basse',      '48'),
-                 1 => (int) \App\Models\Setting::get('sla_basse',      '48'),
-             ];
-             $slaLimit  = $slaMap[(int)$t->priority] ?? 8;
-             $hoursOpen = (int) round(\Carbon\Carbon::parse($t->created_at)->floatDiffInHours(now()));
-             $slaUsed   = $slaLimit > 0 ? round(($hoursOpen / $slaLimit) * 100, 1) : 100;
-             $hoursLeft = $slaLimit - $hoursOpen;
-             $t->sla_limit      = $slaLimit;
-             $t->sla_used_pct   = min($slaUsed, 100);
-             $t->sla_hours_open = $hoursOpen;
-             $t->sla_hours_left = $hoursLeft;
-             $t->sla_breached   = $hoursLeft < 0;
-             $t->sla_risk       = !($t->sla_breached) && $slaUsed >= 80;
-             $t->sla_ratio      = $slaLimit > 0 ? $hoursOpen / $slaLimit : 999;
-             return $t;
-         })
-         ->sortByDesc('sla_ratio')
-         ->take(6)
-         ->values();
+        $urgentTickets = Ticket::with('user')
+            ->whereIn('sync_status', ['pending', 'in_progress'])
+            ->where(function ($q) {
+                $q->where('priority', '>=', 4)
+                  ->orWhere(function ($q2) {
+                      $q2->where('priority', '>=', 3)
+                         ->where('created_at', '<=', now()->subHours(20));
+                  });
+            })
+            ->orderBy('created_at')
+            ->take(20)
+            ->get()
+            ->map(function ($t) use ($slaMap) {
+                $slaLimit  = $slaMap[$t->priority] ?? 8;
+                $hoursOpen = (int) round($t->created_at->floatDiffInHours(now()));
+                $slaUsed   = $slaLimit > 0 ? round(($hoursOpen / $slaLimit) * 100, 1) : 100;
+                $hoursLeft = $slaLimit - $hoursOpen;
+                $t->sla_limit      = $slaLimit;
+                $t->sla_used_pct   = min($slaUsed, 100);
+                $t->sla_hours_open = $hoursOpen;
+                $t->sla_hours_left = $hoursLeft;
+                $t->sla_breached   = $hoursLeft < 0;
+                $t->sla_risk       = !($t->sla_breached) && $slaUsed >= 80;
+                $t->sla_ratio      = $slaLimit > 0 ? $hoursOpen / $slaLimit : 999;
+                return $t;
+            })
+            ->sortByDesc('sla_ratio')
+            ->take(6)
+            ->values();
 
      $adminPerformance = User::where('role', 'admin')
          ->where('is_active', true)
@@ -188,82 +175,64 @@ class AdminController extends Controller
 
     public function tickets()
     {
-        $glpi = app(GlpiService::class);
-        try {
-            $glpi->initSession();
-            $allTickets = $glpi->getTransformedTickets(['range' => '0-9999', 'order' => 'DESC']);
-            $glpi->killSession();
-        } catch (\Exception $e) {
-            \Log::error('GLPI tickets fetch failed: ' . $e->getMessage());
-            $allTickets = [];
-        }
+        $query = \App\Models\Ticket::with('user')->latest();
 
-        // Filter to only tickets assigned to the current admin (by GLPI user ID)
-        $adminUser   = auth()->user();
-        $adminGlpiId = $adminUser ? (int)$adminUser->glpi_user_id : 0;
-        $collection  = collect($allTickets)->filter(fn($t) => (int)$t->assigned_to === $adminGlpiId);
-
-        if (!$adminGlpiId) {
-            \Log::warning("Admin user {$adminUser->id} has no glpi_user_id — showing 0 tickets");
-            $collection = collect([]);
-        }
-
-        // Apply additional filters
-
+        // ── Filters ──────────────────────────────────────────────────
         if ($status = request('status')) {
-            $collection = $collection->where('sync_status', $status);
-        }
-
-        if ($priority = request('priority')) {
-            $collection = $collection->where('priority', '>=', (int) $priority);
-        }
-
-        if ($clientId = request('client_id')) {
-            $collection = $collection->where('user_id', (int) $clientId);
+            if ($status === 'resolved') {
+                $query->whereIn('sync_status', ['resolved', 'closed']);
+            } else {
+                $query->where('sync_status', $status);
+            }
         }
 
         if ($search = request('search')) {
-            $q = strtolower($search);
-            $collection = $collection->filter(fn($t) =>
-                str_contains(strtolower($t->title), $q)
-                || str_contains(strtolower($t->description), $q)
-                || str_contains(strtolower($t->user->name ?? ''), $q)
-                || str_contains(strtolower($t->user->email ?? ''), $q)
-            );
+            $q = $search;
+            $query->where(function ($sq) use ($q) {
+                $sq->where('title', 'ilike', "%{$q}%")
+                   ->orWhere('description', 'ilike', "%{$q}%")
+                   ->orWhereHas('user', fn($u) => $u->where('name', 'ilike', "%{$q}%")
+                       ->orWhere('email', 'ilike', "%{$q}%"));
+            });
         }
 
-        $hasAnyFilter = request()->hasAny(['search','status','date_from','date_to','client_type','priority']);
+        $hasAnyFilter = request()->hasAny(['search', 'status', 'date_from', 'date_to', 'priority', 'client_type']);
         $showAll      = request('all') === '1';
 
         if ($dateFrom = request('date_from')) {
-            $from = \Carbon\Carbon::parse($dateFrom)->startOfDay();
-            $collection = $collection->filter(fn($t) => \Carbon\Carbon::parse($t->created_at)->gte($from));
+            $query->where('created_at', '>=', \Carbon\Carbon::parse($dateFrom)->startOfDay());
+        } elseif (!$showAll && !$hasAnyFilter) {
+            $query->where('created_at', '>=', now()->startOfDay());
         }
 
         if ($dateTo = request('date_to')) {
-            $to = \Carbon\Carbon::parse($dateTo)->endOfDay();
-            $collection = $collection->filter(fn($t) => \Carbon\Carbon::parse($t->created_at)->lte($to));
+            $query->where('created_at', '<=', \Carbon\Carbon::parse($dateTo)->endOfDay());
         }
 
-        // Counts (from the assigned-only collection before further filters)
-        $assignedOnly  = $collection;
-        $totalAll      = $assignedOnly->count();
-        $totalPending  = $assignedOnly->filter(fn($t) => $t->sync_status === 'pending')->count();
-        $totalProgress = $assignedOnly->filter(fn($t) => $t->sync_status === 'in_progress')->count();
-        $totalResolved = $assignedOnly->filter(fn($t) => in_array($t->sync_status, ['resolved', 'closed']))->count();
+        if ($p = request('priority')) {
+            $query->where('priority', (int) $p);
+        }
+
+        if ($ct = request('client_type')) {
+            $query->whereHas('user', fn($u) => $u->where('client_type', $ct));
+        }
+
+        // ── Counts ───────────────────────────────────────────────────
+        $totalAll      = \App\Models\Ticket::count();
+        $totalPending  = \App\Models\Ticket::where('sync_status', 'pending')->count();
+        $totalProgress = \App\Models\Ticket::where('sync_status', 'in_progress')->count();
+        $totalResolved = \App\Models\Ticket::whereIn('sync_status', ['resolved', 'closed'])->count();
         $totalNonClass = 0;
 
-        // Paginate
-        $page    = (int) request('page', 1);
-        $perPage = 20;
-        $slice   = $collection->slice(($page - 1) * $perPage, $perPage)->values();
-        $tickets = new \Illuminate\Pagination\LengthAwarePaginator(
-            $slice,
-            $collection->count(),
-            $perPage,
-            $page,
-            ['path' => request()->url(), 'query' => request()->query()]
-        );
+        // ── Paginate ─────────────────────────────────────────────────
+        $tickets = $query->paginate(20)->withQueryString();
+
+        $tickets->getCollection()->transform(function ($t) {
+            $t->status     = $t->sync_status;
+            $t->glpi_id    = $t->glpi_ticket_id;
+            $t->ai_analysis = null;
+            return $t;
+        });
 
         return view('admin.tickets', compact(
             'tickets', 'totalAll', 'totalPending', 'totalProgress', 'totalResolved', 'totalNonClass'
@@ -272,37 +241,23 @@ class AdminController extends Controller
 
     public function showTicket($id)
     {
-        $glpi = app(GlpiService::class);
-        try {
-            $glpi->initSession();
-            $glpiTicket = $glpi->getItem('Ticket', (int) $id);
-            $glpiFollowups = $glpi->getFollowups((int) $id);
-            $glpiMultiData = ['ticket' => $glpiTicket, 'user' => [], 'category' => []];
-            $glpi->killSession();
-        } catch (\Exception $e) {
-            \Log::error('GLPI fetch ticket failed: ' . $e->getMessage());
-            $glpiTicket = [];
-            $glpiFollowups = [];
-            $glpiMultiData = [];
-        }
+        // Charger le ticket depuis la DB locale (avec user + comments)
+        $ticket = Ticket::with(['user', 'comments.user'])->findOrFail($id);
 
-        // Build a compatible ticket object for the view
-        $status = GlpiService::mapGlpiStatusToLocal((int)($glpiTicket['status'] ?? 1));
-        $ticket = (object) [
-            'id'          => (int) $id,
-            'glpi_id'     => (int) $id,
-            'title'       => $glpiTicket['name'] ?? '',
-            'description' => $glpiTicket['content'] ?? '',
-            'sync_status' => $status,
-            'priority'    => (int)($glpiTicket['priority'] ?? 3),
-            'category'    => '',
-            'solution'    => $glpiTicket['solution'] ?? null,
-            'created_at'  => \Carbon\Carbon::parse($glpiTicket['date_creation'] ?? $glpiTicket['date'] ?? now()),
-            'updated_at'  => \Carbon\Carbon::parse($glpiTicket['date_mod'] ?? now()),
-            'user_id'     => $glpiTicket['users_id_recipient'] ?? null,
-            'assigned_to' => $glpiTicket['users_id_assign'] ?? null,
-            'user'        => (object) ['name' => 'Client', 'email' => ''],
-        ];
+        // Enrichir depuis GLPI si dispo (followups uniquement)
+        $glpiFollowups = [];
+        $glpiMultiData = [];
+        if ($ticket->glpi_ticket_id) {
+            try {
+                $glpi = app(GlpiService::class);
+                $glpi->initSession();
+                $glpiFollowups = $glpi->getFollowups((int) $ticket->glpi_ticket_id);
+                $glpiMultiData = ['ticket' => [], 'user' => [], 'category' => []];
+                $glpi->killSession();
+            } catch (\Exception $e) {
+                \Log::warning('GLPI followups fetch failed: ' . $e->getMessage());
+            }
+        }
 
         $admins = User::where('role', 'admin')->where('is_active', true)->get(['id', 'name']);
 
@@ -523,6 +478,19 @@ class AdminController extends Controller
             'UPDATE USER', 'Users',
             "Type client {$client->name}: {$oldType} → {$request->client_type}"
         );
+
+        // ── Sync GLPI : mettre à jour le profil selon le nouveau client_type ──
+        // client → Self-Service (client classifié de l'entreprise)
+        // user   → Observer    (nouveau non classifié)
+        if ($client->glpi_user_id) {
+            try {
+                $glpiProfile = $request->client_type === 'client' ? 'Client' : 'Observer';
+                app(GlpiService::class)->assignProfileToUser($client->glpi_user_id, $glpiProfile);
+                \Log::info("[AdminController] GLPI profile mis à jour pour {$client->email}: {$glpiProfile}");
+            } catch (\Exception $e) {
+                \Log::warning("[AdminController] GLPI profile sync failed: " . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'success' => true,

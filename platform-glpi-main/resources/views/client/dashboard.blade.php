@@ -81,7 +81,7 @@
       <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center">
 
         {{-- ✅ FIX : wrapper avec hauteur fixe --}}
-        <div style="position: relative; height: 220px; width: 220px;">
+        <div style="position: relative; height: 220px; width: 220px; max-width: 100%; margin: 0 auto;">
           <canvas id="clientChart"></canvas>
         </div>
 
@@ -112,11 +112,7 @@
             <h6 class="mb-0 font-weight-bold">Derniers tickets</h6>
             <p class="text-xs text-secondary mb-0">Vos demandes récentes</p>
           </div>
-          <a href="{{ route('tickets.create') }}"
-             class="btn btn-sm mb-0 text-white"
-             style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
-            + Nouveau
-          </a>
+          
         </div>
       </div>
       <div class="card-body px-0 pb-2">
@@ -192,15 +188,67 @@
 
 @push('page-scripts')
 <script>
-var ctx = document.getElementById('clientChart');
-if (ctx) {
+(function() {
+  var ctx = document.getElementById('clientChart');
+  if (!ctx) return;
+
+  var open    = {{ $openTickets }};
+  var inProg  = {{ $inProgressTickets }};
+  var closed  = {{ $closedTickets }};
+  var total   = open + inProg + closed;
+
+  // Si aucun ticket — afficher un cercle gris avec message
+  if (total === 0) {
+    var primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#667eea';
+    new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Aucun ticket'],
+        datasets: [{
+          data: [1],
+          backgroundColor: ['#e9ecef'],
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '72%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false }
+        }
+      },
+      plugins: [{
+        id: 'centerText',
+        afterDraw: function(chart) {
+          var width  = chart.width;
+          var height = chart.height;
+          var ctx2   = chart.ctx;
+          ctx2.save();
+          ctx2.font = 'bold 13px sans-serif';
+          ctx2.fillStyle = '#94a3b8';
+          ctx2.textAlign = 'center';
+          ctx2.textBaseline = 'middle';
+          ctx2.fillText('Aucun ticket', width / 2, height / 2 - 8);
+          ctx2.font = '11px sans-serif';
+          ctx2.fillText('pour le moment', width / 2, height / 2 + 10);
+          ctx2.restore();
+        }
+      }]
+    });
+    return;
+  }
+
+  // Sinon — chart normal
+  var primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#667eea';
   new Chart(ctx, {
     type: 'doughnut',
     data: {
       labels: ['En attente', 'En cours', 'Résolus'],
       datasets: [{
-        data: [{{ $openTickets }}, {{ $inProgressTickets }}, {{ $closedTickets }}],
-        backgroundColor: ['#ffc107', getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim(), '#28a745'],
+        data: [open, inProg, closed],
+        backgroundColor: ['#ffc107', primaryColor, '#28a745'],
         borderWidth: 3,
         borderColor: '#fff',
         hoverOffset: 5
@@ -211,8 +259,34 @@ if (ctx) {
       maintainAspectRatio: false,
       cutout: '72%',
       plugins: { legend: { display: false } }
-    }
+    },
+    plugins: [{
+      id: 'centerText',
+      afterDraw: function(chart) {
+        var width  = chart.width;
+        var height = chart.height;
+        var ctx2   = chart.ctx;
+        ctx2.save();
+        ctx2.font = 'bold 28px sans-serif';
+        ctx2.fillStyle = '#1e293b';
+        ctx2.textAlign = 'center';
+        ctx2.textBaseline = 'middle';
+        ctx2.fillText(total, width / 2, height / 2 - 8);
+        ctx2.font = '11px sans-serif';
+        ctx2.fillStyle = '#94a3b8';
+        ctx2.fillText('tickets', width / 2, height / 2 + 12);
+        ctx2.restore();
+      }
+    }]
   });
-}
+
+  // Fix chart display when sidebar opens/closes
+  window.addEventListener('resize', function() {
+    setTimeout(function() {
+      var chartInstance = Chart.getChart(ctx);
+      if (chartInstance) chartInstance.resize();
+    }, 300);
+  });
+})();
 </script>
 @endpush

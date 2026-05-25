@@ -12,11 +12,15 @@ class AuditLog extends Model
         'action', 'module', 'description',
         'ip_address', 'user_agent',
         'old_values', 'new_values', 'status',
+        // Champs db2
+        'resource_type', 'resource_id',
+        'meta', 'trace_id',
     ];
 
     protected $casts = [
         'old_values' => 'array',
         'new_values' => 'array',
+        'meta'       => 'array',
     ];
 
     public function user(): BelongsTo
@@ -24,33 +28,39 @@ class AuditLog extends Model
         return $this->belongsTo(User::class);
     }
 
-    // ✅ Method statique pour logguer facilement partout dans l'app
     public static function log(
         string $action,
         string $module,
         string $description,
         string $status = 'success',
         array $oldValues = [],
-        array $newValues = []
+        array $newValues = [],
+        ?string $resourceType = null,
+        ?string $resourceId = null,
+        ?array $meta = null,
+        ?string $traceId = null,
     ): void {
         $user = auth()->user();
 
         static::create([
-            'user_id'     => $user?->id,
-            'user_name'   => $user?->name ?? 'Système',
-            'user_role'   => $user?->role ?? 'system',
-            'action'      => strtoupper($action),
-            'module'      => $module,
-            'description' => $description,
-            'ip_address'  => request()->ip(),
-            'user_agent'  => substr(request()->userAgent() ?? '', 0, 200),
-            'old_values'  => $oldValues ?: null,
-            'new_values'  => $newValues ?: null,
-            'status'      => $status,
+            'user_id'       => $user?->id,
+            'user_name'     => $user?->name ?? 'Système',
+            'user_role'     => $user?->role ?? 'system',
+            'action'        => strtoupper($action),
+            'module'        => $module,
+            'description'   => $description,
+            'ip_address'    => request()->ip(),
+            'user_agent'    => substr(request()->userAgent() ?? '', 0, 200),
+            'old_values'    => $oldValues ?: null,
+            'new_values'    => $newValues ?: null,
+            'status'        => $status,
+            'resource_type' => $resourceType,
+            'resource_id'   => $resourceId,
+            'meta'          => $meta,
+            'trace_id'      => $traceId,
         ]);
     }
 
-    // Couleurs par action
     public function getActionColorAttribute(): string
     {
         return match($this->action) {
@@ -75,7 +85,6 @@ class AuditLog extends Model
         };
     }
 
-    // Icône par action
     public function getActionIconAttribute(): string
     {
         return match($this->action) {

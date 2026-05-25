@@ -27,75 +27,15 @@
 </div>
 
 <style>
-.dash-card {
-  border-radius: 24px;
-  padding: 24px;
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 140px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.dash-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.2);
-}
-.dash-card::before {
-  content: '';
-  position: absolute;
-  top: -20px;
-  right: -20px;
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(5px);
-}
-.dash-card-num {
-  font-size: 42px;
-  font-weight: 800;
-  line-height: 1;
-  margin-bottom: 8px;
-  letter-spacing: -0.03em;
-}
-.dash-card-label {
-  font-size: 14px;
-  opacity: 0.9;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.dash-card-icon {
-  font-size: 56px;
-  opacity: 0.2;
-  position: absolute;
-  right: 20px;
-  bottom: 20px;
-  z-index: 0;
-}
-.dash-card-link {
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 6px 12px;
-  border-radius: 10px;
-  backdrop-filter: blur(10px);
-  font-weight: 700;
-  text-decoration: none;
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 16px;
-  width: fit-content;
-  transition: all 0.2s ease;
-}
-.dash-card-link:hover {
-  background: rgba(255, 255, 255, 0.3);
-  color: #fff;
-}
+.dash-card { border-radius:18px;padding:22px 24px;color:#fff;display:flex;align-items:center;justify-content:space-between;min-height:110px;position:relative;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.13);transition:transform .18s,box-shadow .18s; }
+.dash-card:hover { transform:translateY(-3px);box-shadow:0 14px 36px rgba(0,0,0,.18); }
+.dash-card::before { content:'';position:absolute;top:-30px;right:-30px;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.08); }
+.dash-card::after { content:'';position:absolute;bottom:-20px;right:30px;width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.05); }
+.dash-card-num { font-size:36px;font-weight:800;line-height:1;margin-bottom:4px; }
+.dash-card-label { font-size:12px;opacity:.85;font-weight:500; }
+.dash-card-icon { font-size:48px;opacity:.3;position:absolute;right:18px;top:50%;transform:translateY(-50%);z-index:0; }
+.dash-card-link { font-size:11px;opacity:.85;font-weight:600;text-decoration:none;color:#fff;display:inline-flex;align-items:center;gap:4px;margin-top:8px; }
+.dash-card-link:hover { opacity:1;color:#fff; }
 .dash-card-sub { font-size:11px;opacity:.7;margin-top:3px;display:flex;align-items:center;gap:5px; }
 .dash-card-content { position:relative;z-index:1; }
 </style>
@@ -183,8 +123,8 @@
 
 {{-- IA LEADERBOARD + URGENT --}}
 <div class="row mb-4">
-  <div class="col-lg-7 mb-4">
-    <div class="card h-100">
+  <div class="col-xl-7 col-lg-12 mb-4">
+    <div class="card h-100" style="min-width:0;">
       <div class="card-header pb-0 pt-3 px-4">
         <div class="d-flex align-items-center justify-content-between">
           <div class="d-flex align-items-center gap-2">
@@ -203,8 +143,8 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-5 mb-4">
-    <div class="card h-100">
+  <div class="col-xl-5 col-lg-12 mb-4">
+    <div class="card h-100" style="min-width:0;">
       <div class="card-header pb-0 pt-3 px-4">
         <div class="d-flex align-items-center justify-content-between">
           <div class="d-flex align-items-center gap-2">
@@ -254,8 +194,8 @@
 
 {{-- ADMINS + CLIENTS --}}
 <div class="row mb-4">
-  <div class="col-lg-6 mb-4">
-    <div class="card h-100">
+  <div class="col-xl-6 col-lg-12 mb-4">
+    <div class="card h-100" style="min-width:0;">
       <div class="card-header pb-0 pt-3 px-4 d-flex justify-content-between align-items-center">
         <div>
           <h6 class="mb-0 font-weight-bold"><i class="material-symbols-rounded me-1 text-info" style="font-size:18px;vertical-align:middle;">shield_person</i>Gestion des Admins</h6>
@@ -265,7 +205,7 @@
           <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">add</i>Nouveau
         </a>
       </div>
-      <div class="card-body px-0 pb-0">
+      <div class="card-body px-0 pb-0 table-responsive">
         <table class="table align-items-center mb-0">
           <thead><tr>
             <th class="text-uppercase text-secondary text-xxs font-weight-bolder opacity-7 ps-3">Admin</th>
@@ -304,8 +244,8 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-6 mb-4">
-    <div class="card h-100">
+  <div class="col-xl-6 col-lg-12 mb-4">
+    <div class="card h-100" style="min-width:0;">
       <div class="card-header pb-0 pt-3 px-4 d-flex justify-content-between align-items-center">
         <div>
           <h6 class="mb-0 font-weight-bold"><i class="material-symbols-rounded me-1 text-success" style="font-size:18px;vertical-align:middle;">group</i>Gestion des Clients</h6>
@@ -313,7 +253,7 @@
         </div>
         <a href="{{ route('super-admin.clients') }}" class="btn btn-sm mb-0 text-white" style="background:linear-gradient(135deg,#2dce89,#2dcecc);">Voir tout</a>
       </div>
-      <div class="card-body px-0 pb-0">
+      <div class="card-body px-0 pb-0 table-responsive">
         <table class="table align-items-center mb-0">
           <thead><tr>
             <th class="text-uppercase text-secondary text-xxs font-weight-bolder opacity-7 ps-3">Client</th>
@@ -353,8 +293,8 @@
 
 {{-- CHARTS --}}
 <div class="row mb-4">
-  <div class="col-lg-5 mb-4">
-    <div class="card h-100">
+  <div class="col-xl-5 col-lg-12 mb-4">
+    <div class="card h-100" style="min-width:0;">
       <div class="card-header pb-0 pt-3 px-4">
         <h6 class="mb-0 font-weight-bold">Tickets par mois</h6>
         <p class="text-xs text-secondary mb-0">6 derniers mois</p>
@@ -362,8 +302,8 @@
       <div class="card-body p-3"><div style="position:relative;height:220px;"><canvas id="monthlyChart"></canvas></div></div>
     </div>
   </div>
-  <div class="col-lg-7 mb-4">
-    <div class="card h-100">
+  <div class="col-xl-7 col-lg-12 mb-4">
+    <div class="card h-100" style="min-width:0;">
       <div class="card-header pb-0 pt-3 px-4 d-flex justify-content-between align-items-center">
         <div>
           <h6 class="mb-0 font-weight-bold">Activité récente</h6>
@@ -413,6 +353,22 @@
 .sa-dash-table tbody tr:hover{background:rgba(59,91,219,.04);}
 .sa-dash-table tbody tr:last-child{border-bottom:none;}
 .sa-dash-table td{padding:12px 14px;vertical-align:middle;}
+
+/* ── Responsive ── */
+.sa-table-scroll{position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.sa-table-scroll::after{
+  content:'';pointer-events:none;position:absolute;top:0;right:0;bottom:0;width:36px;
+  background:linear-gradient(to right,transparent,rgba(255,255,255,.85));
+  border-radius:0 14px 14px 0;opacity:0;transition:opacity .3s;
+}
+.sa-table-scroll.has-scroll::after{opacity:1;}
+@media(max-width:991px){
+  .sa-col-hide{display:none !important;}
+}
+@media(max-width:575px){
+  .sa-dash-table td,.sa-dash-table th{padding:9px 9px;}
+  .sa-col-hide-sm{display:none !important;}
+}
 .sa-ctype{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;}
 .sa-ctype-client{background:#F5F3FF;color:#7C3AED;}
 .sa-ctype-new{background:#FFF7ED;color:#C2410C;}
@@ -421,6 +377,8 @@
 .sa-stbadge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:10px;font-weight:700;}
 .sa-st-pending{background:#fef3c7;color:#b45309;}.sa-st-inprogress{background:#dbeafe;color:#1d4ed8;}.sa-st-resolved{background:#d1fae5;color:#065f46;}.sa-st-closed{background:#f1f5f9;color:#475569;}
 .sa-replied{background:#d1fae5;color:#065f46;font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;display:inline-block;margin-top:3px;}
+.sa-btn-reply{display:inline-flex;align-items:center;gap:5px;padding:6px 16px;border-radius:12px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));color:#fff;text-decoration:none;transition:opacity .15s;white-space:nowrap;}
+.sa-btn-reply:hover{opacity:.85;color:#fff;}
 
 /* ── DARK MODE overrides for dashboard badges & table ── */
 [data-bs-theme="dark"] .sa-dash-table thead tr { background: #0f172a !important; }
@@ -454,12 +412,12 @@
           </a>
         </div>
       </div>
-      <div style="overflow-x:auto;">
+      <div class="sa-table-scroll table-responsive" id="saRecentTable">
         <table class="sa-dash-table">
           <thead>
             <tr>
-              <th>ID</th><th>Titre</th><th>Client</th><th>Type</th><th>Catégorie</th>
-              <th style="text-align:center;">Priorité</th><th style="text-align:center;">Statut</th><th style="text-align:center;">Date</th>
+              <th>ID</th><th>Titre</th><th>Client</th><th>Type</th><th class="sa-col-hide">Catégorie</th>
+              <th class="sa-col-hide-sm" style="text-align:center;">Priorité</th><th style="text-align:center;">Statut</th><th class="sa-col-hide" style="text-align:center;">Date</th><th style="text-align:center;">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -491,13 +449,19 @@
                 </div>
               </td>
               <td>{!! $ctBadge !!}</td>
-              <td><span style="font-size:12px;">{{ $cat[0] }} {{ $cat[1] }}</span></td>
-              <td style="text-align:center;"><span class="sa-prio sa-prio-{{ $p }}">{{ $pLabels[$p] ?? 'Moyenne' }}</span></td>
+              <td class="sa-col-hide"><span style="font-size:12px;">{{ $cat[0] }} {{ $cat[1] }}</span></td>
+              <td class="sa-col-hide-sm" style="text-align:center;"><span class="sa-prio sa-prio-{{ $p }}">{{ $pLabels[$p] ?? 'Moyenne' }}</span></td>
               <td style="text-align:center;"><span class="sa-stbadge {{ $st[0] }}"><i class="material-symbols-rounded" style="font-size:11px;vertical-align:middle;">{{ $st[2] }}</i> {{ $st[1] }}</span></td>
-              <td style="text-align:center;"><span style="font-size:11px;color:#94a3b8;">{{ $ticket->created_at->format('d/m/Y') }}</span></td>
+              <td class="sa-col-hide" style="text-align:center;"><span style="font-size:11px;color:#94a3b8;">{{ $ticket->created_at->format('d/m/Y') }}</span></td>
+              <td style="text-align:center;" onclick="event.stopPropagation()">
+                <a href="{{ route('super-admin.tickets.show', $ticket->id) }}#tab-reply"
+                   class="sa-btn-reply">
+                  <i class="material-symbols-rounded" style="font-size:15px;">reply</i>Répondre
+                </a>
+              </td>
             </tr>
             @empty
-            <tr><td colspan="8" style="text-align:center;padding:40px;"><i class="material-symbols-rounded" style="font-size:48px;color:#cbd5e1;display:block;">confirmation_number</i><p style="color:#94a3b8;font-size:14px;margin:8px 0 0;">Aucun ticket pour le moment</p></td></tr>
+            <tr><td colspan="9" style="text-align:center;padding:40px;"><i class="material-symbols-rounded" style="font-size:48px;color:#cbd5e1;display:block;">confirmation_number</i><p style="color:#94a3b8;font-size:14px;margin:8px 0 0;">Aucun ticket pour le moment</p></td></tr>
             @endforelse
           </tbody>
         </table>
@@ -506,6 +470,16 @@
   </div>
 </div>
 
+
+<script>
+(function(){
+  var wrap = document.getElementById('saRecentTable');
+  if(!wrap) return;
+  function check(){ wrap.classList.toggle('has-scroll', wrap.scrollWidth > wrap.clientWidth + 5); }
+  check();
+  window.addEventListener('resize', check);
+})();
+</script>
 @endsection
 
 @push('page-scripts')
@@ -525,23 +499,13 @@ document.addEventListener('DOMContentLoaded', function() {
         data: {
           labels: {!! json_encode(array_column($ticketsByMonth, 'month')) !!},
           datasets: [{ label: 'Tickets', data: {!! json_encode(array_column($ticketsByMonth, 'count')) !!},
-<<<<<<< Updated upstream
-            borderColor: getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim(),
-            backgroundColor: 'rgba(102,126,234,0.12)', borderWidth: 3,
-=======
             borderColor: getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim(), backgroundColor: _fillClr, borderWidth: 3,
->>>>>>> Stashed changes
             pointBackgroundColor: '#764ba2', pointBorderColor: '#fff', pointBorderWidth: 2,
             pointRadius: 5, fill: true, tension: 0.4 }]
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-<<<<<<< Updated upstream
-          scales: { y: { beginAtZero: true, ticks: { color:'#aaa', font:{size:11}, precision:0 } },
-                    x: { grid:{display:false}, ticks:{color:'#aaa',font:{size:11}} } } }
-=======
           scales: { y: { beginAtZero: true, grid: { color: _gridClr }, ticks: { color: _tickClr, font: { size: 11 }, precision: 0 } },
                     x: { grid: { display: false }, ticks: { color: _tickClr, font: { size: 11 } } } } }
->>>>>>> Stashed changes
       });
     }
   }
@@ -555,11 +519,6 @@ document.addEventListener('DOMContentLoaded', function() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (lb) lb.classList.add('d-none');
-<<<<<<< Updated upstream
-      var admins = data.admins || [], html = '';
-      if (!admins.length) { html = '<p class="text-xs text-secondary text-center py-3">Aucun admin actif</p>'; }
-      else {
-=======
       var admins = data.admins || [];
       var html = '';
       if (!admins.length) {
@@ -572,24 +531,10 @@ document.addEventListener('DOMContentLoaded', function() {
         var _suggBg      = _isDark ? '#1e293b'  : '#f8f9ff';
         var _suggTxtClr  = _isDark ? '#94a3b8'  : '#475569';
 
->>>>>>> Stashed changes
         admins.forEach(function(a, i) {
           var medal = ['🥇','🥈','🥉'][i] || ('#'+(i+1));
           var barColor = a.score>=80?'#10b981':a.score>=60?'#3b82f6':a.score>=30?'#f59e0b':'#ef4444';
           var initials = (a.name||'??').substring(0,2).toUpperCase();
-<<<<<<< Updated upstream
-          var answered = a.answered || a.resolved || 0, total = a.total || 0;
-          html += '<div style="border-bottom:1px solid #f1f5f9;padding:11px 0;">';
-          html += '<div class="d-flex align-items-center gap-2"><span style="font-size:16px;min-width:24px;">'+medal+'</span>';
-          html += '<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));font-size:12px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'+initials+'</div>';
-          html += '<div style="flex:1;min-width:0;"><div class="d-flex align-items-center justify-content-between mb-1"><p class="text-sm font-weight-bold mb-0">'+a.name+'</p><span class="text-xs font-weight-bold" style="color:'+barColor+';white-space:nowrap;">'+a.score+' pts</span></div>';
-          html += '<div style="height:6px;border-radius:3px;background:#e2e8f0;margin-bottom:5px;"><div style="height:6px;border-radius:3px;width:'+Math.min(100,a.score)+'%;background:'+barColor+';transition:width .6s ease;"></div></div>';
-          html += '<div class="d-flex gap-3"><span class="text-xs text-secondary">✉️ <strong style="color:#1e293b;">'+answered+'</strong> réponse(s)</span><span class="text-xs text-secondary">📋 <strong style="color:#1e293b;">'+total+'</strong> total</span>';
-          if (a.avg_hours) html += '<span class="text-xs text-secondary">⏱️ <strong style="color:#1e293b;">'+a.avg_hours+'h</strong> moy.</span>';
-          if (a.urgent_handled > 0) html += '<span class="text-xs" style="color:#ef4444;">🚨 <strong>'+a.urgent_handled+'</strong> urgent(s)</span>';
-          html += '</div></div></div>';
-          if (a.suggestion) html += '<div style="background:#f8f9ff;border-left:3px solid '+barColor+';padding:5px 10px;margin-top:6px;border-radius:0 6px 6px 0;"><p class="text-xs mb-0" style="color:#475569;">💡 '+a.suggestion+'</p></div>';
-=======
           var answered = a.answered || a.resolved || 0;
           var total    = a.total || 0;
 
@@ -607,22 +552,28 @@ document.addEventListener('DOMContentLoaded', function() {
           html += '<div style="height:6px;border-radius:3px;width:'+Math.min(100,a.score)+'%;background:'+barColor+';transition:width .6s ease;"></div>';
           html += '</div>';
           // Stats row
-          html += '<div class="d-flex gap-3">';
+          html += '<div class="d-flex flex-wrap gap-2">';
           html += '<span class="text-xs text-secondary">✉️ <strong style="color:'+_strongClr+';">'+answered+'</strong> réponse(s)</span>';
-          html += '<span class="text-xs text-secondary">📋 <strong style="color:'+_strongClr+';">'+total+'</strong> total</span>';
+          html += '<span class="text-xs text-secondary">✅ <strong style="color:'+_strongClr+';">'+a.resolved+'</strong> résolu(s)</span>';
+          html += '<span class="text-xs text-secondary">📋 <strong style="color:'+_strongClr+';">'+total+'</strong> ticket(s)</span>';
           if (a.avg_hours) {
-            html += '<span class="text-xs text-secondary">⏱️ <strong style="color:'+_strongClr+';">'+a.avg_hours+'h</strong> moy.</span>';
+            html += '<span class="text-xs text-secondary">⏱️ <strong style="color:'+_strongClr+';">'+a.avg_hours+'h</strong> moy. résolution</span>';
           }
           if (a.urgent_handled > 0) {
-            html += '<span class="text-xs" style="color:#ef4444;">🚨 <strong>'+a.urgent_handled+'</strong> urgent(s)</span>';
+            html += '<span class="text-xs" style="color:#ef4444;">🚨 <strong>'+a.urgent_handled+'</strong> urgent(s) traité(s)</span>';
+          }
+          if (a.days_active) {
+            html += '<span class="text-xs text-secondary">📅 <strong style="color:'+_strongClr+';">'+a.days_active+'</strong> jours de service</span>';
           }
           html += '</div>';
+          if (a.email) {
+            html += '<div class="text-xs" style="color:#94a3b8;margin-top:2px;">'+a.email+'</div>';
+          }
           html += '</div></div>';
           if (a.suggestion) {
             html += '<div style="background:'+_suggBg+';border-left:3px solid '+barColor+';padding:5px 10px;margin-top:6px;border-radius:0 6px 6px 0;">';
             html += '<p class="text-xs mb-0" style="color:'+_suggTxtClr+';">💡 '+a.suggestion+'</p></div>';
           }
->>>>>>> Stashed changes
           html += '</div>';
         });
       }

@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, SoftDeletes;
 
     public function tickets()
     {
@@ -16,60 +17,62 @@ class User extends Authenticatable
     }
 
     protected $fillable = [
-        'name', 'first_name', 'last_name', 'birthday', 'gender',
+        'name', 'first_name', 'last_name', 'full_name',
+        'birthday', 'gender',
         'email', 'password', 'role', 'is_active', 'last_login_at',
-        'phone', 'phone_mobile', 'whatsapp', 'teams_email', 'teams_webhook_url', 'avatar',
-        'timezone', 'locale', 'profile_completed', 'notifications_read',
-        // GLPI sync
+        'phone', 'phone_mobile', 'phone_number', 'whatsapp',
+        'teams_email', 'teams_webhook_url',
+        'avatar', 'profile_picture_url',
+        'timezone', 'locale',
+        'profile_completed', 'notifications_read',
         'glpi_user_id',
-        // Client type: 'client' | 'user'
         'client_type',
-        // Vérification SMS
         'phone_verified',
         'must_change_password',
+        // Champs db2
+        'status',
+        'is_vip',
+        'is_deleted',
+        'can_reply_conversations',
+        'can_reply_whatsapp',
+        'hashed_password',
     ];
 
-    /**
-     * Retourne le label + style du type client
-     *
-     * client → client classifié              (violet)
-     * user   → nouveau / non classifié       (orange)
-     * null   → admins/super_admins           (sans badge)
-     */
     public function getClientTypeInfo(): array
     {
         return match($this->client_type) {
-            'client' => ['label' => 'Client', 'icon' => '🟣', 'css' => 'ctype-client', 'desc' => 'Client'],
-            'user'   => ['label' => 'Nouveau', 'icon' => '🟠', 'css' => 'ctype-new',    'desc' => 'Non classifié'],
-            default  => ['label' => '—',       'icon' => '⚪', 'css' => 'ctype-none',   'desc' => ''],
+            'client' => ['label' => 'Client',   'icon' => '🟣', 'css' => 'ctype-client', 'desc' => 'Client'],
+            'user'   => ['label' => 'Nouveau',  'icon' => '🟠', 'css' => 'ctype-new',    'desc' => 'Non classifié'],
+            default  => ['label' => '—',        'icon' => '⚪', 'css' => 'ctype-none',   'desc' => ''],
         };
     }
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = ['password', 'hashed_password', 'remember_token'];
 
     protected function casts(): array
     {
         return [
-            'email_verified_at'  => 'datetime',
-            'password'           => 'hashed',
-            'profile_completed'  => 'boolean',
+            'email_verified_at'       => 'datetime',
+            'password'                => 'hashed',
+            'profile_completed'       => 'boolean',
+            'is_vip'                  => 'boolean',
+            'is_deleted'              => 'boolean',
+            'can_reply_conversations' => 'boolean',
+            'can_reply_whatsapp'      => 'boolean',
         ];
     }
 
-    // Vérifier si le profil admin est complet
     public function isProfileComplete(): bool
     {
         if ($this->role !== 'admin') return true;
         return $this->profile_completed;
     }
 
-    // Email pour les notifications (Teams ou email login)
     public function getNotificationEmail(): string
     {
         return $this->teams_email ?? $this->email;
     }
 
-    // Vérifier si synchronisé avec GLPI
     public function isSyncedWithGlpi(): bool
     {
         return !is_null($this->glpi_user_id);

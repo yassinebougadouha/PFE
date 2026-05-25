@@ -44,7 +44,7 @@ class VoiceAgentConfig:
     openai_model: str = "gpt-4o-mini"
 
     # ── Backend API (for RAG knowledge base) ─────────────
-    backend_api_url: str = "http://localhost:8000"
+    backend_api_url: str = "http://localhost:8600"
     internal_service_key: str = "change-me-internal-key"
 
     # ── Recording & Transcript ───────────────────────────
@@ -92,7 +92,7 @@ def get_voice_settings() -> VoiceAgentConfig:
         use_realtime=_bool(os.getenv("USE_REALTIME", "false")),
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        backend_api_url=os.getenv("BACKEND_API_URL", "http://localhost:8000"),
+        backend_api_url=os.getenv("BACKEND_API_URL", "http://localhost:8600"),
         internal_service_key=os.getenv("INTERNAL_SERVICE_KEY", "change-me-internal-key"),
         voice_recordings_dir=os.getenv("VOICE_RECORDINGS_DIR", "recordings"),
         database_url=os.getenv("DATABASE_URL", ""),

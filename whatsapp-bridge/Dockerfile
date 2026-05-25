@@ -16,6 +16,6 @@ COPY server.js ./
 # Persistent auth data
 VOLUME /data
 
-EXPOSE 3000
+EXPOSE 8602
 
 CMD ["node", "server.js"]

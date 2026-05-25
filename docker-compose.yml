@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: support_db
+      POSTGRES_DB: laravel
     ports:
       - "5432:5432"
     volumes:
@@ -38,17 +38,17 @@ services:
       dockerfile: Dockerfile
     container_name: support_api
     ports:
-      - "8000:8000"
+      - "8600:8600"
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/support_db
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/laravel
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/3
       LIVEKIT_URL: ws://livekit:7880
-      BACKEND_API_URL: http://localhost:8000
-      VOICE_AGENTS_CONTROL_URL: http://livekit:8001
+      BACKEND_API_URL: http://localhost:8600
+      VOICE_AGENTS_CONTROL_URL: http://livekit:8601
       GLPI_API_URL: http://platform-glpi-main-laravel.test-1/api/v1
       API_RELOAD: ${API_RELOAD:-false}
       API_WORKERS: ${API_WORKERS:-4}
@@ -63,11 +63,12 @@ services:
     volumes:
       - .:/app
     command: >
-      sh -c "alembic upgrade head &&
+      sh -c "alembic stamp 227af21ed124 --purge 2>/dev/null || true &&
+             alembic upgrade head &&
              if [ \"$$API_RELOAD\" = \"true\" ]; then
-               uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app;
+               uvicorn app.main:app --host 0.0.0.0 --port 8600 --reload --reload-dir /app/app;
              else
-               uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers $$API_WORKERS;
+               uvicorn app.main:app --host 0.0.0.0 --port 8600 --workers $$API_WORKERS;
              fi"
 
   # ── Celery Worker ──────────────────────────────
@@ -79,7 +80,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/support_db
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/laravel
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/3
@@ -104,7 +105,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/support_db
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/laravel
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/3
@@ -142,10 +143,10 @@ services:
       dockerfile: Dockerfile
     container_name: support_whatsapp_bridge
     ports:
-      - "3000:3000"
+      - "8602:8602"
     environment:
-      PORT: 3000
-      WEBHOOK_URL: http://api:8000/api/v1/whatsapp/bridge/webhook
+      PORT: 8602
+      WEBHOOK_URL: http://api:8600/api/v1/whatsapp/bridge/webhook
       API_KEY: ${WHATSAPP_BRIDGE_API_KEY:-}
     volumes:
       - wa_bridge_data:/data
@@ -179,9 +180,10 @@ services:
     environment:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
-      BACKEND_API_URL: http://api:8000
+      BACKEND_API_URL: http://api:8600
+      VOICE_AGENTS_CONTROL_PORT: 8601
       LIVEKIT_URL: ws://localhost:7880
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/support_db
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/laravel
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-change-me-internal-key}
       VOICE_RECORDINGS_DIR: /app/recordings
       AI_RESPONSE_PROVIDER: ${AI_RESPONSE_PROVIDER:-gemini}
@@ -199,6 +201,7 @@ services:
         condition: service_started
     volumes:
       - ./recordings:/app/recordings
+    command: sh -c "python voice_agents/control_api.py & python -m voice_agents start"
     restart: unless-stopped
 
 networks:

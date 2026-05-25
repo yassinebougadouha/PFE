@@ -12,6 +12,7 @@ class GlpiService
     protected string $appToken;
     protected string $userToken;
     protected ?string $sessionToken = null;
+    protected int $timeout = 5; // secondes max par requête GLPI
 
     public function __construct()
     {
@@ -33,6 +34,12 @@ class GlpiService
     // ══════════════════════════════════════════════════════════════════════════
     // HELPERS INTERNES
     // ══════════════════════════════════════════════════════════════════════════
+
+    // Helper HTTP avec timeout automatique
+    protected function http(): \Illuminate\Http\Client\PendingRequest
+    {
+        return Http::timeout($this->timeout)->connectTimeout(3)->withHeaders($this->headers());
+    }
 
     protected function headers(): array
     {
@@ -81,38 +88,30 @@ class GlpiService
     // 1. SESSION
     // ══════════════════════════════════════════════════════════════════════════
 
-    public function initSession(): string
-    {
-        $response = Http::withHeaders([
-            'App-Token'     => $this->appToken,
-            // Fallback to basic auth if user token fails
-            'Authorization' => 'Basic ' . base64_encode('glpi:glpi'),
-            'Content-Type'  => 'application/json',
-        ])->get($this->baseUrl . '/apirest.php/initSession');
+   public function initSession(): string
+{
+    $response = Http::timeout($this->timeout)->connectTimeout(3)->withHeaders([
+        'App-Token'     => $this->appToken,
+        'Authorization' => 'user_token ' . $this->userToken,
+        'Content-Type'  => 'application/json',
+    ])->get($this->baseUrl . '/apirest.php/initSession');
 
-        if (!$response->successful()) {
-            // Try with user token as last resort
-            $response = Http::withHeaders([
-                'App-Token'     => $this->appToken,
-                'Authorization' => 'user_token ' . $this->userToken,
-                'Content-Type'  => 'application/json',
-            ])->get($this->baseUrl . '/apirest.php/initSession');
-        }
-
-        if (!$response->successful()) {
-            throw new \Exception('GLPI initSession failed: ' . $response->status() . ' ' . $response->body());
-        }
-
-        $this->sessionToken = $response->json('session_token');
-        return $this->sessionToken;
+    if (!$response->successful()) {
+        throw new \Exception('GLPI initSession failed: ' . $response->status() . ' ' . $response->body());
     }
+
+    $this->sessionToken = $response->json('session_token');
+    return $this->sessionToken;
+}
 
     public function killSession(): void
     {
         if (!$this->sessionToken) return;
 
-        Http::withHeaders($this->headers())
-            ->get($this->baseUrl . '/apirest.php/killSession');
+        try {
+            Http::timeout(3)->connectTimeout(2)->withHeaders($this->headers())
+                ->get($this->baseUrl . '/apirest.php/killSession');
+        } catch (\Exception $e) {}
 
         $this->sessionToken = null;
     }
@@ -124,7 +123,7 @@ class GlpiService
     public function getItem(string $itemtype, int $id, array $params = []): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . "/apirest.php/{$itemtype}/{$id}", $params);
 
         if (!$response->successful()) {
@@ -138,7 +137,7 @@ class GlpiService
         $this->ensureSession();
         $params = array_merge(['range' => '0-999', 'order' => 'DESC'], $params);
 
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . "/apirest.php/{$itemtype}/", $params);
 
         if (!$response->successful()) {
@@ -150,7 +149,7 @@ class GlpiService
     public function addItem(string $itemtype, array $input): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->post($this->baseUrl . "/apirest.php/{$itemtype}/", ['input' => $input]);
 
         if (!$response->successful()) {
@@ -162,7 +161,7 @@ class GlpiService
     public function updateItem(string $itemtype, int $id, array $input): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->put($this->baseUrl . "/apirest.php/{$itemtype}/{$id}", ['input' => $input]);
 
         if (!$response->successful()) {
@@ -174,7 +173,7 @@ class GlpiService
     public function deleteItem(string $itemtype, int $id, bool $forcePurge = true): bool
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->delete($this->baseUrl . "/apirest.php/{$itemtype}/{$id}", [
                 'force_purge' => $forcePurge,
             ]);
@@ -275,7 +274,7 @@ class GlpiService
     public function getSubItems(string $itemtype, int $id, string $subItemtype, array $params = []): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . "/apirest.php/{$itemtype}/{$id}/{$subItemtype}", $params);
 
         if (!$response->successful()) {
@@ -344,8 +343,9 @@ class GlpiService
                 $data = $searchResult['data'] ?? [];
                 if (!empty($data)) {
                     $first = reset($data);
+                    // field 1 = id, field 2 = name/login, field 34 = email
                     return [
-                        'id'    => $first['2']  ?? $first[2]  ?? null,
+                        'id'    => $first['1']  ?? $first[1]  ?? null,  // ← fix: field 1 = id
                         'name'  => $first['2']  ?? $first[2]  ?? '',
                         'email' => $first['34'] ?? $first[34] ?? $email,
                     ];
@@ -524,7 +524,7 @@ class GlpiService
             }
         }
 
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . "/apirest.php/search/{$itemtype}", $query);
 
         if (!$response->successful()) {
@@ -581,7 +581,7 @@ class GlpiService
     {
         $this->ensureSession();
 
-        $response = Http::withHeaders([
+        $response = Http::timeout($this->timeout)->connectTimeout(3)->withHeaders([
             'App-Token'     => $this->appToken,
             'Session-Token' => $this->sessionToken,
         ])->attach('filename[0]', file_get_contents($filePath), $fileName)
@@ -694,7 +694,7 @@ class GlpiService
     public function getFullSession(): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . '/apirest.php/getFullSession');
         if (!$response->successful()) throw new \Exception('GLPI getFullSession failed: ' . $response->body());
         return $response->json() ?? [];
@@ -703,7 +703,7 @@ class GlpiService
     public function getGlpiConfig(): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . '/apirest.php/getGlpiConfig');
         if (!$response->successful()) throw new \Exception('GLPI getGlpiConfig failed: ' . $response->body());
         return $response->json('cfg_glpi', []);
@@ -711,7 +711,7 @@ class GlpiService
 
     public function requestPasswordReset(string $email): bool
     {
-        $response = Http::withHeaders([
+        $response = Http::timeout($this->timeout)->connectTimeout(3)->withHeaders([
             'App-Token'    => $this->appToken,
             'Content-Type' => 'application/json',
         ])->put($this->baseUrl . '/apirest.php/lostPassword', ['email' => $email]);
@@ -720,7 +720,7 @@ class GlpiService
 
     public function resetPassword(string $email, string $token, string $newPassword): bool
     {
-        $response = Http::withHeaders([
+        $response = Http::timeout($this->timeout)->connectTimeout(3)->withHeaders([
             'App-Token'    => $this->appToken,
             'Content-Type' => 'application/json',
         ])->put($this->baseUrl . '/apirest.php/lostPassword', [
@@ -734,7 +734,7 @@ class GlpiService
     public function getMyProfiles(): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . '/apirest.php/getMyProfiles');
         if (!$response->successful()) throw new \Exception('GLPI getMyProfiles failed: ' . $response->body());
         return $response->json('myprofiles', []);
@@ -743,7 +743,7 @@ class GlpiService
     public function getActiveProfile(): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . '/apirest.php/getActiveProfile');
         if (!$response->successful()) throw new \Exception('GLPI getActiveProfile failed: ' . $response->body());
         return $response->json() ?? [];
@@ -752,7 +752,7 @@ class GlpiService
     public function changeActiveProfile(int $profileId): bool
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->post($this->baseUrl . '/apirest.php/changeActiveProfile', ['profiles_id' => $profileId]);
         return $response->successful();
     }
@@ -760,7 +760,7 @@ class GlpiService
     public function getMyEntities(bool $recursive = false): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . '/apirest.php/getMyEntities', ['is_recursive' => $recursive]);
         if (!$response->successful()) throw new \Exception('GLPI getMyEntities failed: ' . $response->body());
         return $response->json('myentities', []);
@@ -769,7 +769,7 @@ class GlpiService
     public function getActiveEntities(): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . '/apirest.php/getActiveEntities');
         if (!$response->successful()) throw new \Exception('GLPI getActiveEntities failed: ' . $response->body());
         return $response->json() ?? [];
@@ -778,7 +778,7 @@ class GlpiService
     public function changeActiveEntities(int|string $entityId = 'all', bool $recursive = false): bool
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->post($this->baseUrl . '/apirest.php/changeActiveEntities', [
                 'entities_id'  => $entityId,
                 'is_recursive' => $recursive,
@@ -794,7 +794,7 @@ class GlpiService
             $query["items[{$i}][itemtype]"] = $item['itemtype'];
             $query["items[{$i}][items_id]"] = $item['id'];
         }
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . '/apirest.php/getMultipleItems', $query);
         if (!$response->successful()) throw new \Exception('GLPI getMultipleItems failed: ' . $response->body());
         return $response->json() ?? [];
@@ -803,7 +803,7 @@ class GlpiService
     public function listSearchOptions(string $itemtype): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . "/apirest.php/listSearchOptions/{$itemtype}");
         if (!$response->successful()) throw new \Exception('GLPI listSearchOptions failed: ' . $response->body());
         return $response->json() ?? [];
@@ -814,7 +814,7 @@ class GlpiService
         $this->ensureSession();
         $url = $this->baseUrl . "/apirest.php/getMassiveActions/{$itemtype}";
         if ($id !== null) $url .= "/{$id}";
-        $response = Http::withHeaders($this->headers())->get($url);
+        $response = $this->http()->get($url);
         if (!$response->successful()) throw new \Exception('GLPI getMassiveActions failed: ' . $response->body());
         return $response->json() ?? [];
     }
@@ -822,7 +822,7 @@ class GlpiService
     public function getMassiveActionParameters(string $itemtype, string $actionKey): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . "/apirest.php/getMassiveActionParameters/{$itemtype}/{$actionKey}");
         if (!$response->successful()) throw new \Exception('GLPI getMassiveActionParameters failed: ' . $response->body());
         return $response->json() ?? [];
@@ -831,7 +831,7 @@ class GlpiService
     public function applyMassiveAction(string $itemtype, string $actionKey, array $ids, array $input = []): array
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->post($this->baseUrl . "/apirest.php/applyMassiveAction/{$itemtype}/{$actionKey}", [
                 'ids'   => $ids,
                 'input' => $input,
@@ -843,7 +843,7 @@ class GlpiService
     public function downloadDocument(int $documentId): string
     {
         $this->ensureSession();
-        $response = Http::withHeaders(array_merge($this->headers(), [
+        $response = Http::timeout($this->timeout)->connectTimeout(3)->withHeaders(array_merge($this->headers(), [
             'Accept' => 'application/octet-stream',
         ]))->get($this->baseUrl . "/apirest.php/Document/{$documentId}");
         if (!$response->successful()) throw new \Exception('GLPI downloadDocument failed: ' . $response->body());
@@ -853,7 +853,7 @@ class GlpiService
     public function getUserPicture(int $userId): ?string
     {
         $this->ensureSession();
-        $response = Http::withHeaders($this->headers())
+        $response = $this->http()
             ->get($this->baseUrl . "/apirest.php/User/{$userId}/Picture");
         if ($response->status() === 204) return null;
         if (!$response->successful()) return null;
@@ -973,6 +973,9 @@ class GlpiService
 
         $transformed = [];
 
+        // Pre-load categories from local DB — glpi_id => name
+        $catMap = \DB::table('glpi_categories')->pluck('name', 'glpi_id')->toArray();
+
         foreach ($glpiTickets as $t) {
             $status = match ((int)($t['status'] ?? 1)) {
                 1       => 'pending',
@@ -991,8 +994,10 @@ class GlpiService
             $obj->title = $t['name'] ?? '';
             $obj->description = $t['content'] ?? '';
             $obj->sync_status = $status;
+            $obj->status = $status; // alias — views may use either
             $obj->priority = $priority;
-            $obj->category = '';
+            $catGlpiId = (int)($t['itilcategories_id'] ?? 0);
+            $obj->category = $catGlpiId ? ($catMap[$catGlpiId] ?? '') : '';
             $obj->solution = $t['solution'] ?? null;
             $obj->ai_analysis = null;
             $obj->user_id = $t['users_id_recipient'] ?? null;
@@ -1028,4 +1033,170 @@ class GlpiService
             default => 'pending',
         };
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+// 14. AUTHENTIFICATION
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Authentifier via GLPI - vérifier que le user existe et est actif
+ * Retourne les données user GLPI ou null
+ */
+public function authenticate(string $email, string $password): ?array
+{
+    try {
+        // Ouvrir session avec user_token admin
+        $sessionToken = $this->initSession();
+
+        // Chercher user GLPI par email
+        $glpiUser = $this->findUserByEmail($email);
+
+        // Fermer session
+        $this->killSession();
+
+        if (!$glpiUser) {
+            return null;
+        }
+
+        // Retourner les données user
+        return [
+            'id'    => $glpiUser['id'] ?? $glpiUser[2] ?? null,
+            'name'  => $glpiUser['name'] ?? $glpiUser[2] ?? $email,
+            'email' => $email,
+            'is_active' => $glpiUser['is_active'] ?? 1,
+        ];
+
+    } catch (\Exception $e) {
+        \Log::error('GLPI authenticate failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Vérifier si un user existe dans GLPI par email
+ * Utilisé pour l'authentification
+ */
+public function verifyUserExists(string $email): ?array
+{
+    try {
+        $this->ensureSession();
+
+        // Méthode 1: Chercher par login = email (le plus courant)
+        $allUsers = $this->getAllItems('User', [
+            'range'           => '0-999',
+            'forcedisplay[0]' => '1',   // id
+            'forcedisplay[1]' => '2',   // name (login)
+            'forcedisplay[2]' => '34',  // email
+            'forcedisplay[3]' => '9',   // realname
+            'forcedisplay[4]' => '8',  // firstname
+            'forcedisplay[5]' => '68', // is_active
+        ]);
+
+        $emailLower = strtolower(trim($email));
+
+        foreach ($allUsers as $user) {
+            // Vérifier login = email
+            $login = strtolower(trim($user['name'] ?? $user[2] ?? ''));
+            if ($login === $emailLower) {
+                return [
+                    'id'        => $user['id'] ?? $user[1] ?? null,
+                    'name'      => $user['name'] ?? $user[2] ?? $email,
+                    'email'     => $email,
+                    'is_active' => $user['is_active'] ?? $user[68] ?? 1,
+                ];
+            }
+
+            // Vérifier champ email direct
+            $glpiEmail = strtolower(trim($user['email'] ?? $user[34] ?? ''));
+            if ($glpiEmail && $glpiEmail === $emailLower) {
+                return [
+                    'id'        => $user['id'] ?? $user[1] ?? null,
+                    'name'      => $user['name'] ?? $user[2] ?? $email,
+                    'email'     => $email,
+                    'is_active' => $user['is_active'] ?? $user[68] ?? 1,
+                ];
+            }
+        }
+
+        // Méthode 2: Search API sur champ email (field 34)
+        try {
+            $searchResult = $this->searchItems('User', [
+                ['field' => '34', 'searchtype' => 'equals', 'value' => $email, 'link' => 'AND'],
+            ], [
+                'range'           => '0-10',
+                'forcedisplay[0]' => '1',
+                'forcedisplay[1]' => '2',
+                'forcedisplay[2]' => '34',
+            ]);
+
+            $data = $searchResult['data'] ?? [];
+            if (!empty($data)) {
+                $first = $data[0];
+                return [
+                    'id'    => $first['2'] ?? $first[2] ?? null,
+                    'name'  => $first['2'] ?? $first[2] ?? $email,
+                    'email' => $email,
+                    'is_active' => 1,
+                ];
+            }
+        } catch (\Exception $e) {
+            \Log::info('GLPI verifyUserExists search failed: ' . $e->getMessage());
+        }
+
+        return null;
+
+    } catch (\Exception $e) {
+        \Log::error('GLPI verifyUserExists failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * تعيين Profile لـ User في GLPI
+ * profileName: 'Technician', 'Admin', 'Self-Service', 'Super-Admin'
+ */
+public function assignProfileToUser(int $glpiUserId, string $profileName): bool
+{
+    try {
+        $this->ensureSession();
+
+        // 1. جيب قائمة الـ Profiles باش نلقاو الـ ID
+        $profiles = $this->http()
+            ->get($this->baseUrl . '/apirest.php/Profile/', [
+                'range' => '0-50',
+            ]);
+
+        $profileId = null;
+        foreach ($profiles->json() ?? [] as $p) {
+            if (strtolower($p['name'] ?? '') === strtolower($profileName)) {
+                $profileId = $p['id'];
+                break;
+            }
+        }
+
+        if (!$profileId) {
+            \Log::warning("GLPI Profile '{$profileName}' not found");
+            return false;
+        }
+
+        // 2. تعيين الـ Profile للـ User
+        $response = $this->http()
+            ->post($this->baseUrl . '/apirest.php/Profile_User/', [
+                'input' => [
+                    'users_id'    => $glpiUserId,
+                    'profiles_id' => $profileId,
+                    'is_default'  => 1,
+                    'entities_id' => 0,  // Root entity
+                    'is_recursive'=> 1,
+                ],
+            ]);
+
+        return $response->successful();
+
+    } catch (\Exception $e) {
+        \Log::error('assignProfileToUser failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
 }

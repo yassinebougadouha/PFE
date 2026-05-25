@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\OtpCode;
 use App\Models\User;
 use App\Services\GmailService;
+use App\Services\GlpiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -78,7 +79,7 @@ class OtpController extends Controller
             \Log::error('OTP email send failed: ' . $e->getMessage());
         }
 
-        // ── OTP SMS (si numéro fourni) ───────────────────────────────────────────────────────
+        // ── OTP SMS (si numéro fourni) ─────────────────────────────────────────
         if ($request->filled('phone')) {
             $sms     = app(SmsService::class);
             $phone   = $sms->normalizePhone($request->phone);
@@ -166,6 +167,24 @@ class OtpController extends Controller
 
         $emailOtp->update(['used' => true]);
 
+        // ── Déterminer client_type selon GLPI ─────────────────────────────────
+        // Si l'email est déjà connu dans GLPI → client classifié
+        // Sinon → user nouveau non classifié (admin devra le valider)
+        $clientType = 'user';
+        $glpiId     = null;
+
+        try {
+            $glpi     = app(GlpiService::class);
+            $glpiUser = $glpi->findUserByEmail($registerData['email']);
+            $rawId    = $glpiUser['id'] ?? $glpiUser[1] ?? null;
+            if ($rawId) {
+                $glpiId     = (int) $rawId;
+                $clientType = 'client'; // ✅ connu dans GLPI → client
+            }
+        } catch (\Exception $e) {
+            \Log::warning('[OtpController] GLPI check failed during registration: ' . $e->getMessage());
+        }
+
         // ── Créer le compte ────────────────────────────────────────────────────
         $user = User::create([
             'name'           => $registerData['name'],
@@ -177,10 +196,13 @@ class OtpController extends Controller
             'phone'          => $registerData['phone'] ?? null,
             'password'       => Hash::make($registerData['password']),
             'role'           => 'client',
-            'client_type'    => 'user',
+            'client_type'    => $clientType, // ✅ 'client' si GLPI le connaît, 'user' sinon
+            'glpi_user_id'   => $glpiId,     // ✅ lier direct si trouvé
             'is_active'      => true,
             'phone_verified' => $hasSmsOtp,
         ]);
+
+        \Log::info("[OtpController] Compte créé: {$registerData['email']} (client_type={$clientType})");
 
         session()->forget('otp_register');
         Auth::login($user);
@@ -188,7 +210,6 @@ class OtpController extends Controller
         return redirect()->route('client.dashboard')
             ->with('success', 'Compte créé avec succès ! Bienvenue 👋');
     }
-
 
     // ─── Renvoyer les deux OTPs ────────────────────────────────────────────────
     public function resendOtp()
@@ -264,26 +285,26 @@ class OtpController extends Controller
         }
 
         $code  = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-$phone = $sms->normalizePhone($request->phone); // ← هنا أولاً
+        $phone = $sms->normalizePhone($request->phone);
 
-OtpCode::where('email', $user->email)->where('type', 'sms')->delete();
-OtpCode::create([
-    'email'      => $user->email,
-    'type'       => 'sms',
-    'phone'      => $phone,         // ← $phone normalized
-    'code'       => $code,
-    'expires_at' => now()->addMinutes(10),
-]);
+        OtpCode::where('email', $user->email)->where('type', 'sms')->delete();
+        OtpCode::create([
+            'email'      => $user->email,
+            'type'       => 'sms',
+            'phone'      => $phone,
+            'code'       => $code,
+            'expires_at' => now()->addMinutes(10),
+        ]);
 
-$sent = $sms->sendOtp($phone, $code, $user->name);
+        $sent = $sms->sendOtp($phone, $code, $user->name);
 
-if ($sent) {
-    session(['pending_phone' => $phone]);
-    return response()->json(['success' => true, 'message' => "Code envoyé au {$phone}"]);
-}
+        if ($sent) {
+            session(['pending_phone' => $phone]);
+            return response()->json(['success' => true, 'message' => "Code envoyé au {$phone}"]);
+        }
 
-return response()->json(['success' => false, 'message' => 'Échec envoi SMS. Réessayez.'], 500);
-}  
+        return response()->json(['success' => false, 'message' => 'Échec envoi SMS. Réessayez.'], 500);
+    }
 
     // ─── Vérifier OTP SMS pour compte existant ────────────────────────────────
     public function verifySmsOtpForExisting(Request $request)

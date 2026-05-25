@@ -151,6 +151,12 @@ Route::middleware(['auth', CheckRole::class.':super_admin'])
 
     // Base de Connaissance (RAG)
     Route::get('/rag', [SuperAdminController::class, 'rag'])->name('rag');
+    Route::get('/rag/stats', [SuperAdminController::class, 'ragStats'])->name('rag.stats');
+    Route::get('/rag/articles', [SuperAdminController::class, 'ragArticles'])->name('rag.articles');
+    Route::get('/rag/documents', [SuperAdminController::class, 'ragDocuments'])->name('rag.documents');
+    Route::post('/rag/documents/upload', [SuperAdminController::class, 'uploadRagPdf'])->name('rag.upload');
+    Route::post('/rag/documents/ingest', [SuperAdminController::class, 'ingestRagPdf'])->name('rag.ingest');
+    Route::delete('/rag/articles/{id}', [SuperAdminController::class, 'deleteRagArticle'])->name('rag.delete');
 
     // Decision Engine
     Route::get('/decision-engine', [DecisionEngineController::class, 'index'])->name('decision-engine');
@@ -174,9 +180,18 @@ Route::middleware(['auth', CheckRole::class.':super_admin'])
         return redirect()->route('voice-agents.runtime');
     })->name('voice-agents');
 
-    // Conversations (read-only)
-    Route::get('/conversations', [SuperAdminController::class, 'conversations'])->name('conversations');
-    Route::get('/conversations/{id}', [SuperAdminController::class, 'conversationDetail'])->name('conversations.detail');
+     // Conversations supervision (lecture seule)
+    Route::get('/conversations', [SuperAdminController::class, 'conversations'])
+        ->name('conversations');
+ 
+    // ← NOUVEAU : filtre conversations par user L2T (doit être AVANT /{id})
+    Route::get('/conversations/user/{userId}', [SuperAdminController::class, 'conversationsForUser'])
+        ->name('conversations.for-user')
+        ->where('userId', '[0-9]+');
+ 
+    // Détail conversation (doit être APRÈS /user/{userId})
+    Route::get('/conversations/{id}', [SuperAdminController::class, 'conversationDetail'])
+        ->name('conversations.detail');
 });
 
 // ==================== ADMIN ====================
@@ -226,6 +241,9 @@ Route::middleware(['auth', 'force.password.change', CheckRole::class.':admin', '
     Route::get('/api/escalations', [SuperAdminController::class, 'getEscalations'])->name('escalations.api');
     Route::get('/api/escalations/{id}', [SuperAdminController::class, 'getEscalationDetail'])->name('escalations.detail');
     Route::post('/api/escalations/{id}/resolve', [SuperAdminController::class, 'resolveEscalation'])->name('escalations.resolve');
+
+    // Decision Engine
+    Route::get('/decision-engine', [DecisionEngineController::class, 'index'])->name('decision-engine');
 
     // RAG is super_admin only
 });
@@ -393,6 +411,10 @@ Route::middleware(['auth', 'force.password.change', CheckRole::class.':client'])
     Route::get('/chat/conversations/{id}/messages',
         [\App\Http\Controllers\ChatController::class, 'messages']
     )->name('chat.messages');
+
+    Route::patch('/chat/conversations/{id}',
+        [\App\Http\Controllers\ChatController::class, 'updateConversation']
+    )->name('chat.update');
 
     Route::delete('/chat/conversations/{id}',
         [\App\Http\Controllers\ChatController::class, 'deleteConversation']

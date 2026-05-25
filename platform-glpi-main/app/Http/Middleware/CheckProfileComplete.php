@@ -11,6 +11,12 @@ class CheckProfileComplete
     {
         $user = auth()->user();
 
+        // Fix: si admin n'a pas encore profile_completed → le marquer true direct
+        if ($user && in_array($user->role, ['admin', 'super_admin']) && !$user->profile_completed) {
+            $user->update(['profile_completed' => true]);
+            $user->profile_completed = true; // refresh in-memory pour le if suivant
+        }
+
         if (
             $user &&
             $user->role === 'admin' &&

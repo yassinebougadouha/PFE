@@ -37,24 +37,19 @@ class SuperAdminController extends Controller
         $clientsActifs = \App\Models\User::where('role', 'client')
             ->where('is_active', true)->where('client_type', 'client')->count();
 
-        // CARD 3 : Tickets soumis aujourd'hui
-        $tz = config('app.timezone', 'Africa/Tunis');
-        $startOfDay = now()->timezone($tz)->startOfDay()->utc();
-        $endOfDay   = now()->timezone($tz)->endOfDay()->utc();
-        $ticketsAujourdhui = $collection->filter(fn($t) =>
-            \Carbon\Carbon::parse($t->created_at)->between($startOfDay, $endOfDay)
-        )->count();
+        // CARD 3 : Tickets soumis aujourd'hui — depuis BD locale (fiable)
+        $ticketsAujourdhui = \App\Models\Ticket::whereDate('created_at', today())->count();
 
-        // CARD 4 : Tickets non résolus
-        $ticketsNonResolus = $collection->filter(fn($t) => !in_array($t->sync_status, ['resolved', 'closed']))->count();
+        // CARD 4 : Tickets non résolus — depuis BD locale
+        $ticketsNonResolus = \App\Models\Ticket::whereNotIn('sync_status', ['resolved', 'closed'])->count();
 
-        // Stats from GLPI
-        $totalTickets      = $collection->count();
-        $openTickets       = $collection->filter(fn($t) => $t->sync_status === 'pending')->count();
-        $inProgressTickets = $collection->filter(fn($t) => $t->sync_status === 'in_progress')->count();
-        $closedTickets     = $collection->filter(fn($t) => in_array($t->sync_status, ['resolved', 'closed']))->count();
+        // Stats depuis BD locale (fiable)
+        $totalTickets      = \App\Models\Ticket::count();
+        $openTickets       = \App\Models\Ticket::where('sync_status', 'pending')->count();
+        $inProgressTickets = \App\Models\Ticket::where('sync_status', 'in_progress')->count();
+        $closedTickets     = \App\Models\Ticket::whereIn('sync_status', ['resolved', 'closed'])->count();
 
-        // Tickets urgents (priorité >= 3 en GLPI = haute/critique)
+        // ── Tickets urgents — depuis BD locale (fiable, pas GLPI) ──
         $slaMap = [
             5 => (int) \App\Models\Setting::get('sla_très haute', '4'),
             4 => (int) \App\Models\Setting::get('sla_haute',      '8'),
@@ -62,14 +57,23 @@ class SuperAdminController extends Controller
             2 => (int) \App\Models\Setting::get('sla_basse',      '48'),
             1 => (int) \App\Models\Setting::get('sla_basse',      '48'),
         ];
-        $urgentTickets = $collection
-            ->filter(fn($t) => in_array($t->sync_status, ['pending', 'in_progress']) && (int)$t->priority >= 4)
-            ->sortBy('created_at')
+
+        $urgentTickets = \App\Models\Ticket::with('user')
+            ->whereIn('sync_status', ['pending', 'in_progress'])
+            ->where(function ($q) {
+                $q->where('priority', '>=', 4)
+                  ->orWhere(function ($q2) {
+                      $q2->where('priority', '>=', 3)
+                         ->where('created_at', '<=', now()->subHours(20));
+                  });
+            })
+            ->orderByDesc('priority')
+            ->orderBy('created_at')
             ->take(20)
+            ->get()
             ->map(function ($t) use ($slaMap) {
-                $created   = \Carbon\Carbon::parse($t->created_at);
-                $hoursOpen = (int) round($created->floatDiffInHours(now()));
-                $slaLimit  = $slaMap[(int)$t->priority] ?? 8;
+                $hoursOpen = (int) round($t->created_at->floatDiffInHours(now()));
+                $slaLimit  = $slaMap[$t->priority] ?? 8;
                 $slaUsed   = $slaLimit > 0 ? round(($hoursOpen / $slaLimit) * 100, 1) : 100;
                 $hoursLeft = $slaLimit - $hoursOpen;
                 $t->sla_limit      = $slaLimit;
@@ -98,29 +102,46 @@ class SuperAdminController extends Controller
                              ->take(5)
                              ->get();
 
-        $recentTickets = $collection->sortByDesc('created_at')->take(8)->values();
+        // Depuis BD locale (fiable) — même logique que AdminController
+        $recentTickets = \App\Models\Ticket::with('user')->latest()->take(10)->get();
 
+        // ── Tickets par mois — BD locale (fiable) avec fallback GLPI ──
         $ticketsByMonth = [];
         for ($i = 5; $i >= 0; $i--) {
             $month = now()->timezone('Africa/Tunis')->subMonths($i);
-            $count = $collection->filter(fn($t) =>
-                \Carbon\Carbon::parse($t->created_at)->year === (int)$month->year
-                && \Carbon\Carbon::parse($t->created_at)->month === (int)$month->month
-            )->count();
+
+            // BD locale en priorité
+            $count = \App\Models\Ticket::whereYear('created_at', $month->year)
+                ->whereMonth('created_at', $month->month)
+                ->count();
+
+            // Si BD locale vide, essayer GLPI
+            if ($count === 0 && $collection->isNotEmpty()) {
+                $count = $collection->filter(function ($t) use ($month) {
+                    try {
+                        $d = \Carbon\Carbon::parse($t->created_at ?? $t->date ?? null);
+                        return $d->year === (int) $month->year
+                            && $d->month === (int) $month->month;
+                    } catch (\Exception $e) {
+                        return false;
+                    }
+                })->count();
+            }
+
             $ticketsByMonth[] = [
                 'month' => $month->locale('fr')->isoFormat('MMM YYYY'),
                 'count' => $count,
             ];
         }
 
-        // Admin performance (still from GLPI, grouped by assigned_to)
-        $adminUsers     = \App\Models\User::where('role', 'admin')->where('is_active', true)->get();
+        // Admin performance (from GLPI, grouped by assigned_to)
+        $adminUsers       = \App\Models\User::where('role', 'admin')->where('is_active', true)->get();
         $adminPerformance = $adminUsers->map(function ($admin) use ($collection) {
-            $glpiId = (int)$admin->glpi_user_id;
-            $myTix = $collection->filter(fn($t) => (int)$t->assigned_to === $glpiId);
-            $resolved    = $myTix->filter(fn($t) => in_array($t->sync_status, ['resolved', 'closed']))->count();
-            $pending     = $myTix->filter(fn($t) => $t->sync_status === 'pending')->count();
-            $inprogress  = $myTix->filter(fn($t) => $t->sync_status === 'in_progress')->count();
+            $glpiId     = (int) $admin->glpi_user_id;
+            $myTix      = $collection->filter(fn($t) => (int) $t->assigned_to === $glpiId);
+            $resolved   = $myTix->filter(fn($t) => in_array($t->sync_status, ['resolved', 'closed']))->count();
+            $pending    = $myTix->filter(fn($t) => $t->sync_status === 'pending')->count();
+            $inprogress = $myTix->filter(fn($t) => $t->sync_status === 'in_progress')->count();
             $admin->resolved_tickets   = $resolved;
             $admin->pending_tickets    = $pending;
             $admin->inprogress_tickets = $inprogress;
@@ -129,10 +150,8 @@ class SuperAdminController extends Controller
         });
 
         return view('super-admin.dashboard', compact(
-            // Cards
             'reclamationsExternes', 'clientsActifs', 'ticketsAujourdhui', 'ticketsNonResolus',
             'urgentTickets',
-            // Données existantes
             'totalUsers', 'totalAdmins', 'totalClients', 'totalTickets',
             'openTickets', 'inProgressTickets', 'closedTickets',
             'recentUsers', 'recentAdmins', 'recentClients',
@@ -158,11 +177,11 @@ class SuperAdminController extends Controller
                 'version'  => $config['glpi_version'] ?? 'N/A',
             ];
 
-            $glpiUsers = $glpi->getAllItems('User', ['range' => '0-999']);
+            $glpiUsers        = $glpi->getAllItems('User', ['range' => '0-999']);
             $stats['total_users'] = count($glpiUsers);
 
-            $glpiCats = $glpi->getAllItems('ITILCategory', ['range' => '0-999']);
-            $stats['categories'] = count($glpiCats);
+            $glpiCats             = $glpi->getAllItems('ITILCategory', ['range' => '0-999']);
+            $stats['categories']  = count($glpiCats);
 
             $glpi->killSession();
 
@@ -221,14 +240,47 @@ class SuperAdminController extends Controller
         $plainPassword = $request->password;
 
         $admin = User::create([
-            'name'                => $request->name,
-            'email'               => $request->email,
-            'password'            => Hash::make($plainPassword),
-            'role'                => 'admin',
-            'is_active'           => true,
-            'must_change_password'=> true,
-            'profile_completed'   => false,
+            'name'                 => $request->name,
+            'email'                => $request->email,
+            'password'             => Hash::make($plainPassword),
+            'role'                 => 'admin',
+            'is_active'            => true,
+            'must_change_password' => true,
+            'profile_completed'    => false,
         ]);
+
+        // Créer admin dans GLPI
+        try {
+            $glpi       = app(\App\Services\GlpiService::class);
+            $glpiResult = $glpi->createUser([
+                'name'      => $admin->email,
+                'realname'  => $admin->name,
+                'email'     => $admin->email,
+                'password'  => $plainPassword,
+                'password2' => $plainPassword,
+                'is_active' => 1,
+            ]);
+            if (!empty($glpiResult['id'])) {
+                $admin->update(['glpi_user_id' => $glpiResult['id']]);
+                $glpi->assignProfileToUser($glpiResult['id'], 'Admin');
+            }
+        } catch (\Exception $e) {
+            \Log::error('GLPI admin creation failed: ' . $e->getMessage());
+        }
+
+        // Sync avec Python backend
+        try {
+            $pythonRole = 'AGENT';
+            \Illuminate\Support\Facades\Http::timeout(5)
+                ->withHeaders(['X-Service-Key' => 'change-me-internal-key'])
+                ->post(config('services.support_api.base_url') . '/api/v1/internal/sync-laravel-user', [
+                    'laravel_user_id' => $admin->id,
+                    'email'           => $admin->email,
+                    'role'            => $pythonRole,
+                ]);
+        } catch (\Exception $e) {
+            \Log::warning('Python sync failed for new admin: ' . $e->getMessage());
+        }
 
         AuditLog::log('CREATE', 'Users', "Création admin: {$request->name} ({$request->email})");
 
@@ -332,22 +384,19 @@ class SuperAdminController extends Controller
     {
         $query = User::where('role', 'client')->withCount('tickets');
 
-        // Filter by client_type: 'client' ou 'user'
         if (request('client_type')) {
             $query->where('client_type', request('client_type'));
         }
 
-        // Filter by active status
         if (request('active') === '1') {
             $query->where('is_active', true);
         } elseif (request('active') === '0') {
             $query->where('is_active', false);
         }
 
-        // Search
         if (request('search')) {
             $q = request('search');
-            $query->where(function($sub) use ($q) {
+            $query->where(function ($sub) use ($q) {
                 $sub->where('name',  'ilike', "%{$q}%")
                     ->orWhere('email', 'ilike', "%{$q}%");
             });
@@ -357,7 +406,6 @@ class SuperAdminController extends Controller
         $totalClients  = User::where('role', 'client')->count();
         $activeClients = User::where('role', 'client')->where('is_active', true)->count();
 
-        // Stats by client_type (2 types seulement)
         $countClient = User::where('role', 'client')->where('client_type', 'client')->count();
         $countUser   = User::where('role', 'client')->where('client_type', 'user')->count();
         $countNull   = User::where('role', 'client')->whereNull('client_type')->count();
@@ -377,7 +425,6 @@ class SuperAdminController extends Controller
         return view('super-admin.client-detail', compact('client', 'tickets'));
     }
 
-    // AJAX: update client_type — seulement 'client' ou 'user'
     public function updateClientType(\Illuminate\Http\Request $request, $id)
     {
         $client = User::where('role', 'client')->findOrFail($id);
@@ -387,6 +434,16 @@ class SuperAdminController extends Controller
 
         AuditLog::log('UPDATE USER', 'Users',
             "Type client {$client->name}: {$oldType} → {$request->client_type}");
+
+        if ($client->glpi_user_id) {
+            try {
+                $glpiProfile = $request->client_type === 'client' ? 'Client' : 'Observer';
+                app(GlpiService::class)->assignProfileToUser($client->glpi_user_id, $glpiProfile);
+                \Log::info("[SuperAdminController] GLPI profile mis à jour pour {$client->email}: {$glpiProfile}");
+            } catch (\Exception $e) {
+                \Log::warning("[SuperAdminController] GLPI profile sync failed: " . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'success'     => true,
@@ -417,7 +474,6 @@ class SuperAdminController extends Controller
         return redirect()->back()->with('success', "Client {$status} avec succès!");
     }
 
-    // AJAX: tickets d'un client pour le drawer
     public function clientTickets($id)
     {
         $client = User::where('role', 'client')->findOrFail($id);
@@ -453,72 +509,61 @@ class SuperAdminController extends Controller
     // ==================== TICKETS ====================
     public function tickets()
     {
-        $glpi = app(GlpiService::class);
-        try {
-            $glpi->initSession();
-            $allTickets = $glpi->getTransformedTickets(['range' => '0-9999', 'order' => 'DESC']);
-            $glpi->killSession();
-        } catch (\Exception $e) {
-            \Log::error('GLPI tickets fetch failed: ' . $e->getMessage());
-            $allTickets = [];
-        }
-
-        $collection = collect($allTickets);
+        $query = \App\Models\Ticket::with('user')->latest();
 
         $status = request('status');
         if ($status === 'resolved') {
-            $collection = $collection->filter(fn($t) => in_array($t->sync_status, ['resolved', 'closed']));
+            $query->whereIn('sync_status', ['resolved', 'closed']);
         } elseif ($status) {
-            $collection = $collection->where('sync_status', $status);
+            $query->where('sync_status', $status);
         }
 
         if ($search = request('search')) {
-            $q = strtolower($search);
-            $collection = $collection->filter(fn($t) =>
-                str_contains(strtolower($t->title), $q)
-                || str_contains(strtolower($t->description), $q)
-                || str_contains(strtolower($t->user->name ?? ''), $q)
-                || str_contains(strtolower($t->user->email ?? ''), $q)
-            );
+            $q = $search;
+            $query->where(function ($sq) use ($q) {
+                $sq->where('title', 'ilike', "%{$q}%")
+                   ->orWhere('description', 'ilike', "%{$q}%")
+                   ->orWhereHas('user', fn($u) => $u->where('name', 'ilike', "%{$q}%")
+                       ->orWhere('email', 'ilike', "%{$q}%"));
+            });
         }
 
-        $hasAnyFilter = request()->hasAny(['search','status','date_from','date_to','priority','client_type']);
+        $hasAnyFilter = request()->hasAny(['search', 'status', 'date_from', 'date_to', 'priority', 'client_type']);
         $showAll      = request('all') === '1';
 
         if ($dateFrom = request('date_from')) {
-            $from = \Carbon\Carbon::parse($dateFrom)->startOfDay();
-            $collection = $collection->filter(fn($t) => \Carbon\Carbon::parse($t->created_at)->gte($from));
+            $query->where('created_at', '>=', \Carbon\Carbon::parse($dateFrom)->startOfDay());
         } elseif (!$showAll && !$hasAnyFilter) {
-            $today = now()->startOfDay();
-            $collection = $collection->filter(fn($t) => \Carbon\Carbon::parse($t->created_at)->gte($today));
+            $query->where('created_at', '>=', now()->startOfDay());
         }
 
         if ($dateTo = request('date_to')) {
-            $to = \Carbon\Carbon::parse($dateTo)->endOfDay();
-            $collection = $collection->filter(fn($t) => \Carbon\Carbon::parse($t->created_at)->lte($to));
+            $query->where('created_at', '<=', \Carbon\Carbon::parse($dateTo)->endOfDay());
         }
 
         if ($p = request('priority')) {
-            $collection = $collection->where('priority', (int) $p);
+            $query->where('priority', (int) $p);
         }
 
-        // Totals
-        $totalTickets      = count($allTickets);
-        $openTickets       = count(array_filter($allTickets, fn($t) => $t->sync_status === 'pending'));
-        $inProgressTickets = count(array_filter($allTickets, fn($t) => $t->sync_status === 'in_progress'));
-        $closedTickets     = count(array_filter($allTickets, fn($t) => in_array($t->sync_status, ['resolved', 'closed'])));
+        if ($ct = request('client_type')) {
+            $query->whereHas('user', fn($u) => $u->where('client_type', $ct));
+        }
+
+        $totalTickets      = \App\Models\Ticket::count();
+        $openTickets       = \App\Models\Ticket::where('sync_status', 'pending')->count();
+        $inProgressTickets = \App\Models\Ticket::where('sync_status', 'in_progress')->count();
+        $closedTickets     = \App\Models\Ticket::whereIn('sync_status', ['resolved', 'closed'])->count();
         $totalNonClass     = 0;
 
-        $page    = (int) request('page', 1);
-        $perPage = 20;
-        $slice   = $collection->slice(($page - 1) * $perPage, $perPage)->values();
-        $tickets = new \Illuminate\Pagination\LengthAwarePaginator(
-            $slice,
-            $collection->count(),
-            $perPage,
-            $page,
-            ['path' => request()->url(), 'query' => request()->query()]
-        );
+        $tickets = $query->paginate(20)->withQueryString();
+
+        $tickets->getCollection()->transform(function ($t) {
+            $t->status     = $t->sync_status;
+            $t->glpi_id    = $t->glpi_ticket_id;
+            $t->solution   = $t->solution ?? null;
+            $t->ai_analysis = null;
+            return $t;
+        });
 
         return view('super-admin.tickets', compact(
             'tickets', 'totalTickets', 'openTickets', 'inProgressTickets', 'closedTickets', 'totalNonClass'
@@ -530,25 +575,25 @@ class SuperAdminController extends Controller
         $glpi = app(GlpiService::class);
         try {
             $glpi->initSession();
-            $glpiTicket = $glpi->getItem('Ticket', (int) $id);
+            $glpiTicket    = $glpi->getItem('Ticket', (int) $id);
             $glpiFollowups = $glpi->getFollowups((int) $id);
             $glpiMultiData = ['ticket' => $glpiTicket, 'user' => [], 'category' => []];
             $glpi->killSession();
         } catch (\Exception $e) {
             \Log::error('GLPI fetch ticket failed: ' . $e->getMessage());
-            $glpiTicket = [];
+            $glpiTicket    = [];
             $glpiFollowups = [];
             $glpiMultiData = [];
         }
 
-        $status = GlpiService::mapGlpiStatusToLocal((int)($glpiTicket['status'] ?? 1));
+        $status = GlpiService::mapGlpiStatusToLocal((int) ($glpiTicket['status'] ?? 1));
         $ticket = (object) [
             'id'          => (int) $id,
             'glpi_id'     => (int) $id,
             'title'       => $glpiTicket['name'] ?? '',
             'description' => $glpiTicket['content'] ?? '',
             'sync_status' => $status,
-            'priority'    => (int)($glpiTicket['priority'] ?? 3),
+            'priority'    => (int) ($glpiTicket['priority'] ?? 3),
             'category'    => '',
             'solution'    => $glpiTicket['solution'] ?? null,
             'created_at'  => \Carbon\Carbon::parse($glpiTicket['date_creation'] ?? $glpiTicket['date'] ?? now()),
@@ -565,8 +610,8 @@ class SuperAdminController extends Controller
 
     public function updateTicketStatus(Request $request, $id)
     {
-        $ticket    = Ticket::findOrFail($id);
-        $oldStatus = $ticket->sync_status;
+        $ticket              = Ticket::findOrFail($id);
+        $oldStatus           = $ticket->sync_status;
         $ticket->sync_status = $request->status;
         $ticket->save();
 
@@ -658,15 +703,14 @@ class SuperAdminController extends Controller
                 break;
 
             case 'notifications':
-                Setting::set('mail_mode',            $request->mail_mode           ?? 'gmail');
-                Setting::set('gmail_from_email',     $request->gmail_from_email    ?? '');
-                Setting::set('smtp_from_name',       $request->smtp_from_name      ?? 'L2T Support');
-                Setting::set('smtp_username',        $request->gmail_from_email    ?? '');
-                Setting::set('smtp_from_email',      $request->gmail_from_email    ?? $request->smtp_from_email_field ?? '');
-                Setting::set('smtp_host',            $request->smtp_host           ?? 'smtp.gmail.com');
-                Setting::set('smtp_port',            $request->smtp_port           ?? '587');
-                Setting::set('smtp_encryption',      $request->smtp_encryption     ?? 'tls');
-                Setting::set('smtp_username',        $request->smtp_username       ?? $request->gmail_from_email ?? '');
+                Setting::set('mail_mode',            $request->mail_mode        ?? 'gmail');
+                Setting::set('gmail_from_email',     $request->gmail_from_email ?? '');
+                Setting::set('smtp_from_name',       $request->smtp_from_name   ?? 'L2T Support');
+                Setting::set('smtp_from_email',      $request->gmail_from_email ?? $request->smtp_from_email_field ?? '');
+                Setting::set('smtp_host',            $request->smtp_host        ?? 'smtp.gmail.com');
+                Setting::set('smtp_port',            $request->smtp_port        ?? '587');
+                Setting::set('smtp_encryption',      $request->smtp_encryption  ?? 'tls');
+                Setting::set('smtp_username',        $request->smtp_username    ?? $request->gmail_from_email ?? '');
                 if ($request->filled('smtp_password')) {
                     Setting::set('smtp_password', encrypt($request->smtp_password));
                 }
@@ -689,17 +733,17 @@ class SuperAdminController extends Controller
                 break;
 
             case 'sms':
-                Setting::set('sms_api_url',        $request->sms_api_url       ?? '');
-                Setting::set('sms_api_key',        $request->sms_api_key       ?? '');
-                Setting::set('sms_sender',         $request->sms_sender        ?? 'L2T');
-                Setting::set('sms_api_type',       $request->sms_api_type      ?? 'get');
-                Setting::set('sms_max_chars',      (string)(max(50, min(160, (int)($request->sms_max_chars ?? 150)))));
-                Setting::set('sms_fct',            $request->sms_fct           ?? 'sms');
-                Setting::set('sms_param_fct',      $request->sms_param_fct     ?? 'fct');
-                Setting::set('sms_param_key',      $request->sms_param_key     ?? 'key');
-                Setting::set('sms_param_sender',   $request->sms_param_sender  ?? 'sender');
-                Setting::set('sms_param_mobile',   $request->sms_param_mobile  ?? 'mobile');
-                Setting::set('sms_param_msg',      $request->sms_param_msg     ?? 'sms');
+                Setting::set('sms_api_url',              $request->sms_api_url      ?? '');
+                Setting::set('sms_api_key',              $request->sms_api_key      ?? '');
+                Setting::set('sms_sender',               $request->sms_sender       ?? 'L2T');
+                Setting::set('sms_api_type',             $request->sms_api_type     ?? 'get');
+                Setting::set('sms_max_chars',            (string) (max(50, min(160, (int) ($request->sms_max_chars ?? 150)))));
+                Setting::set('sms_fct',                  $request->sms_fct          ?? 'sms');
+                Setting::set('sms_param_fct',            $request->sms_param_fct    ?? 'fct');
+                Setting::set('sms_param_key',            $request->sms_param_key    ?? 'key');
+                Setting::set('sms_param_sender',         $request->sms_param_sender ?? 'sender');
+                Setting::set('sms_param_mobile',         $request->sms_param_mobile ?? 'mobile');
+                Setting::set('sms_param_msg',            $request->sms_param_msg    ?? 'sms');
                 Setting::set('sms_notify_new_ticket',    $request->has('sms_notify_new_ticket')    ? '1' : '0');
                 Setting::set('sms_notify_status_change', $request->has('sms_notify_status_change') ? '1' : '0');
                 Setting::set('sms_notify_reply',         $request->has('sms_notify_reply')         ? '1' : '0');
@@ -721,7 +765,7 @@ class SuperAdminController extends Controller
                 return redirect()->route('super-admin.settings', ['tab' => 'system'])->with('success', 'Application optimisée ✓');
 
             case 'glpi':
-                Setting::set('glpi_url', $request->glpi_url ?? '');
+                Setting::set('glpi_url',       $request->glpi_url       ?? '');
                 Setting::set('glpi_app_token', $request->glpi_app_token ?? '');
                 if ($request->filled('glpi_user_token')) {
                     Setting::set('glpi_user_token', encrypt($request->glpi_user_token));
@@ -748,11 +792,7 @@ class SuperAdminController extends Controller
                             \Illuminate\Support\Facades\DB::table('category_admin_mappings')
                                 ->updateOrInsert(
                                     ['category' => $category],
-                                    [
-                                        'admin_id'   => $adminId,
-                                        'updated_at' => now(),
-                                        'created_at' => now(),
-                                    ]
+                                    ['admin_id' => $adminId, 'updated_at' => now(), 'created_at' => now()]
                                 );
                         } else {
                             \Illuminate\Support\Facades\DB::table('category_admin_mappings')
@@ -878,10 +918,9 @@ class SuperAdminController extends Controller
     public function syncCategories()
     {
         try {
-            $glpi = app(\App\Services\GlpiService::class);
-            $cats = $glpi->getCategories();
+            $glpi   = app(\App\Services\GlpiService::class);
+            $cats   = $glpi->getCategories();
             $glpi->killSession();
-
             $synced = 0;
             foreach ($cats as $cat) {
                 \DB::table('itil_categories')->updateOrInsert(
@@ -890,7 +929,6 @@ class SuperAdminController extends Controller
                 );
                 $synced++;
             }
-
             return response()->json(['success' => true, 'synced' => $synced]);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()]);
@@ -901,10 +939,10 @@ class SuperAdminController extends Controller
     public function syncUsers()
     {
         try {
-            $glpi  = app(\App\Services\GlpiService::class);
-            $users = \App\Models\User::whereIn('role', ['admin', 'client'])->get();
-            $ok    = 0;
-            $fail  = 0;
+            $glpi    = app(\App\Services\GlpiService::class);
+            $users   = \App\Models\User::whereIn('role', ['admin', 'client'])->get();
+            $ok      = 0;
+            $fail    = 0;
             $results = [];
 
             foreach ($users as $user) {
@@ -919,7 +957,6 @@ class SuperAdminController extends Controller
             }
 
             $glpi->killSession();
-
             \App\Models\AuditLog::log('SYNC', 'Users', "Sync GLPI: {$ok} ok, {$fail} echecs");
 
             return response()->json([
@@ -932,10 +969,7 @@ class SuperAdminController extends Controller
 
         } catch (\Exception $e) {
             \Log::error('syncUsers failed: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error'   => $e->getMessage(),
-            ], 500);
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
@@ -952,7 +986,7 @@ class SuperAdminController extends Controller
 
             $created = count(array_filter($results, fn($r) => $r['status'] === 'created'));
             $exists  = count(array_filter($results, fn($r) => $r['status'] === 'exists'));
-            $skipped = count(array_filter($results, fn($r) => in_array($r['status'], ['skip','error'])));
+            $skipped = count(array_filter($results, fn($r) => in_array($r['status'], ['skip', 'error'])));
 
             \App\Models\AuditLog::log('IMPORT', 'Users',
                 "Import GLPI: {$created} crees, {$exists} existants, {$skipped} ignores"
@@ -969,10 +1003,7 @@ class SuperAdminController extends Controller
 
         } catch (\Exception $e) {
             \Log::error('importUsersFromGlpi failed: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error'   => $e->getMessage(),
-            ], 500);
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
     }
 
@@ -991,7 +1022,7 @@ class SuperAdminController extends Controller
 
     public function listChatOperators(\Illuminate\Http\Request $request)
     {
-        $search = trim((string) $request->query('search', ''));
+        $search     = trim((string) $request->query('search', ''));
         $roleFilter = strtoupper((string) $request->query('role', 'ALL'));
 
         $query = \App\Models\User::query()
@@ -1012,20 +1043,17 @@ class SuperAdminController extends Controller
         $users = $query->get()->map(function (\App\Models\User $u) {
             $isActive = (bool) $u->is_active;
             return [
-                'id' => (string) $u->id,
-                'full_name' => $u->name,
-                'email' => $u->email,
-                'role' => strtoupper((string) $u->role),
+                'id'                      => (string) $u->id,
+                'full_name'               => $u->name,
+                'email'                   => $u->email,
+                'role'                    => strtoupper((string) $u->role),
                 'can_reply_conversations' => $isActive,
-                'can_reply_whatsapp' => $isActive,
-                'is_active' => $isActive,
+                'can_reply_whatsapp'      => $isActive,
+                'is_active'               => $isActive,
             ];
         })->values();
 
-        return response()->json([
-            'users' => $users,
-            'total' => $users->count(),
-        ]);
+        return response()->json(['users' => $users, 'total' => $users->count()]);
     }
 
     public function updateChatOperatorAccess(\Illuminate\Http\Request $request, \App\Models\User $user)
@@ -1040,31 +1068,28 @@ class SuperAdminController extends Controller
 
         $validated = $request->validate([
             'can_reply_conversations' => 'sometimes|boolean',
-            'can_reply_whatsapp' => 'sometimes|boolean',
+            'can_reply_whatsapp'      => 'sometimes|boolean',
         ]);
 
         $currentConv = (bool) $user->is_active;
-        $currentWa = (bool) $user->is_active;
-        $nextConv = array_key_exists('can_reply_conversations', $validated)
-            ? (bool) $validated['can_reply_conversations']
-            : $currentConv;
-        $nextWa = array_key_exists('can_reply_whatsapp', $validated)
-            ? (bool) $validated['can_reply_whatsapp']
-            : $currentWa;
+        $currentWa   = (bool) $user->is_active;
+        $nextConv    = array_key_exists('can_reply_conversations', $validated)
+            ? (bool) $validated['can_reply_conversations'] : $currentConv;
+        $nextWa      = array_key_exists('can_reply_whatsapp', $validated)
+            ? (bool) $validated['can_reply_whatsapp'] : $currentWa;
 
-        // Laravel user table has no channel-specific flags; use active state as unified access.
         $user->is_active = $nextConv && $nextWa;
         $user->save();
 
         $isActive = (bool) $user->is_active;
         return response()->json([
-            'id' => (string) $user->id,
-            'full_name' => $user->name,
-            'email' => $user->email,
-            'role' => strtoupper((string) $user->role),
+            'id'                      => (string) $user->id,
+            'full_name'               => $user->name,
+            'email'                   => $user->email,
+            'role'                    => strtoupper((string) $user->role),
             'can_reply_conversations' => $isActive,
-            'can_reply_whatsapp' => $isActive,
-            'is_active' => $isActive,
+            'can_reply_whatsapp'      => $isActive,
+            'is_active'               => $isActive,
         ]);
     }
 
@@ -1084,8 +1109,7 @@ class SuperAdminController extends Controller
                   ->orWhere('email', 'like', "%{$search}%");
             });
         }
-        $users = $usersQuery->orderBy('name')->get();
-
+        $users        = $usersQuery->orderBy('name')->get();
         $selectedUser = $selectedUserId ? \App\Models\User::find($selectedUserId) : null;
         $messages     = collect();
 
@@ -1094,9 +1118,7 @@ class SuperAdminController extends Controller
                 ->orderBy('created_at')->get();
         }
 
-        return view('super-admin.chat-access', compact(
-            'users', 'selectedUser', 'messages', 'type', 'search'
-        ));
+        return view('super-admin.chat-access', compact('users', 'selectedUser', 'messages', 'type', 'search'));
     }
 
     public function chatShow(\Illuminate\Http\Request $request, $userId)
@@ -1114,8 +1136,7 @@ class SuperAdminController extends Controller
                   ->orWhere('email', 'like', "%{$search}%");
             });
         }
-        $users = $usersQuery->orderBy('name')->get();
-
+        $users        = $usersQuery->orderBy('name')->get();
         $selectedUser = \App\Models\User::findOrFail($userId);
         $messages     = collect();
 
@@ -1124,153 +1145,154 @@ class SuperAdminController extends Controller
                 ->orderBy('created_at')->get();
         }
 
-        return view('super-admin.chat-access', compact(
-            'users', 'selectedUser', 'messages', 'type', 'search'
-        ));
+        return view('super-admin.chat-access', compact('users', 'selectedUser', 'messages', 'type', 'search'));
     }
 
     public function grantChatAccess(\Illuminate\Http\Request $r)  { return response()->json(['ok' => true]); }
     public function revokeChatAccess(\Illuminate\Http\Request $r) { return response()->json(['ok' => true]); }
     public function listChatAccess(\Illuminate\Http\Request $r)   { return response()->json(['users' => []]); }
 
-    public function whatsapp()
-    {
-        return view('admin.whatsapp');
-    }
+    public function whatsapp()   { return view('admin.whatsapp'); }
+    public function escalations() { return view('admin.escalations'); }
 
-    public function escalations()
+     public function conversations()
     {
-        return view('admin.escalations');
-    }
-
-    public function conversations()
-    {
-        $channel = request('channel', '');
-        $convs   = [];
-        $chatCount = 0;
-        $wappCount = 0;
+        $convs = [];
         try {
-            $resp = $this->apiClient()->timeout(15)->get(
+            $resp  = $this->apiClient()->timeout(15)->get(
                 $this->apiUrl('conversations'),
-                ['skip' => 0, 'limit' => 200]
+                ['skip' => 0, 'limit' => 500]
             );
-            $body = $resp->json();
-            $all = is_array($body) ? ($body['conversations'] ?? $body) : [];
-
-            foreach ($all as $c) {
-                $ch = strtolower($c['channel'] ?? $c['channel_source'] ?? '');
-                if (str_contains($ch, 'whatsapp')) $wappCount++;
-                else $chatCount++;
-            }
-
-            if ($channel === 'whatsapp') {
-                $convs = array_filter($all, fn($c) =>
-                    str_contains(strtolower($c['channel'] ?? $c['channel_source'] ?? ''), 'whatsapp')
-                );
-            } elseif ($channel === 'chat') {
-                $convs = array_filter($all, fn($c) =>
-                    !str_contains(strtolower($c['channel'] ?? $c['channel_source'] ?? ''), 'whatsapp')
-                );
-            } else {
-                $convs = $all;
-            }
-            $convs = array_slice(array_values($convs), 0, 50);
+            $body  = $resp->json();
+            $convs = is_array($body)
+                ? ($body['conversations'] ?? $body['items'] ?? $body)
+                : [];
+            $convs = array_values(array_filter($convs, fn($c) => is_array($c)));
         } catch (\Exception $e) {
             \Log::error('Conversations fetch failed: ' . $e->getMessage());
         }
-        return view('super-admin.conversations', compact('convs', 'channel', 'chatCount', 'wappCount'));
+        return view('super-admin.conversations', compact('convs'));
     }
-
+ 
     public function conversationDetail($id)
     {
         $messages = [];
-        $conv = null;
-        $convs = [];
+        $conv     = null;
+        $convs    = [];
         try {
-            $conv = $this->apiClient()->timeout(15)->get(
-                $this->apiUrl("conversations/{$id}")
-            )->json();
-
-            $msgBody = $this->apiClient()->timeout(15)->get(
+            $conv = $this->apiClient()->timeout(15)
+                ->get($this->apiUrl("conversations/{$id}"))
+                ->json();
+ 
+            $msgBody  = $this->apiClient()->timeout(15)->get(
                 $this->apiUrl("conversations/{$id}/messages"),
-                ['skip' => 0, 'limit' => 100]
+                ['skip' => 0, 'limit' => 200]
             )->json();
-            $messages = is_array($msgBody) ? (isset($msgBody[0]) ? $msgBody : ($msgBody['messages'] ?? [])) : [];
-
+            $messages = is_array($msgBody)
+                ? ($msgBody['messages'] ?? $msgBody['items'] ?? (isset($msgBody[0]) ? $msgBody : []))
+                : [];
+ 
             $listBody = $this->apiClient()->timeout(15)->get(
                 $this->apiUrl('conversations'),
-                ['skip' => 0, 'limit' => 50]
+                ['skip' => 0, 'limit' => 500]
             )->json();
-            $convs = is_array($listBody) ? ($listBody['conversations'] ?? $listBody) : [];
-            $convs = array_slice(array_values($convs), 0, 50);
+            $convs = is_array($listBody)
+                ? ($listBody['conversations'] ?? $listBody['items'] ?? $listBody)
+                : [];
+            $convs = array_values(array_filter($convs, fn($c) => is_array($c)));
         } catch (\Exception $e) {
             \Log::error('Conversation detail fetch failed: ' . $e->getMessage());
         }
         return view('super-admin.conversation-detail', compact('conv', 'messages', 'id', 'convs'));
     }
 
-    public function rag()
+    public function conversationsForUser(int $userId)
     {
-        return view('super-admin.rag');
+        $type = request('type', 'admin'); // 'admin' | 'client'
+        $user = \App\Models\User::findOrFail($userId);
+ 
+        $convs = [];
+        try {
+            // Paramètre selon le type :
+            // admin  → agent_id  (convs assignées à cet agent)
+            // client → user_id   (convs initiées par ce client)
+            if ($type === 'admin') {
+                $params = [
+                    'skip'     => 0,
+                    'limit'    => 500,
+                    'agent_id' => (string) $userId,
+                ];
+            } else {
+                $params = [
+                    'skip'    => 0,
+                    'limit'   => 500,
+                    'user_id' => (string) $userId,
+                ];
+            }
+ 
+            $resp = $this->apiClient()->timeout(15)->get(
+                $this->apiUrl('conversations'),
+                $params
+            );
+ 
+            $body  = $resp->json();
+            $convs = is_array($body)
+                ? ($body['conversations'] ?? $body['items'] ?? $body)
+                : [];
+            $convs = array_values(array_filter($convs, fn($c) => is_array($c)));
+ 
+        } catch (\Exception $e) {
+            \Log::error("conversationsForUser({$userId}) failed: " . $e->getMessage());
+        }
+ 
+        return response()->json([
+            'conversations' => $convs,
+            'total'         => count($convs),
+            'user_id'       => $userId,
+            'type'          => $type,
+        ]);
     }
 
-    /**
-     * RAG API Proxies
-     */
-    public function ragStats()
-    {
-        return $this->jsonProxy('GET', '/rag/stats');
-    }
+    public function rag() { return view('super-admin.rag'); }
 
-    public function ragArticles(Request $request)
-    {
-        return $this->jsonProxy('GET', '/rag/articles', $request->all());
-    }
+    public function ragStats()                              { return $this->jsonProxy('GET', '/rag/stats'); }
+    public function ragArticles(Request $request)           { return $this->jsonProxy('GET', '/rag/articles', $request->all()); }
+    public function ragDocuments()                          { return $this->jsonProxy('GET', '/rag/documents'); }
+    public function deleteRagArticle(string $id)            { return $this->jsonProxy('DELETE', "/rag/articles/{$id}"); }
 
     public function uploadRagPdf(Request $request)
     {
         if (!$request->hasFile('file')) {
             return response()->json(['message' => 'File is required'], 422);
         }
-
-        $file = $request->file('file');
+        $file     = $request->file('file');
         $response = $this->apiClient()
             ->attach('file', file_get_contents($file->path()), $file->getClientOriginalName())
-            ->post($this->apiUrl('/rag/upload'));
-
-        return response($response->body(), $response->status())
-            ->header('Content-Type', 'application/json');
+            ->post($this->apiUrl('/rag/documents/upload'));
+        return response($response->body(), $response->status())->header('Content-Type', 'application/json');
     }
 
-    public function deleteRagArticle(string $id)
+    public function ingestRagPdf(Request $request)
     {
-        return $this->jsonProxy('DELETE', "/rag/articles/{$id}");
+        $response = $this->apiClient()
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->post($this->apiUrl('/rag/documents/ingest'), $request->all());
+        return response($response->body(), $response->status())->header('Content-Type', 'application/json');
     }
 
-    /**
-     * Escalation API Proxies
-     */
     public function getEscalations(Request $request)
     {
-        // Fetch escalated tickets from the backend
         return $this->jsonProxy('GET', '/tickets', array_merge($request->all(), ['escalated_only' => true]));
     }
 
-    public function getEscalationDetail(string $id)
-    {
-        return $this->jsonProxy('GET', "/tickets/{$id}");
-    }
-
-    public function resolveEscalation(Request $request, string $id)
-    {
-        return $this->jsonProxy('POST', "/tickets/{$id}/resolve", $request->all());
-    }
+    public function getEscalationDetail(string $id)        { return $this->jsonProxy('GET', "/tickets/{$id}"); }
+    public function resolveEscalation(Request $request, string $id) { return $this->jsonProxy('POST', "/tickets/{$id}/resolve", $request->all()); }
 
     private function jsonProxy(string $method, string $path, array $query = [])
     {
         $response = $this->apiClient()->send($method, $this->apiUrl($path), [
             'query' => $query,
-            'json'  => $method !== 'GET' ? $query : null
+            'json'  => $method !== 'GET' ? $query : null,
         ]);
         return response($response->body(), $response->status())
             ->header('Content-Type', $response->header('Content-Type', 'application/json'));
@@ -1279,11 +1301,10 @@ class SuperAdminController extends Controller
     private function apiClient()
     {
         $headers = ['Accept' => 'application/json'];
-        $token = config('services.support_api.bearer_token');
+        $token   = config('services.support_api.bearer_token');
         if ($token) {
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-
         return Http::timeout((int) config('services.support_api.timeout', 30))
             ->withHeaders($headers);
     }

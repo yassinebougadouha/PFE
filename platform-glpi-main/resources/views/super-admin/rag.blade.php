@@ -206,6 +206,7 @@
   animation: mopen .2s ease;
 }
 @keyframes mopen { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .modal-hdr {
   padding: 20px 24px 16px; border-bottom: 1px solid var(--rag-brd);
   display: flex; align-items: center; justify-content: space-between;
@@ -408,16 +409,6 @@
 
     {{-- PDF TAB --}}
     <div id="tab-pdfs" style="display:none;">
-      <div class="drop-zone" id="dropZone"
-        ondragover="event.preventDefault();this.classList.add('drag')"
-        ondragleave="this.classList.remove('drag')"
-        ondrop="handleDrop(event)"
-        onclick="document.getElementById('pdfInput').click()">
-        <input type="file" id="pdfInput" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)">
-        <div class="drop-icon">📄</div>
-        <div class="drop-title">Glissez vos PDFs ici</div>
-        <div class="drop-sub">ou cliquez pour sélectionner · PDF uniquement · Max 50 MB</div>
-      </div>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <div style="font-size:13px;font-weight:600;color:var(--rag-t2);" id="pdfCount">0 document</div>
@@ -560,6 +551,92 @@
   </div>
 </div>
 
+{{-- PDF IMPORT MODAL --}}
+<div id="modalPdf" style="display:none; position:fixed; inset:0; z-index:9999;
+  background:rgba(0,0,0,.5); backdrop-filter:blur(4px);
+  align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:18px; width:440px; max-width:95vw;
+    max-height:90vh; overflow-y:auto; box-shadow:0 24px 60px rgba(0,0,0,.25);
+    animation:mopen .2s ease; position:relative;">
+    <div class="modal-hdr">
+      <span class="modal-title">Importer un PDF</span>
+      <button class="modal-close" onclick="closePdfModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      {{-- Click zone --}}
+      <div id="modalDropZone" style="
+        border: 2px dashed var(--rag-brd); border-radius: 14px;
+        background: var(--rag-bg); padding: 32px 24px;
+        text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
+        margin-bottom: 16px;
+      " onclick="document.getElementById('pdfInputModal').click()"
+         ondragover="event.preventDefault(); this.style.borderColor='var(--rag-p)'; this.style.background='color-mix(in srgb, var(--rag-p) 5%, white)';"
+         ondragleave="this.style.borderColor='var(--rag-brd)'; this.style.background='var(--rag-bg)';"
+         ondrop="handleModalDrop(event)">
+        <input type="file" id="pdfInputModal" accept=".pdf" style="display:none" onchange="selectPdfFile(this.files[0])">
+        <div id="modalDropContent">
+          <div style="font-size:32px; margin-bottom:8px;">📄</div>
+          <div style="font-size:14px; font-weight:600; color:var(--rag-t1); margin-bottom:4px;">Glissez votre PDF ici ou cliquez</div>
+          <div style="font-size:12px; color:var(--rag-t4);">Max 50 MB · PDF uniquement</div>
+        </div>
+      </div>
+
+      {{-- Selected file display --}}
+      <div id="selectedFileRow" style="display:none; align-items:center; gap:10px;
+        background: var(--rag-bg); border: 1px solid var(--rag-brd); border-radius:10px;
+        padding: 10px 14px; margin-bottom:20px; cursor:pointer;"
+        onclick="document.getElementById('pdfInputModal').click()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--rag-p)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <div style="flex:1; min-width:0;">
+          <div id="selectedFileName" style="font-size:13px; font-weight:600; color:var(--rag-t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+          <div id="selectedFileSize" style="font-size:11px; color:var(--rag-t4); margin-top:1px;"></div>
+        </div>
+        <button onclick="event.stopPropagation(); clearPdfFile();" style="background:none;border:none;cursor:pointer;color:var(--rag-t4);font-size:16px;padding:2px;">✕</button>
+      </div>
+
+      {{-- Category & Language --}}
+      <div class="form-row" style="margin-bottom:16px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Catégorie</label>
+          <select class="form-select" id="pdfCategory">
+            <option value="GENERAL">Général</option>
+            <option value="TECHNICAL">Technique & API</option>
+            <option value="BILLING">Facturation</option>
+            <option value="ACCOUNT">Compte & Connexion</option>
+            <option value="SECURITY">Sécurité</option>
+            <option value="TROUBLESHOOTING">Dépannage</option>
+            <option value="FAQ">FAQ</option>
+            <option value="POLICY">Politiques</option>
+            <option value="ONBOARDING">Onboarding</option>
+            <option value="FEATURE_GUIDE">Guide des fonctionnalités</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Langue</label>
+          <select class="form-select" id="pdfLanguage">
+            <option value="fr">Français</option>
+            <option value="en">English</option>
+            <option value="ar">العربية</option>
+          </select>
+        </div>
+      </div>
+
+      {{-- Auto publish checkbox --}}
+      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:13px; color:var(--rag-t2); user-select:none;">
+        <input type="checkbox" id="pdfAutoPublish" checked style="width:15px;height:15px;accent-color:var(--rag-p); cursor:pointer;">
+        Publier automatiquement après ingestion
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-outline" onclick="closePdfModal()">Annuler</button>
+      <button class="btn-primary" id="pdfUploadBtn" onclick="uploadSelectedPdf()" disabled style="opacity:.5; cursor:not-allowed;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+        Uploader &amp; Ingérer
+      </button>
+    </div>
+  </div>
+</div>
+
 {{-- TOAST --}}
 <div class="toast" id="toast">
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
@@ -575,6 +652,7 @@ var stats = { articles: 0, pdfs: 0, chunks: 0, queries: 0 };
 
 var currentEditId = null;
 var apiBase = '/api/v1/rag';
+var pdfBase = '/super-admin/rag'; // PDF upload/ingest via Laravel controller (not wildcard proxy)
 
 // Pagination
 var pgSize = 10;
@@ -648,7 +726,7 @@ function switchTab(tab, btn) {
   var topAct = document.getElementById('topActions');
   if (tab === 'pdfs') {
     topAct.innerHTML = `
-      <button class="btn-primary" onclick="document.getElementById('pdfInput').click()">
+      <button class="btn-primary" onclick="openPdfModal()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Ajouter PDF
       </button>`;
@@ -1071,7 +1149,7 @@ function renderPdfs(list) {
             <div class="status-dot" style="background:${sColor};${p.status==='processing'?'animation:cpls 1s infinite;':''}"></div>
             <span style="font-size:11px;font-weight:600;color:${sColor};">${sLabel}</span>
           </div>
-          ${p.status==='indexed' ? `<span style="font-size:11px;color:var(--rag-t4);">${p.chunks_count || 0} chunks</span>` : ''}
+          ${p.status==='indexed' ? `<span style="font-size:11px;color:var(--rag-t4);">${p.chunk_count || 0} chunks</span>` : ''}
         </div>
         <div class="pdf-progress"><div class="pdf-progress-bar" style="width:${p.progress}%"></div></div>
       </div>
@@ -1152,7 +1230,155 @@ async function reindexAll() {
 
 function handleDrop(e) {
   e.preventDefault(); document.getElementById('dropZone').classList.remove('drag');
-  handleFiles(e.dataTransfer.files);
+  // Open modal with the dropped file
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'application/pdf') {
+    openPdfModal(file);
+  }
+}
+
+var selectedPdfFile = null;
+
+function openPdfModal(file) {
+  selectedPdfFile = null;
+  document.getElementById('selectedFileRow').style.display = 'none';
+  document.getElementById('modalDropContent').style.display = 'block';
+  var btn = document.getElementById('pdfUploadBtn');
+  btn.disabled = true; btn.style.opacity = '.5'; btn.style.cursor = 'not-allowed';
+  document.getElementById('pdfInputModal').value = '';
+  var m = document.getElementById('modalPdf');
+  m.style.display = 'flex';
+  // close on backdrop click
+  m.onclick = function(e) { if (e.target === m) closePdfModal(); };
+  if (file) selectPdfFile(file);
+}
+
+function closePdfModal() {
+  document.getElementById('modalPdf').style.display = 'none';
+}
+
+function handleModalDrop(e) {
+  e.preventDefault();
+  document.getElementById('modalDropZone').style.borderColor = 'var(--rag-brd)';
+  document.getElementById('modalDropZone').style.background = 'var(--rag-bg)';
+  const file = e.dataTransfer.files[0];
+  if (file) selectPdfFile(file);
+}
+
+function selectPdfFile(file) {
+  if (!file || file.type !== 'application/pdf') {
+    toast('Veuillez sélectionner un fichier PDF');
+    return;
+  }
+  selectedPdfFile = file;
+  document.getElementById('selectedFileName').textContent = file.name;
+  document.getElementById('selectedFileSize').textContent = (file.size / (1024*1024)).toFixed(1) + ' MB';
+  document.getElementById('selectedFileRow').style.display = 'flex';
+  document.getElementById('modalDropContent').style.display = 'none';
+  document.getElementById('pdfUploadBtn').disabled = false;
+  document.getElementById('pdfUploadBtn').style.opacity = '1';
+  document.getElementById('pdfUploadBtn').style.cursor = 'pointer';
+}
+
+function clearPdfFile() {
+  selectedPdfFile = null;
+  document.getElementById('selectedFileRow').style.display = 'none';
+  document.getElementById('modalDropContent').style.display = 'block';
+  document.getElementById('pdfInputModal').value = '';
+  document.getElementById('pdfUploadBtn').disabled = true;
+  document.getElementById('pdfUploadBtn').style.opacity = '.5';
+  document.getElementById('pdfUploadBtn').style.cursor = 'not-allowed';
+}
+
+async function uploadSelectedPdf() {
+  if (!selectedPdfFile) return;
+
+  const btn = document.getElementById('pdfUploadBtn');
+  const category = document.getElementById('pdfCategory').value;
+  const language = document.getElementById('pdfLanguage').value;
+  const autoPublish = document.getElementById('pdfAutoPublish').checked;
+  const filename = selectedPdfFile.name;
+
+  const spinSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`;
+  const uploadSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`;
+
+  function resetBtn() {
+    btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
+    btn.innerHTML = uploadSvg + ' Uploader &amp; Ingérer';
+  }
+
+  btn.disabled = true; btn.style.opacity = '.8'; btn.style.cursor = 'not-allowed';
+
+  try {
+    // ── ÉTAPE 1 : Upload du fichier ──────────────────────
+    btn.innerHTML = spinSvg + ' Envoi du PDF...';
+    const formData = new FormData();
+    formData.append('file', selectedPdfFile);
+
+    const uploadRes = await fetch(`${pdfBase}/documents/upload`, {
+      method: 'POST',
+      headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+      body: formData
+    });
+
+    if (!uploadRes.ok) {
+      const errData = await uploadRes.json().catch(() => ({}));
+      console.error('Upload error response:', uploadRes.status, errData);
+      const detail = errData.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map(e => (e.msg || e.message || JSON.stringify(e))).join(' | ')
+        : (typeof detail === 'string' ? detail : errData.message || errData.error || ('Erreur upload ' + uploadRes.status));
+      toast('❌ Upload ' + uploadRes.status + ': ' + msg);
+      resetBtn(); return;
+    }
+
+    console.log('✅ Upload OK, starting ingest for:', filename);
+
+    // ── ÉTAPE 2 : Ingestion (extraction + indexation) ────
+    btn.innerHTML = spinSvg + ' Ingestion en cours...';
+    const ingestRes = await fetch(`${apiBase}/documents/ingest`, {
+      method: 'POST',
+      headers: {
+        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        filename: filename,
+        category: category,
+        language: language,
+        auto_publish: autoPublish,
+        auto_index: true,
+        tags: []
+      })
+    });
+
+    if (!ingestRes.ok) {
+      const errData = await ingestRes.json().catch(() => ({}));
+      console.error('Ingest error response:', ingestRes.status, errData);
+      const detail = errData.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map(e => (e.msg || e.message || JSON.stringify(e))).join(' | ')
+        : (typeof detail === 'string' ? detail : errData.message || errData.error || ('Erreur ingestion ' + ingestRes.status));
+      toast('⚠️ Ingest ' + ingestRes.status + ': ' + msg);
+      closePdfModal(); fetchPdfs(); return;
+    }
+
+    const result = await ingestRes.json();
+    closePdfModal();
+    toast(`✅ "${result.title}" ingéré — ${result.chunks_created} chunks`);
+    // Switch to PDFs tab and refresh all data
+    await fetchPdfs();
+    await fetchStats();
+    await fetchArticles();
+    // Switch to PDFs tab to show the result
+    var pdfTab = document.querySelector('.rag-tab[onclick*="pdfs"]');
+    if (pdfTab) switchTab('pdfs', pdfTab);
+
+  } catch (e) {
+    console.error(e);
+    toast('❌ Erreur réseau');
+    resetBtn();
+  }
 }
 
 async function handleFiles(files) {

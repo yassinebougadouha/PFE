@@ -123,26 +123,24 @@
 
           {{-- TITRE --}}
           <div class="mb-4">
-            <label class="form-label text-xs font-weight-bold text-uppercase text-secondary">
+            <label class="form-label text-xs font-weight-bold text-uppercase text-secondary mb-1">
               Titre <span class="text-danger">*</span>
             </label>
-            <div class="input-group input-group-outline {{ old('title') ? 'is-filled' : '' }}">
-              <label class="form-label">Brève description du problème</label>
-              <input type="text" name="title" id="ticketTitle" class="form-control"
-                     value="{{ old('title') }}" required autocomplete="off">
-            </div>
+            <input type="text" name="title" id="ticketTitle" class="form-control"
+                   placeholder="Brève description du problème"
+                   value="{{ old('title') }}" required autocomplete="off"
+                   style="height:45px; border:1px solid #d2d6da; border-radius:8px; font-size:14px; padding:10px 14px;">
             @error('title')<p class="text-danger text-xs mt-1">{{ $message }}</p>@enderror
           </div>
 
           {{-- DESCRIPTION --}}
           <div class="mb-4">
-            <label class="form-label text-xs font-weight-bold text-uppercase text-secondary">
+            <label class="form-label text-xs font-weight-bold text-uppercase text-secondary mb-1">
               Description détaillée <span class="text-danger">*</span>
             </label>
-            <div class="input-group input-group-outline {{ old('content') ? 'is-filled' : '' }}">
-              <label class="form-label">Expliquez votre problème en détail</label>
-              <textarea name="content" id="ticketContent" class="form-control" rows="6" required>{{ old('content') }}</textarea>
-            </div>
+            <textarea name="content" id="ticketContent" class="form-control" rows="6" required
+                      placeholder="Expliquez votre problème en détail"
+                      style="border:1px solid #d2d6da; border-radius:8px; font-size:14px; padding:10px 14px; resize:vertical;">{{ old('content') }}</textarea>
             {{-- Bouton reformulation LLM --}}
             <button type="button" id="reformulateBtn" class="btn btn-sm btn-outline-secondary mt-2 mb-0 d-none"
                     style="font-size:11px;" onclick="reformulateDescription()">
@@ -399,8 +397,6 @@ function reformulateDescription() {
       cleaned = cleaned.trim();
 
       document.getElementById('ticketContent').value = cleaned;
-      var group = document.getElementById('ticketContent').closest('.input-group');
-      if (group) group.classList.add('is-filled');
     }
     btn.innerHTML = '<i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">auto_fix_high</i> Améliorer avec l\'IA';
     btn.disabled  = false;
@@ -491,27 +487,17 @@ document.getElementById('categorySelect').addEventListener('change', function() 
 function useSuggestion(text) {
   var inp = document.getElementById('ticketTitle');
   inp.value = text;
-  var group = inp.closest('.input-group');
-  if (group) group.classList.add('is-filled');
   inp.dispatchEvent(new Event('input'));
   inp.focus();
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Floating labels
+// Floating labels (désactivé — inputs standards utilisés)
 // ═══════════════════════════════════════════════════════════════
-function bindFloating(el) {
-  var group = el.closest('.input-group');
-  if (!group) return;
-  var toggle = () => el.value.trim() ? group.classList.add('is-filled') : group.classList.remove('is-filled');
-  el.addEventListener('input', toggle);
-  el.addEventListener('blur', toggle);
-  toggle();
-}
+function bindFloating(el) { /* no-op */ }
 
 document.addEventListener('DOMContentLoaded', function() {
-  bindFloating(document.getElementById('ticketTitle'));
-  document.querySelectorAll('textarea.form-control').forEach(bindFloating);
+  // rien à faire — inputs standards
 });
 </script>
 
