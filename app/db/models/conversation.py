@@ -20,12 +20,12 @@ class Conversation(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         BigInteger, ForeignKey("users.id"), nullable=False, index=True,
     )
     channel: Mapped[ChannelType] = mapped_column(
-        Enum(ChannelType, name="channel_type", create_constraint=True),
+        Enum(ChannelType, name="channel_type", native_enum=False, create_constraint=True),
         default=ChannelType.CHAT,
         nullable=False,
     )
     status: Mapped[ConversationStatus] = mapped_column(
-        Enum(ConversationStatus, name="conversation_status", create_constraint=True),
+        Enum(ConversationStatus, name="conversation_status", native_enum=False, create_constraint=True),
         default=ConversationStatus.OPEN,
         nullable=False,
     )

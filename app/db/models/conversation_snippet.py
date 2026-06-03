@@ -20,7 +20,7 @@ class ConversationSnippet(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(String(300), nullable=True)
     shortcut: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     channel: Mapped[ChannelType | None] = mapped_column(
-        Enum(ChannelType, name="channel_type", create_constraint=True, create_type=False),
+        Enum(ChannelType, name="channel_type", native_enum=False, create_constraint=True, create_type=False),
         nullable=True,
         index=True,
         doc="Null means snippet is available across all channels.",

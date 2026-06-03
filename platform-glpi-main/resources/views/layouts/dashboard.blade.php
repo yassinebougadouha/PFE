@@ -412,6 +412,15 @@
       margin-left: 20px;
       margin-right: 20px;
       border-radius: 15px;
+      z-index: 3000 !important;
+    }
+    .navbar-main .dropdown-menu,
+    .navbar-main #searchResults {
+      z-index: 3050 !important;
+    }
+    .navbar-main .nav-item.dropdown {
+      position: relative;
+      z-index: 3040 !important;
     }
 
     /* ── Sidenav refinements ── */

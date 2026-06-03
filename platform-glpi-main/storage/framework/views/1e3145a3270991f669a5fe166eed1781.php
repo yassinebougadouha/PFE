@@ -32,7 +32,7 @@
         </div>
         <div id="searchResults"
              class="position-absolute shadow-lg border-radius-lg d-none"
-             style="top:calc(100% + 8px); left:0; right:0; z-index:1015; border-radius:14px; overflow: hidden;
+             style="top:calc(100% + 8px); left:0; right:0; z-index:3050; border-radius:14px; overflow: hidden;
                     box-shadow:0 8px 32px rgba(0,0,0,0.13); border:1px solid var(--border-color); background: var(--bg-card);">
           <div id="searchResultsInner"
                style="max-height:400px; overflow-y:scroll; overflow-x:hidden;
@@ -698,4 +698,5 @@
     if (e.key === 'Escape') { outer.classList.add('d-none'); input.blur(); }
   });
 })();
-</script><?php /**PATH /var/www/html/resources/views/partials/navbar.blade.php ENDPATH**/ ?>
+</script>
+<?php /**PATH /var/www/html/resources/views/partials/navbar.blade.php ENDPATH**/ ?>

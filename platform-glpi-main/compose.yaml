@@ -85,4 +85,6 @@ networks:
 
 volumes:
   glpi_db_data:
+    external: true
   glpi_data:
+    external: true

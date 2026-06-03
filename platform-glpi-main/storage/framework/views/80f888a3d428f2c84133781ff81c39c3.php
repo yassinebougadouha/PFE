@@ -1,6 +1,11 @@
 <?php $__env->startSection('title', 'WhatsApp — L2T Support'); ?>
 
 <?php $__env->startSection('content'); ?>
+<?php
+  $qrProxyRoute = (auth()->user()->role ?? '') === 'super_admin'
+      ? route('super-admin.whatsapp.qr-proxy')
+      : route('admin.whatsapp.qr-proxy');
+?>
 <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 .main-content{padding:0!important;overflow:hidden;}
@@ -32,7 +37,7 @@
 }
 .connect-card{
   background:#1f2937;border-radius:16px;
-  width:min(720px,90vw);position:relative;
+  width:min(880px,94vw);position:relative;
   box-shadow:0 32px 80px rgba(0,0,0,.5);overflow:hidden;
 }
 .back-btn{
@@ -43,9 +48,10 @@
 .back-btn:hover{background:rgba(255,255,255,.08);}
 
 /* QR screen */
-#scr-qr{display:none;padding:40px 48px;animation:fadeIn .3s ease;}
-.qr-layout{display:flex;gap:60px;align-items:flex-start;}
-.qr-left h1{font-size:24px;font-weight:400;color:#e9edef;margin-bottom:28px;line-height:1.3;}
+#scr-qr{display:none;padding:50px 64px;animation:fadeIn .3s ease;}
+.qr-layout{display:flex;gap:76px;align-items:center;}
+.qr-left{flex:1;min-width:0;}
+.qr-left h1{font-size:28px;font-weight:500;color:#e9edef;margin-bottom:32px;line-height:1.25;}
 .qr-steps-list{display:flex;flex-direction:column;gap:20px;}
 .qr-step-row{display:flex;align-items:flex-start;gap:12px;}
 .qr-step-num{width:24px;height:24px;border-radius:50%;background:#374151;border:1.5px solid #4b5563;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#e9edef;flex-shrink:0;margin-top:1px;}
@@ -54,7 +60,7 @@
 .qr-help{margin-top:22px;font-size:14px;color:#00a884;cursor:pointer;}
 .qr-help:hover{text-decoration:underline;}
 .qr-right{display:flex;flex-direction:column;align-items:center;gap:14px;flex-shrink:0;}
-.qr-box{width:230px;height:230px;background:#fff;border-radius:8px;padding:10px;display:flex;align-items:center;justify-content:center;position:relative;}
+.qr-box{width:284px;height:284px;background:#fff;border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:center;position:relative;}
 .qr-box img{display:block;border-radius:6px;}
 .qr-refresh-overlay{
   position:absolute;inset:0;border-radius:8px;background:rgba(255,255,255,.92);
@@ -291,9 +297,159 @@
 /* Spinner */
 .spin{animation:spin .7s linear infinite;}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+/* Page fit + theme-aware WhatsApp skin */
+.main-content{
+  height:100vh!important;
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+}
+.main-content > .container-fluid{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow:hidden!important;
+  padding-bottom:0!important;
+}
+
+#wa-page{
+  --wa-accent:#00a884;
+  --wa-accent-2:#00cf9d;
+  --wa-bg:#f0f2f5;
+  --wa-panel:#ffffff;
+  --wa-panel-2:#f7f9fa;
+  --wa-panel-3:#eef2f3;
+  --wa-hover:#f5f6f6;
+  --wa-active:#e9edef;
+  --wa-chat:#efeae2;
+  --wa-chat-soft:#f8f5f1;
+  --wa-text:#111b21;
+  --wa-heading:#1f2937;
+  --wa-muted:#667781;
+  --wa-faint:#8696a0;
+  --wa-border:rgba(17,27,33,.14);
+  --wa-shadow:0 20px 60px rgba(15,23,42,.12);
+  --wa-bubble-in:#ffffff;
+  --wa-bubble-out:#d9fdd3;
+  --wa-bubble-out-text:#111b21;
+  --wa-chip:#e9edef;
+  position:relative;
+  height:100%;
+  min-height:0;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  background:var(--wa-bg);
+  color:var(--wa-text);
+}
+
+[data-bs-theme="dark"] #wa-page{
+  --wa-bg:#111b21;
+  --wa-panel:#111b21;
+  --wa-panel-2:#202c33;
+  --wa-panel-3:#2a3942;
+  --wa-hover:#202c33;
+  --wa-active:#2a3942;
+  --wa-chat:#0b141a;
+  --wa-chat-soft:#182229;
+  --wa-text:#e9edef;
+  --wa-heading:#e9edef;
+  --wa-muted:#aebac1;
+  --wa-faint:#8696a0;
+  --wa-border:rgba(134,150,160,.2);
+  --wa-shadow:0 32px 80px rgba(0,0,0,.5);
+  --wa-bubble-in:#202c33;
+  --wa-bubble-out:#005c4b;
+  --wa-bubble-out-text:#e9edef;
+  --wa-chip:#182229;
+}
+
+#wa-screens{background:var(--wa-bg)!important;}
+.connect-card,.wa-modal{background:var(--wa-panel-2)!important;box-shadow:var(--wa-shadow)!important;}
+#scr-loading > div[style*="font-size:24px"],
+.qr-left h1,#scr-phone h1,#scr-code h1,.code-step-text strong,.qr-step-text strong,
+.wa-intro-title,.wa-chat-name,.ctx-header p,.ctx-field-val,.ctx-toggle-label,
+.ctx-snap-item p:last-child,.wa-modal-title{
+  color:var(--wa-heading)!important;
+}
+.wa-logo-big,.back-btn,.wa-top-icon,.wa-inp-icon,.ctx-chevron,.wa-modal-close{color:var(--wa-muted)!important;}
+.wa-loading-enc,.qr-step-text,.code-step-text,.qr-timer-txt,.wa-tab,.wa-ci-time,
+.wa-ci-prev,.wa-chat-sub,.wa-intro-sub,.wa-intro-enc,.wa-meta,.ctx-header span,
+.ctx-section-label,.ctx-field-lbl,.ctx-note,.ctx-summary-section p,
+.ctx-summary-section .body,.ctx-snap-item p:first-child,.wa-f-lbl{
+  color:var(--wa-faint)!important;
+}
+.qr-step-num,.code-step-num{
+  background:var(--wa-panel-3)!important;
+  border-color:var(--wa-border)!important;
+  color:var(--wa-heading)!important;
+}
+
+#wa-root{
+  height:100%!important;
+  min-height:0;
+  overflow:hidden!important;
+  background:var(--wa-panel)!important;
+}
+#wa-left,#wa-context,.wa-tabs-bar,.wa-search-wrap,.wa-ai-bar{
+  background:var(--wa-panel)!important;
+  border-color:var(--wa-border)!important;
+}
+.wa-top-bar,.wa-chat-hdr,.wa-input-wrap,.ctx-header{
+  background:var(--wa-panel-2)!important;
+  border-color:var(--wa-border)!important;
+}
+.wa-search-box,.wa-input-box,.wa-snippet-select,.ctx-section,.ctx-snapshot,
+.wa-f-in,.wa-f-sel,.wa-f-ta{
+  background:var(--wa-panel-3)!important;
+  border-color:var(--wa-border)!important;
+  color:var(--wa-text)!important;
+}
+.wa-search-box input,.phone-input-wrap input{color:var(--wa-text)!important;}
+.wa-search-box input::placeholder,.wa-input-box::placeholder{color:var(--wa-faint)!important;}
+.wa-conv-item{border-color:var(--wa-border)!important;}
+.wa-conv-item:hover,.wa-top-icon:hover{background:var(--wa-hover)!important;}
+.wa-conv-item.active{background:var(--wa-active)!important;}
+.wa-ci-name,.wa-input-box,.wa-ai-bar div[style*="font-size:12px"],.wa-sys-bubble strong{
+  color:var(--wa-heading)!important;
+}
+#wa-intro{background:var(--wa-panel-2)!important;}
+.wa-msgs{
+  background:var(--wa-chat)!important;
+  min-height:0;
+  overscroll-behavior:contain;
+}
+.wa-date-sep span,.wa-sys-bubble{
+  background:var(--wa-chip)!important;
+  color:var(--wa-faint)!important;
+}
+.wa-bubble.in{background:var(--wa-bubble-in)!important;color:var(--wa-text)!important;}
+.wa-bubble.out{background:var(--wa-bubble-out)!important;color:var(--wa-bubble-out-text)!important;}
+#wa-context{
+  min-height:0;
+  overscroll-behavior:contain;
+}
+.wa-conv-list{
+  min-height:0;
+  overscroll-behavior:contain;
+}
+.wa-modal-hdr{border-color:var(--wa-border)!important;}
+.wa-btn-cancel{border-color:var(--wa-border)!important;color:var(--wa-muted)!important;}
+
+@media(max-width:1100px){
+  #wa-left{min-width:300px;width:34%;}
+  #wa-context{width:260px;}
+  .wa-msgs{padding-left:5%;padding-right:5%;}
+}
+@media(max-width:900px){
+  #wa-root{position:relative;}
+  #wa-left{width:320px;min-width:320px;}
+  #wa-context{display:none;}
+  .wa-bubble{max-width:78%;}
+}
 </style>
 
-<div style="position:relative;height:calc(100vh - 64px);overflow:hidden;display:flex;flex-direction:column;">
+<div id="wa-page">
 
 
 <div id="wa-screens">
@@ -329,10 +485,10 @@
             <div class="qr-help">Besoin d'aide ? ↗</div>
           </div>
           <div class="qr-right">
-            <div class="qr-box" style="width:230px;height:230px;position:relative;">
+            <div class="qr-box">
               
               <img id="qrImg" src="" alt="QR Code WhatsApp"
-                style="width:210px;height:210px;border-radius:6px;object-fit:contain;display:block;"
+                style="width:260px;height:260px;border-radius:6px;object-fit:contain;display:block;"
                 onload="onQrImageLoad()"
                 onerror="onQrImageError()">
               <div class="qr-refresh-overlay" id="qrRefreshOverlay">
@@ -360,12 +516,6 @@
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               Ouvrir l'URL du bridge
             </a>
-            <button onclick="connectWa()" style="padding:9px 22px;border-radius:99px;background:rgba(0,168,132,.12);border:1.5px dashed rgba(0,168,132,.45);color:#00a884;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:7px;transition:all .15s;width:100%;justify-content:center;"
-              onmouseover="this.style.background='rgba(0,168,132,.22)'"
-              onmouseout="this.style.background='rgba(0,168,132,.12)'">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              Voir l'interface (démo)
-            </button>
           </div>
         </div>
       </div>
@@ -427,8 +577,8 @@
         <button class="wa-top-icon" title="Rafraîchir" onclick="refreshAll()">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
         </button>
-        <button class="wa-top-icon" title="Menu">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+        <button class="wa-top-icon" title="Nouvelle conversation" onclick="openNewConvModal()" style="color:#00a884;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
         </button>
       </div>
     </div>
@@ -672,6 +822,46 @@
   </div>
 </div>
 
+
+<div class="wa-modal-bg" id="newConvModal">
+  <div class="wa-modal" style="max-width:460px;">
+    <div class="wa-modal-hdr">
+      <div class="wa-modal-title">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00a884" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Nouvelle conversation WhatsApp
+      </div>
+      <button class="wa-modal-close" onclick="closeNewConvModal()">✕</button>
+    </div>
+    <div class="wa-modal-body">
+      <div class="wa-f-grp">
+        <label class="wa-f-lbl">Numéro WhatsApp</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="background:var(--wa-panel-3,#2a3942);border:1px solid var(--wa-border,rgba(134,150,160,.2));border-radius:9px;padding:9px 12px;font-size:13px;color:#8696a0;flex-shrink:0;">+216</span>
+          <input type="tel" class="wa-f-in" id="ncPhone" placeholder="Ex: 21600000000" maxlength="20"
+            style="flex:1;"
+            oninput="this.value=this.value.replace(/[^0-9+]/g,'')"
+            onkeydown="if(event.key==='Enter')document.getElementById('ncMsg').focus()">
+        </div>
+        <div style="font-size:10px;color:#8696a0;margin-top:4px;">Saisissez le numéro avec l'indicatif (ex: 21612345678)</div>
+      </div>
+      <div class="wa-f-grp">
+        <label class="wa-f-lbl">Message</label>
+        <textarea class="wa-f-ta" id="ncMsg" placeholder="Tapez votre message…" rows="4"
+          onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();sendNewConv();}"></textarea>
+        <div style="font-size:10px;color:#8696a0;margin-top:4px;">Ctrl+Entrée pour envoyer</div>
+      </div>
+      <div id="ncError" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:8px 12px;font-size:12px;color:#fca5a5;margin-top:4px;"></div>
+    </div>
+    <div class="wa-modal-foot">
+      <button class="wa-btn-cancel" onclick="closeNewConvModal()">Annuler</button>
+      <button class="wa-btn-save" id="ncSendBtn" onclick="sendNewConv()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        Envoyer
+      </button>
+    </div>
+  </div>
+</div>
+
 <div id="wa-toast">Message envoyé</div>
 
 <script>
@@ -725,7 +915,8 @@ async function apiFetch(url, opts = {}) {
 }
 
 // ══ QR BRIDGE CONFIG ═════════════════════════════════════════════
-// Mirrors: getClientConfigRaw('VITE_QR_BRIDGE_URL') from the TSX
+// Screens use the Laravel proxy route so the browser never depends on Docker-internal hostnames.
+const QR_PROXY_URL = '<?php echo e($qrProxyRoute); ?>';
 const QR_BRIDGE_URL = '<?php echo e(config("services.whatsapp.qr_bridge_url", env("VITE_QR_BRIDGE_URL", "http://localhost:3000/qr"))); ?>';
 const QR_EXPIRES_AFTER_SECONDS = 60;
 const QR_WAIT_RETRY_SECONDS = 3;
@@ -738,13 +929,17 @@ let qrAutoExpireTO = null;
 // Mirrors buildQrPngUrl() from the TSX exactly
 function buildQrPngUrl(baseUrl, version) {
   try {
-    const parsed = new URL(baseUrl);
+    const parsed = new URL(baseUrl, window.location.href);
     if (parsed.pathname.endsWith('/qr/')) {
       parsed.pathname = parsed.pathname.replace(/\/qr\/$/, '/qr.png');
     } else if (parsed.pathname.endsWith('/qr.json')) {
       parsed.pathname = parsed.pathname.replace(/\/qr\.json$/, '/qr.png');
     } else if (parsed.pathname.endsWith('/qr')) {
       parsed.pathname = parsed.pathname + '.png';
+    } else if (parsed.pathname.endsWith('/qr.png')) {
+      // already correct
+    } else if (parsed.pathname.endsWith('/qr-proxy')) {
+      // proxy returns a PNG directly, no extra path segment needed
     } else if (!parsed.pathname.endsWith('/qr.png')) {
       parsed.pathname = parsed.pathname.replace(/\/$/, '') + '/qr.png';
     }
@@ -754,6 +949,7 @@ function buildQrPngUrl(baseUrl, version) {
     const base = baseUrl.split('?')[0].replace(/\/$/, '');
     const endpoint = base.endsWith('/qr') ? base + '.png'
       : base.endsWith('/qr.png') ? base
+      : base.endsWith('/qr-proxy') ? base
       : base + '/qr.png';
     return endpoint + '?_v=' + version;
   }
@@ -761,7 +957,7 @@ function buildQrPngUrl(baseUrl, version) {
 
 function applyQrSrc() {
   const img = document.getElementById('qrImg');
-  if (img) img.src = buildQrPngUrl(QR_BRIDGE_URL, qrVersion);
+  if (img) img.src = buildQrPngUrl(QR_PROXY_URL || QR_BRIDGE_URL, qrVersion);
 }
 
 function onQrImageLoad() {
@@ -888,9 +1084,12 @@ function initApp() {
 async function fetchStatus() {
   try {
     const data = await apiFetch(`${BASE_URL}/whatsapp/status`);
-    renderStatus(data.connected);
+    const isConnected = data.configured === true || (data.details && data.details.connected === true);
+    renderStatus(isConnected);
+    return isConnected;
   } catch(e) {
     renderStatus(false);
+    return false;
   }
 }
 
@@ -1657,11 +1856,16 @@ function formatPhone(inp) {
 
 // ══ BOOT ═════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function() {
-  setTimeout(function() {
-    document.getElementById('scr-loading').style.display = 'none';
-    document.getElementById('scr-connect').style.display = 'flex';
-    showQrScreen();
-  }, 2000);
+  setTimeout(async function() {
+    const isConnected = await fetchStatus();
+    if (isConnected) {
+      connectWa();
+    } else {
+      document.getElementById('scr-loading').style.display = 'none';
+      document.getElementById('scr-connect').style.display = 'flex';
+      showQrScreen();
+    }
+  }, 1500);
 });
 </script>
 <?php $__env->stopSection(); ?>

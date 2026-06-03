@@ -977,11 +977,9 @@ class SuperAdminController extends Controller
     public function importUsersFromGlpi(\Illuminate\Http\Request $request)
     {
         try {
-            $role = $request->input('role', 'client');
-            if (!in_array($role, ['client', 'admin'])) $role = 'client';
-
+            // Note: role parameter is ignored - roles are determined from GLPI profiles
             $glpi    = app(\App\Services\GlpiService::class);
-            $results = $glpi->importUsersFromGlpi($role);
+            $results = $glpi->importUsersFromGlpi();
             $glpi->killSession();
 
             $created = count(array_filter($results, fn($r) => $r['status'] === 'created'));

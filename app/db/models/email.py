@@ -24,7 +24,7 @@ class Email(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     raw_headers: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[EmailStatus] = mapped_column(
-        Enum(EmailStatus, name="email_status", create_constraint=True),
+        Enum(EmailStatus, name="email_status", native_enum=False, create_constraint=True),
         default=EmailStatus.RECEIVED,
         nullable=False,
     )

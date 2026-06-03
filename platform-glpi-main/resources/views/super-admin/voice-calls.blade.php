@@ -873,7 +873,7 @@ async function escalateCall(){
     const er=await fetch(apiUrl(`/tickets/${ticketId}/status`),{
       method:'POST',
       headers:{'Accept':'application/json','Content-Type':'application/json','X-CSRF-TOKEN':CSRF},
-      body:JSON.stringify({status:'ESCALATED'})
+      body:JSON.stringify({status:'escalated'})
     });
     if(!er.ok){const e=await er.json().catch(()=>({}));throw new Error(e.message||'Escalade échouée');}
     showLinkFeedback('success',`Ticket <strong>${escHtml(ticketId)}</strong> escaladé avec succès.`);

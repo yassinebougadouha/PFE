@@ -6,6 +6,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Setting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class DecisionEngineController extends Controller
 {
@@ -27,19 +28,22 @@ class DecisionEngineController extends Controller
         if (in_array($ticket->sync_status, ['resolved', 'closed', 'synced'])) {
             return 'auto_resolved';
         }
-        if ($ticket->assigned_to) {
+
+        if ($ticket->sync_status === 'escalated' || $ticket->assigned_to) {
             return 'escalated';
         }
-        if ($ticket->sync_status === 'in_progress') {
-            return 'clarify';
-        }
-        return 'routed';
+
+        $confidence = $this->confidence($ticket);
+        $risk = $this->risk($ticket);
+
+        return $this->decisionFromScores($confidence, $risk);
     }
 
     // Simule un score de confiance IA basé sur les données réelles du ticket
     private function confidence(Ticket $ticket): int
     {
         $base = 50;
+        $priority = (int) ($ticket->priority ?: 3);
         // Catégorie connue = plus de confiance
         $catBonus = match($ticket->category) {
             'incident_technique', 'integration_api' => 25,
@@ -49,16 +53,17 @@ class DecisionEngineController extends Controller
         // Ticket résolu = confiance était haute
         $resolvedBonus = in_array($ticket->sync_status, ['resolved', 'closed']) ? 20 : 0;
         // Priorité haute = risque → moins de confiance IA
-        $priorityPenalty = $ticket->priority >= 4 ? -10 : 0;
+        $priorityPenalty = $priority >= 4 ? -10 : 0;
 
         return min(99, max(30, $base + $catBonus + $resolvedBonus + $priorityPenalty));
     }
 
     private function risk(Ticket $ticket): int
     {
+        $priority = (int) ($ticket->priority ?: 3);
         $base = 20;
-        $priorityAdd  = ($ticket->priority - 1) * 15;
-        $slaLimit     = $this->slaLimit($ticket->priority);
+        $priorityAdd  = ($priority - 1) * 15;
+        $slaLimit     = $this->slaLimit($priority);
         $hoursOpen    = $ticket->created_at->diffInHours(now());
         $slaBreached  = $slaLimit > 0 && $hoursOpen > $slaLimit ? 30 : 0;
         $categoryAdd  = match($ticket->category) {
@@ -69,10 +74,121 @@ class DecisionEngineController extends Controller
         return min(99, $base + $priorityAdd + $slaBreached + $categoryAdd);
     }
 
+    private function intentCategory(?string $category, ?string $text = null): string
+    {
+        $category = $category ?: 'autre';
+        $haystack = Str::lower(($category ?? '') . ' ' . ($text ?? ''));
+
+        if (str_contains($haystack, 'factur') || str_contains($haystack, 'paiement')) {
+            return 'billing';
+        }
+        if (str_contains($haystack, 'api') || str_contains($haystack, 'integration')) {
+            return 'integration';
+        }
+        if (str_contains($haystack, 'incident') || str_contains($haystack, 'bug') || str_contains($haystack, 'erreur')) {
+            return 'technical_issue';
+        }
+        if (str_contains($haystack, 'login') || str_contains($haystack, 'compte') || str_contains($haystack, 'access')) {
+            return 'access';
+        }
+
+        return $category === 'autre' ? 'general_support' : $category;
+    }
+
+    private function priorityFromRisk(int $risk): int
+    {
+        return match (true) {
+            $risk >= 85 => 5,
+            $risk >= 65 => 4,
+            $risk >= 40 => 3,
+            $risk >= 20 => 2,
+            default => 1,
+        };
+    }
+
+    private function decisionFromScores(int $confidence, int $risk): string
+    {
+        if ($confidence >= 80 && $risk < 30) {
+            return 'auto_resolved';
+        }
+        if ($confidence < 60 || $risk > 60) {
+            return 'escalated';
+        }
+        if ($confidence < 80) {
+            return 'clarify';
+        }
+        return 'routed';
+    }
+
+    private function confidenceLevel(int $confidence): string
+    {
+        return match (true) {
+            $confidence >= 80 => 'high',
+            $confidence >= 60 => 'medium',
+            default => 'low',
+        };
+    }
+
+    private function riskLevel(int $risk): string
+    {
+        return match (true) {
+            $risk >= 80 => 'critical',
+            $risk >= 60 => 'high',
+            $risk >= 35 => 'medium',
+            default => 'low',
+        };
+    }
+
+    private function matchedRule(string $outcome): string
+    {
+        return [
+            'auto_resolved' => 'confidence >= 80 AND risk < 30',
+            'escalated' => 'confidence < 60 OR risk > 60',
+            'clarify' => '60 <= confidence < 80',
+            'routed' => 'route by priority/category',
+        ][$outcome] ?? 'default route';
+    }
+
+    private function decisionPayload(array $data): array
+    {
+        $confidence = (int) ($data['confidence'] ?? 65);
+        $risk = (int) ($data['risk'] ?? 35);
+        $outcome = $data['outcome'] ?? $this->decisionFromScores($confidence, $risk);
+        $priority = (int) ($data['priority'] ?? $this->priorityFromRisk($risk));
+        $intent = $data['intent_category'] ?? $this->intentCategory($data['category'] ?? null, $data['text'] ?? null);
+        $rule = $this->matchedRule($outcome);
+
+        return [
+            'id' => $data['id'] ?? ('local-' . now()->timestamp),
+            'ticket_id' => $data['ticket_id'] ?? null,
+            'outcome' => $outcome,
+            'decision_outcome' => $outcome,
+            'intent_category' => $intent,
+            'confidence' => $confidence / 100,
+            'confidence_score' => $confidence / 100,
+            'confidence_level' => $this->confidenceLevel($confidence),
+            'risk_score' => $risk / 100,
+            'risk_level' => $this->riskLevel($risk),
+            'suggested_priority' => $priority,
+            'matched_rules' => ['rules' => [$rule]],
+            'reasoning' => $data['reasoning'] ?? "Analyse locale: confiance {$confidence}%, risque {$risk}/100. Regle appliquee: {$rule}.",
+            'response_suggestions' => $data['response_suggestions'] ?? [
+                'Verifier les informations du ticket et confirmer le contexte avec le client.',
+                'Traiter selon la priorite suggeree et documenter la prochaine action.',
+                'Escalader si un blocage technique ou SLA est confirme.',
+            ],
+            'escalation_summary' => $outcome === 'escalated'
+                ? ($data['escalation_summary'] ?? 'Risque eleve ou confiance insuffisante: intervention humaine recommandee.')
+                : null,
+            'created_at' => $data['created_at'] ?? now()->toIso8601String(),
+        ];
+    }
+
     private function buildEvents(Ticket $ticket): array
     {
         $events = [];
-        $slaLimit = $this->slaLimit($ticket->priority);
+        $priority = (int) ($ticket->priority ?: 3);
+        $slaLimit = $this->slaLimit($priority);
         $hoursOpen = $ticket->created_at->diffInHours(now());
         $confidence = $this->confidence($ticket);
         $risk = $this->risk($ticket);
@@ -238,7 +354,8 @@ class DecisionEngineController extends Controller
 
     private function formatTicket(Ticket $ticket): array
     {
-        $slaLimit  = $this->slaLimit($ticket->priority);
+        $priority  = (int) ($ticket->priority ?: 3);
+        $slaLimit  = $this->slaLimit($priority);
         $hoursOpen = (int) $ticket->created_at->diffInHours(now());
         $slaUsed   = $slaLimit > 0 ? round(($hoursOpen / $slaLimit) * 100) : 100;
         $outcome   = $this->outcome($ticket);
@@ -255,8 +372,8 @@ class DecisionEngineController extends Controller
             'date'            => $ticket->created_at->diffForHumans(),
             'category'        => $ticket->category ?? 'autre',
             'cat_label'       => ['incident_technique'=>'Incident Technique','integration_api'=>'API / Intégration','facturation'=>'Facturation','plateforme'=>'Plateforme','paiement_mobile'=>'Paiement Mobile','autre'=>'Autre'][$ticket->category] ?? ucfirst($ticket->category ?? 'Autre'),
-            'priority'        => $ticket->priority ?? 3,
-            'priority_label'  => $pLabels[$ticket->priority] ?? 'Moyenne',
+            'priority'        => $priority,
+            'priority_label'  => $pLabels[$priority] ?? 'Moyenne',
             'outcome'         => $outcome,
             'confidence'      => $this->confidence($ticket),
             'risk'            => $this->risk($ticket),
@@ -286,39 +403,50 @@ class DecisionEngineController extends Controller
 
         $tickets = $query->get()->map(fn($t) => $this->formatTicket($t));
 
-        // Stats globales
-        $all = Ticket::where('created_at', '>=', now()->subDays($days));
-        $resolved  = (clone $all)->whereIn('sync_status', ['resolved', 'closed', 'synced'])->count();
-        $escalated = (clone $all)->where('assigned_to', '!=', null)->whereNotIn('sync_status', ['resolved', 'closed'])->count();
-        $total     = (clone $all)->count();
+        $statsQuery = Ticket::where('created_at', '>=', now()->subDays($days));
+        if ($source !== 'all') {
+            $statsQuery->where('source', $source);
+        }
 
-        // Sources
-        $bySource = (clone $all)->selectRaw('source, count(*) as cnt')->groupBy('source')->pluck('cnt', 'source');
+        $allTickets = $statsQuery->get();
+        $outcomes = $allTickets->map(fn($t) => $this->formatTicket($t)['outcome'])->countBy();
+        $autoResolved = (int) ($outcomes['auto_resolved'] ?? 0);
+        $escalated = (int) ($outcomes['escalated'] ?? 0);
+        $clarify = (int) ($outcomes['clarify'] ?? 0);
+        $routed = (int) ($outcomes['routed'] ?? 0);
+        $total = $allTickets->count();
 
-        // Catégories
-        $byCategory = (clone $all)->selectRaw('category, count(*) as cnt')->groupBy('category')->pluck('cnt', 'category');
+        $bySource = $allTickets->countBy('source');
+        $byCategory = $allTickets->countBy('category');
 
-        // Admins performance (from leaderboard data)
-        $admins = User::where('role', 'admin')->where('is_active', true)->get()->map(function($a) use ($days) {
-            $ids      = Ticket::where('assigned_to', $a->id)->where('created_at', '>=', now()->subDays($days))->pluck('id');
-            $answered = \App\Models\TicketComment::where('user_id', $a->id)->whereIn('ticket_id', $ids)->distinct('ticket_id')->count('ticket_id');
-            $t        = $ids->count();
+        $admins = User::where('role', 'admin')->where('is_active', true)->get()->map(function($a) use ($days, $source) {
+            $assignedTicketIds = Ticket::where('assigned_to', $a->id)
+                ->where('created_at', '>=', now()->subDays($days));
+            if ($source !== 'all') {
+                $assignedTicketIds->where('source', $source);
+            }
+            $ids = $assignedTicketIds->pluck('id');
+            $answered = \App\Models\TicketComment::where('user_id', $a->id)
+                ->whereIn('ticket_id', $ids)
+                ->distinct('ticket_id')
+                ->count('ticket_id');
+            $t = $ids->count();
             return ['name' => $a->name, 'score' => $t > 0 ? round(($answered / $t) * 100) : 0];
         })->sortByDesc('score')->values();
 
         return response()->json([
             'tickets' => $tickets,
             'stats'   => [
-                'total'        => $total,
-                'auto_resolved'=> $resolved,
-                'escalated'    => $escalated,
-                'clarify'      => max(0, $total - $resolved - $escalated),
-                'routed'       => 0,
-                'resolution_rate' => $total > 0 ? round(($resolved / $total) * 100) : 0,
-                'avg_confidence'  => $tickets->avg('confidence') ? round($tickets->avg('confidence')) : 0,
-                'by_source'    => $bySource,
-                'by_category'  => $byCategory,
-                'admins'       => $admins,
+                'total'          => $total,
+                'auto_resolved'  => $autoResolved,
+                'escalated'      => $escalated,
+                'clarify'        => $clarify,
+                'routed'         => $routed,
+                'resolution_rate'=> $total > 0 ? round(($autoResolved / $total) * 100) : 0,
+                'avg_confidence' => round($allTickets->avg(fn($t) => $this->confidence($t)) ?? 0),
+                'by_source'      => $bySource,
+                'by_category'    => $byCategory,
+                'admins'         => $admins,
             ],
         ]);
     }
@@ -334,9 +462,163 @@ class DecisionEngineController extends Controller
         ]);
     }
 
+    public function stats()
+    {
+        $tickets = Ticket::with(['user', 'assignee'])->get();
+        $total = $tickets->count();
+
+        $decisions = $tickets->map(function (Ticket $ticket) {
+            $confidence = $this->confidence($ticket);
+            $risk = $this->risk($ticket);
+            return $this->decisionPayload([
+                'ticket_id' => 'TK-' . $ticket->id,
+                'category' => $ticket->category,
+                'confidence' => $confidence,
+                'risk' => $risk,
+                'outcome' => $this->outcome($ticket),
+                'priority' => $ticket->priority ?? 3,
+                'created_at' => $ticket->created_at?->toIso8601String(),
+            ]);
+        });
+
+        $byOutcome = $decisions->countBy('outcome');
+        $byCategory = $decisions->countBy('intent_category');
+        $escalated = (int) ($byOutcome['escalated'] ?? 0);
+
+        $avgConfidence = $decisions->avg('confidence') ?? 0;
+        $avgRisk = $decisions->avg('risk_score') ?? 0;
+
+        return response()->json([
+            'total_decisions' => $total,
+            'total' => $total,
+            'auto_resolved' => (int) ($byOutcome['auto_resolved'] ?? 0),
+            'escalated' => $escalated,
+            'clarify' => (int) ($byOutcome['clarify'] ?? 0),
+            'routed' => (int) ($byOutcome['routed'] ?? 0),
+            'escalation_rate' => $total > 0 ? round($escalated / $total, 2) : 0,
+            'avg_confidence' => $avgConfidence,
+            'avg_risk' => $avgRisk,
+            'decisions_by_category' => $byCategory,
+            'decisions_by_outcome' => $byOutcome,
+        ]);
+    }
+
+    public function decisions(?string $ticketId = null)
+    {
+        $query = Ticket::latest()->limit(100);
+        if ($ticketId) {
+            $id = (int) preg_replace('/\D+/', '', $ticketId);
+            $query->where('id', $id);
+        }
+
+        $decisions = $query->get()->map(function (Ticket $ticket) {
+            return $this->decisionPayload([
+                'id' => 'ticket-' . $ticket->id,
+                'ticket_id' => 'TK-' . $ticket->id,
+                'category' => $ticket->category,
+                'text' => trim(($ticket->title ?? '') . ' ' . ($ticket->description ?? '')),
+                'confidence' => $this->confidence($ticket),
+                'risk' => $this->risk($ticket),
+                'outcome' => $this->outcome($ticket),
+                'priority' => $ticket->priority ?? 3,
+                'created_at' => $ticket->created_at?->toIso8601String(),
+            ]);
+        })->values();
+
+        return response()->json(['decisions' => $decisions]);
+    }
+
+    public function analyze(Request $request)
+    {
+        $validated = $request->validate([
+            'ticket_id' => ['required', 'string'],
+            'auto_assign' => ['sometimes', 'boolean'],
+            'auto_update_priority' => ['sometimes', 'boolean'],
+        ]);
+
+        $ticketId = (int) preg_replace('/\D+/', '', $validated['ticket_id']);
+        $ticket = Ticket::with(['user', 'assignee'])->find($ticketId);
+        if (!$ticket) {
+            return response()->json(['message' => 'Ticket introuvable.'], 404);
+        }
+
+        $risk = $this->risk($ticket);
+        $priority = $this->priorityFromRisk($risk);
+
+        if (!empty($validated['auto_update_priority']) && $ticket->priority !== $priority) {
+            $ticket->priority = $priority;
+            $ticket->save();
+        }
+
+        return response()->json($this->decisionPayload([
+            'id' => 'ticket-' . $ticket->id,
+            'ticket_id' => 'TK-' . $ticket->id,
+            'category' => $ticket->category,
+            'text' => trim(($ticket->title ?? '') . ' ' . ($ticket->description ?? '')),
+            'confidence' => $this->confidence($ticket),
+            'risk' => $risk,
+            'outcome' => $this->outcome($ticket),
+            'priority' => $priority,
+            'reasoning' => 'Analyse basee sur la categorie, la priorite, le statut, le SLA et les donnees du ticket.',
+        ]));
+    }
+
+    public function analyzeText(Request $request)
+    {
+        $validated = $request->validate([
+            'text' => ['required', 'string', 'min:3'],
+            'subject' => ['nullable', 'string'],
+        ]);
+
+        $text = Str::lower(($validated['subject'] ?? '') . ' ' . $validated['text']);
+        $risk = 30;
+        $confidence = 62;
+
+        foreach (['urgent', 'bloque', 'bloqué', 'down', 'indisponible', 'erreur', 'critique'] as $word) {
+            if (str_contains($text, $word)) {
+                $risk += 12;
+                $confidence += 4;
+            }
+        }
+        foreach (['facture', 'paiement', 'api', 'login', 'connexion'] as $word) {
+            if (str_contains($text, $word)) {
+                $confidence += 6;
+            }
+        }
+
+        $risk = min(95, $risk);
+        $confidence = min(92, $confidence);
+
+        return response()->json($this->decisionPayload([
+            'ticket_id' => null,
+            'text' => $text,
+            'confidence' => $confidence,
+            'risk' => $risk,
+            'reasoning' => 'Apercu genere depuis le texte libre saisi.',
+        ]));
+    }
+
+    public function outcomesDocs()
+    {
+        return response()->json([
+            'outcomes' => [
+                ['outcome' => 'auto_resolved', 'description' => 'Resolution automatique quand le risque est faible et la confiance haute.', 'operator_guidance' => 'Verifier la suggestion puis cloturer si elle est valide.'],
+                ['outcome' => 'clarify', 'description' => 'Informations insuffisantes ou confiance moyenne.', 'operator_guidance' => 'Demander des details au client avant action.'],
+                ['outcome' => 'escalated', 'description' => 'Risque eleve ou confiance basse.', 'operator_guidance' => 'Assigner a un agent humain rapidement.'],
+                ['outcome' => 'routed', 'description' => 'Routage par categorie/priorite.', 'operator_guidance' => 'Envoyer vers la bonne competence.'],
+            ],
+            'matrix' => [
+                ['category' => 'technical_issue', 'confidence_level' => 'high', 'risk_level' => 'low', 'outcome' => 'auto_resolved', 'matched_rule' => 'confidence >= 80 AND risk < 30'],
+                ['category' => 'general_support', 'confidence_level' => 'medium', 'risk_level' => 'medium', 'outcome' => 'clarify', 'matched_rule' => '60 <= confidence < 80'],
+                ['category' => 'technical_issue', 'confidence_level' => 'low', 'risk_level' => 'high', 'outcome' => 'escalated', 'matched_rule' => 'confidence < 60 OR risk > 60'],
+                ['category' => 'integration', 'confidence_level' => 'high', 'risk_level' => 'medium', 'outcome' => 'routed', 'matched_rule' => 'route by category'],
+            ],
+        ]);
+    }
+
     // ── GET /super-admin/decision-engine ─────────────────────────────────────
     public function index()
     {
-        return view('support.decision-engine');
+        return view('super-admin.super-admin-decision-engine');
     }
 }

@@ -8,10 +8,10 @@ suggestionsticketsApi.update(id, {status, priority, escalation_flag})PATCH /tick
 conversationsApi.send(conversation_id, content)POST /conversations/{conversation_id}/messages
 -->
 
-@extends('layouts.dashboard')
-@section('title', 'Escalations')
 
-@section('content')
+<?php $__env->startSection('title', 'Escalations'); ?>
+
+<?php $__env->startSection('content'); ?>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -182,7 +182,7 @@ conversationsApi.send(conversation_id, content)POST /conversations/{conversation
 
 <div class="esc-wrap">
 
-  {{-- TOP BAR --}}
+  
   <div class="esc-top">
     <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
       <div class="esc-title">
@@ -210,7 +210,7 @@ conversationsApi.send(conversation_id, content)POST /conversations/{conversation
 
   <div class="esc-body">
 
-    {{-- LEFT: LIST --}}
+    
     <div id="escList">
       <div class="list-hdr">
         <div class="list-search">
@@ -239,7 +239,7 @@ conversationsApi.send(conversation_id, content)POST /conversations/{conversation
       </div>
     </div>
 
-    {{-- MIDDLE: DETAIL --}}
+    
     <div id="escDetail">
       <div id="detailEmpty" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--et4);">
         <div style="font-size:40px;">🔔</div>
@@ -268,7 +268,7 @@ conversationsApi.send(conversation_id, content)POST /conversations/{conversation
       </div>
     </div>
 
-    {{-- RIGHT: PANEL --}}
+    
     <div id="escPanel">
       <div id="panelEmpty" class="panel-empty">
         <div class="panel-empty-icon">⚡</div>
@@ -277,10 +277,10 @@ conversationsApi.send(conversation_id, content)POST /conversations/{conversation
       </div>
       <div id="panelContent" style="display:none;flex-direction:column;min-height:0;overflow-y:auto;">
 
-        {{-- Spotlight --}}
+        
         <div class="panel-section" id="spotlightSection"></div>
 
-        {{-- Override & resolve --}}
+        
         <div class="panel-section">
           <div class="panel-sec-title">Override & Résoudre</div>
           <div class="curr-state-box" id="currStateBadges" style="font-size:11px;color:var(--et3);">—</div>
@@ -315,7 +315,7 @@ conversationsApi.send(conversation_id, content)POST /conversations/{conversation
           </div>
         </div>
 
-        {{-- Suggested replies --}}
+        
         <div class="panel-section">
           <div class="panel-sec-title">Réponses suggérées <span class="ai-badge">IA</span></div>
           <div id="sugReplies" style="margin-bottom:10px;">
@@ -1055,4 +1055,6 @@ function toast(msg, isError) {
   wrap.style.height = (window.innerHeight - top - 1) + 'px';
 })();
 </script>
-@endsection
+<?php $__env->stopSection(); ?>
+
+<?php echo $__env->make('layouts.dashboard', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH /var/www/html/resources/views/admin/escalations.blade.php ENDPATH**/ ?>

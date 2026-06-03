@@ -134,15 +134,18 @@ class LoginRequest extends FormRequest
     protected function syncUserFromGlpi(
         string $email,
         string $password,
-        string $glpiProfile,
+        ?string $glpiProfile,
         ?array $glpiUserData = null
     ): void {
-        $role       = $this->mapGlpiProfileToRole($glpiProfile);
-        $pythonRole = $this->toPythonRole($role); // ← role_python calculé une fois
+        $role       = $glpiProfile ? $this->mapGlpiProfileToRole($glpiProfile) : null;
+        $pythonRole = $role ? $this->toPythonRole($role) : null;
         $user       = \App\Models\User::where('email', $email)->first();
 
         if (!$user) {
             // ── Premier login ─────────────────────────────────────────────────
+            $role       = $role ?: 'client'; // fallback default
+            $pythonRole = $pythonRole ?: 'CLIENT';
+            
             if (!$glpiUserData) {
                 $glpi         = app(\App\Services\GlpiService::class);
                 $glpiUserData = $glpi->findUserByEmail($email);
@@ -172,7 +175,7 @@ class LoginRequest extends FormRequest
                     'email'                => $email,
                     'password'             => bcrypt($password),
                     'role'                 => $role,
-                    'role_python'          => $pythonRole, // ✅ zidt
+                    'role_python'          => $pythonRole,
                     'client_type'          => $role === 'client' ? 'client' : null,
                     'glpi_user_id'         => (int) $glpiId,
                     'phone'                => $phone,
@@ -189,7 +192,7 @@ class LoginRequest extends FormRequest
                     'email'                => $email,
                     'password'             => bcrypt($password),
                     'role'                 => $role,
-                    'role_python'          => $pythonRole, // ✅ zidt
+                    'role_python'          => $pythonRole,
                     'client_type'          => $role === 'client' ? 'user' : null,
                     'is_active'            => true,
                     'must_change_password' => false,
@@ -202,9 +205,13 @@ class LoginRequest extends FormRequest
             $updateData = [
                 'password'        => bcrypt($password),
                 'hashed_password' => bcrypt($password),
-                'role'            => $role,
-                'role_python'     => $pythonRole, // ✅ zidt — ytabda automatiquement kol login
             ];
+            
+            // On ne met à jour le rôle que si on a bien pu le récupérer, pour ne pas écraser 'admin' par erreur
+            if ($role && $user->role !== 'super_admin') {
+                $updateData['role']        = $role;
+                $updateData['role_python'] = $pythonRole;
+            }
 
             // ── Lier glpi_user_id si pas encore fait ──────────────────────────
             if (!$user->glpi_user_id) {
@@ -267,9 +274,16 @@ class LoginRequest extends FormRequest
         };
     }
 
-    protected function getGlpiUserProfile(string $email): string
+    protected function getGlpiUserProfile(string $email): ?string
     {
         try {
+            $glpi = app(\App\Services\GlpiService::class);
+            $glpiUser = $glpi->findUserByEmail($email);
+            if (!$glpiUser) return null; // Retun null au lieu de 'client' pour ne pas écraser
+
+            $glpiUserId = $glpiUser['id'] ?? $glpiUser[1] ?? null;
+            if (!$glpiUserId) return null;
+
             $glpiUrl  = \App\Models\Setting::get('glpi_url') ?: config('services.glpi.url');
             $appToken = \App\Models\Setting::get('glpi_app_token') ?: config('services.glpi.app_token');
             $glpiUrl  = rtrim((string) $glpiUrl, '/');
@@ -286,53 +300,33 @@ class LoginRequest extends FormRequest
                 'Authorization' => 'user_token ' . $userToken,
             ])->get($glpiUrl . '/apirest.php/initSession');
 
-            if (!$session->successful()) return 'client';
+            if (!$session->successful()) return null;
 
             $sessionToken = $session->json('session_token');
 
-            $search = Http::withHeaders([
-                'App-Token'     => $appToken,
-                'Session-Token' => $sessionToken,
-            ])->get($glpiUrl . '/apirest.php/User/', [
-                'searchText[name]' => $email,
-                'range' => '0-5',
-            ]);
-
-            $glpiUserId = null;
-            if ($search->successful()) {
-                foreach ($search->json() ?? [] as $u) {
-                    if (strtolower($u['name'] ?? '') === strtolower($email)) {
-                        $glpiUserId = $u['id'];
-                        break;
-                    }
-                }
-            }
-
             $role = 'client';
 
-            if ($glpiUserId) {
-                $profiles = Http::withHeaders([
-                    'App-Token'     => $appToken,
-                    'Session-Token' => $sessionToken,
-                ])->get($glpiUrl . '/apirest.php/User/' . $glpiUserId . '/Profile_User');
+            $profiles = Http::withHeaders([
+                'App-Token'     => $appToken,
+                'Session-Token' => $sessionToken,
+            ])->get($glpiUrl . '/apirest.php/User/' . $glpiUserId . '/Profile_User');
 
-                if ($profiles->successful()) {
-                    foreach ($profiles->json() ?? [] as $p) {
-                        $profileId = $p['profiles_id'] ?? null;
-                        if (!$profileId) continue;
+            if ($profiles->successful()) {
+                foreach ($profiles->json() ?? [] as $p) {
+                    $profileId = $p['profiles_id'] ?? null;
+                    if (!$profileId) continue;
 
-                        $profileData = Http::withHeaders([
-                            'App-Token'     => $appToken,
-                            'Session-Token' => $sessionToken,
-                        ])->get($glpiUrl . '/apirest.php/Profile/' . $profileId);
+                    $profileData = Http::withHeaders([
+                        'App-Token'     => $appToken,
+                        'Session-Token' => $sessionToken,
+                    ])->get($glpiUrl . '/apirest.php/Profile/' . $profileId);
 
-                        $profileName = strtolower($profileData->json('name') ?? '');
+                    $profileName = strtolower($profileData->json('name') ?? '');
 
-                        if (str_contains($profileName, 'super')) {
-                            $role = 'super_admin';
-                        } elseif (in_array($profileName, ['admin', 'hotliner', 'supervisor'])) {
-                            $role = 'admin';
-                        }
+                    if (str_contains($profileName, 'super')) {
+                        $role = 'super_admin';
+                    } elseif (in_array($profileName, ['admin', 'hotliner', 'supervisor', 'technician', 'technicien', 'administrateur'])) {
+                        $role = 'admin';
                     }
                 }
             }
@@ -346,7 +340,7 @@ class LoginRequest extends FormRequest
 
         } catch (\Exception $e) {
             \Log::error('getGlpiUserProfile failed: ' . $e->getMessage());
-            return 'client';
+            return null;
         }
     }
 

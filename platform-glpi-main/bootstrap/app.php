@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     $middleware->alias([
         'admin'                  => \App\Http\Middleware\AdminMiddleware::class,
         'check.role'             => \App\Http\Middleware\CheckRole::class,
+        'check.active.user'      => \App\Http\Middleware\CheckActiveUser::class,
         'check.profile.complete' => \App\Http\Middleware\CheckProfileComplete::class,
         'force.password.change'  => \App\Http\Middleware\ForcePasswordChange::class,
     ]);

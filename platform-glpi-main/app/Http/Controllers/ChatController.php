@@ -47,31 +47,51 @@ class ChatController extends Controller
             return response()->json(['message' => 'Message is required'], 422);
         }
 
-        $response = $this->apiClient($request->bearerToken())
-            ->withBody(json_encode([
-                'content' => $message,
-                'conversation_id' => $request->input('conversation_id'),
-            ]), 'application/json')
-            ->send('POST', $this->apiUrl('/conversations/stream'));
+        try {
+            $response = $this->apiClient($request->bearerToken())
+                ->withBody(json_encode([
+                    'content' => $message,
+                    'conversation_id' => $request->input('conversation_id'),
+                ]), 'application/json')
+                ->send('POST', $this->apiUrl('/conversations/stream'));
 
-        if (!$response->successful()) {
-            return response()->json($response->json() ?: ['message' => $response->body()], $response->status());
+            if (!$response->successful()) {
+                return response()->json($response->json() ?: ['message' => $response->body()], $response->status());
+            }
+
+            $parsed = $this->parseStream($response->body());
+
+            return response()->json([
+                'conversation_id' => $parsed['conversation_id'] ?? $request->input('conversation_id'),
+                'response' => $parsed['response'] ?? 'Message recu.',
+                'message' => $parsed['response'] ?? 'Message recu.',
+            ]);
+        } catch (\Exception $e) {
+            $message = 'Erreur lors de l\'envoi du message. Service indisponible.';
+            return response()->json([
+                'error' => $message,
+                'message' => $message,
+            ], 503);
         }
-
-        $parsed = $this->parseStream($response->body());
-
-        return response()->json([
-            'conversation_id' => $parsed['conversation_id'] ?? $request->input('conversation_id'),
-            'response' => $parsed['response'] ?? 'Message recu.',
-            'message' => $parsed['response'] ?? 'Message recu.',
-        ]);
     }
 
     private function jsonProxy(string $method, string $path)
     {
-        $response = $this->apiClient()->send($method, $this->apiUrl($path));
-        return response($response->body(), $response->status())
-            ->header('Content-Type', $response->header('Content-Type', 'application/json'));
+        try {
+            $response = $this->apiClient()->send($method, $this->apiUrl($path));
+            return response($response->body(), $response->status())
+                ->header('Content-Type', $response->header('Content-Type', 'application/json'));
+        } catch (\Exception $e) {
+            $message = 'Service non disponible. Veuillez réessayer plus tard.';
+            if (str_contains($e->getMessage(), 'Connection refused')) {
+                $message = 'Impossible de se connecter au service de chat. Le serveur est peut-être hors ligne.';
+            }
+            return response()->json([
+                'error' => $message,
+                'message' => $message,
+                'detail' => $e->getMessage()
+            ], 503);
+        }
     }
 
     private function apiClient(?string $requestToken = null)

@@ -146,6 +146,77 @@ class GlpiService
         return $response->json() ?? [];
     }
 
+    protected function getUserProfileNames(int $glpiUserId): array
+    {
+        $this->ensureSession();
+
+        $profiles = $this->http()
+            ->get($this->baseUrl . "/apirest.php/User/{$glpiUserId}/Profile_User");
+
+        if (!$profiles->successful()) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($profiles->json() ?? [] as $profileUser) {
+            $profileId = (int) ($profileUser['profiles_id'] ?? 0);
+            if (!$profileId) continue;
+
+            try {
+                $profile = $this->getItem('Profile', $profileId);
+                $name = strtolower(trim((string) ($profile['name'] ?? '')));
+                if ($name !== '') {
+                    $names[] = $name;
+                    Log::info("GLPI User {$glpiUserId} profile: {$name}");
+                }
+            } catch (\Exception $e) {
+                Log::warning("GLPI profile lookup failed for profile {$profileId}: " . $e->getMessage());
+            }
+        }
+
+        return array_values(array_unique($names));
+    }
+
+    protected function roleFromGlpiProfiles(array $profileNames): string
+    {
+        // Only match exact "super" profile or variations that clearly mean super admin
+        foreach ($profileNames as $profileName) {
+            if ($profileName === 'super' || $profileName === 'super_admin' || $profileName === 'super administrator' ||
+                $profileName === 'superadmin' || $profileName === 'super-admin') {
+                return 'super_admin';
+            }
+        }
+
+        // Only exact admin profile name matches (strict - don't be too aggressive!)
+        $adminProfiles = [
+            'admin',
+            'administrateur',
+            'administrator',
+            'agent',
+            'technician',
+            'technicien'
+        ];
+        foreach ($profileNames as $profileName) {
+            if (in_array($profileName, $adminProfiles, true)) {
+                return 'admin';
+            }
+        }
+
+        // No admin profiles found - default to client
+        return 'client';
+    }
+
+    protected function clientTypeFromGlpiProfiles(array $profileNames): string
+    {
+        foreach ($profileNames as $profileName) {
+            if ($profileName === 'client' || str_contains($profileName, 'client')) {
+                return 'client';
+            }
+        }
+
+        return 'user';
+    }
+
     public function addItem(string $itemtype, array $input): array
     {
         $this->ensureSession();
@@ -861,9 +932,9 @@ class GlpiService
     }
 
     /**
-     * Import users depuis GLPI — client_type assigné à 'client' par défaut
+     * Import users depuis GLPI — roles determined from GLPI profiles only
      */
-    public function importUsersFromGlpi(string $defaultRole = 'client'): array
+    public function importUsersFromGlpi(): array
     {
         $this->ensureSession();
 
@@ -897,12 +968,36 @@ class GlpiService
             }
 
             $glpiId = $gu['id'] ?? $gu[1] ?? null;
+            $profileNames = $glpiId ? $this->getUserProfileNames((int) $glpiId) : [];
+            $role = empty($profileNames) ? null : $this->roleFromGlpiProfiles($profileNames);
+            
+            // If we couldn't determine the role (empty profiles), we don't calculate clientType to avoid overwriting.
+            $clientType = ($role && $role === 'client') ? $this->clientTypeFromGlpiProfiles($profileNames) : null;
 
             $existing = \App\Models\User::where('email', $email)->first();
             if ($existing) {
+                $updates = [];
+
                 if (!$existing->glpi_user_id && $glpiId) {
-                    $existing->updateQuietly(['glpi_user_id' => $glpiId]);
+                    $updates['glpi_user_id'] = $glpiId;
                 }
+
+                // NEVER downgrade admin/super_admin to client role
+                if ($role && $existing->role !== 'super_admin' && $existing->role !== 'admin' && $existing->role !== $role) {
+                    $updates['role'] = $role;
+                    $updates['client_type'] = $clientType;
+                    $updates['role_python'] = match ($role) {
+                        'super_admin' => 'ADMIN',
+                        'admin'       => 'AGENT',
+                        default       => 'CLIENT',
+                    };
+                }
+
+                if (!empty($updates)) {
+                    $existing->updateQuietly($updates);
+                    $existing->refresh();
+                }
+
                 $results[] = [
                     'login'   => $login,
                     'email'   => $email,
@@ -916,24 +1011,32 @@ class GlpiService
             $firstname = $gu[8] ?? $gu['firstname'] ?? '';
             $lastname  = $gu[9] ?? $gu['realname']  ?? '';
             $name = trim($firstname . ' ' . $lastname) ?: $login;
+            
+            $roleToSet = $role ?: 'client';
+            $clientTypeToSet = $roleToSet === 'client' ? $this->clientTypeFromGlpiProfiles($profileNames) : null;
+            $pythonRole = match ($roleToSet) {
+                'super_admin' => 'ADMIN',
+                'admin'       => 'AGENT',
+                default       => 'CLIENT',
+            };
 
             try {
                 $user = \App\Models\User::create([
                     'name'         => $name,
                     'email'        => $email,
                     'password'     => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(16)),
-                    'role'         => $defaultRole,
+                    'role'         => $roleToSet,
+                    'role_python'  => $pythonRole,
                     'is_active'    => true,
                     'glpi_user_id' => $glpiId,
-                    // Tous les users importés depuis GLPI sont classifiés comme 'client'
-                    'client_type'  => $defaultRole === 'client' ? 'client' : null,
+                    'client_type'  => $clientTypeToSet,
                 ]);
 
                 $results[] = [
                     'login'   => $login,
                     'email'   => $email,
                     'status'  => 'created',
-                    'role'    => $defaultRole,
+                    'role'    => $roleToSet,
                     'glpi_id' => $glpiId,
                     'user_id' => $user->id,
                 ];

@@ -238,10 +238,12 @@
           <div class="form-grp">
             <label class="form-lbl">Statut</label>
             <select class="form-sel" id="overrideStatus">
-              <option>escalated</option>
-              <option>resolved</option>
-              <option>in_progress</option>
-              <option>pending</option>
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In progress</option>
+              <option value="escalated" selected>Escalated</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
             </select>
           </div>
           <div class="form-grp">
@@ -303,19 +305,25 @@ function fetchEscalations() {
   fetch('{{ route('super-admin.escalations.api') }}')
     .then(res => res.json())
     .then(data => {
-      escalations = data.map(t => ({
+      const items = Array.isArray(data)
+        ? data
+        : (data.tickets || data.data || []);
+      escalations = items.map(t => ({
         id: t.id,
-        subject: t.subject,
-        source: t.channel_source || 'GLPI',
-        preview: t.description.substring(0, 100) + '...',
-        priority: t.priority.charAt(0).toUpperCase() + t.priority.slice(1).toLowerCase(),
-        date: new Date(t.created_at).toLocaleDateString('fr-FR'),
+        subject: t.subject || t.title || 'Sans sujet',
+        source: t.channel_source || t.source || 'GLPI',
+        preview: String(t.description || t.summary || '').substring(0, 100) + '...',
+        priority: String(t.priority || t.severity || 'low').charAt(0).toUpperCase() + String(t.priority || t.severity || 'low').slice(1).toLowerCase(),
+        date: new Date(t.created_at || t.createdAt || t.created_at).toLocaleDateString('fr-FR'),
         full: t
       }));
       renderList(escalations);
       updateStats();
     })
-    .catch(err => toast('Erreur chargement escalations'));
+    .catch(err => {
+      console.error('Escalations fetch failed', err);
+      toast('Erreur chargement escalations');
+    });
 }
 
 function updateStats() {
@@ -445,20 +453,40 @@ function renderDetail(e) {
 }
 
 function applyOverride() {
+  if (!currentId) {
+    toast('Aucune escalation sélectionnée.');
+    return;
+  }
   var status = document.getElementById('overrideStatus').value;
   var prio = document.getElementById('overridePriority').value;
-  
+
   fetch(`{{ url('/super-admin/api/escalations') }}/${currentId}/resolve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
     body: JSON.stringify({ status: status, priority: prio })
   })
-  .then(res => res.json())
-  .then(res => {
+  .then(function (res) {
+    if (!res.ok) {
+      return res.text().then(function (text) {
+        var msg = res.statusText || 'Erreur';
+        try {
+          var json = JSON.parse(text || '{}');
+          msg = json.message || json.detail || json.error || text || msg;
+        } catch (e) {
+          msg = text || msg;
+        }
+        throw new Error(msg);
+      });
+    }
+    return res.json();
+  })
+  .then(function () {
     toast('Override appliqué avec succès');
     fetchEscalations();
   })
-  .catch(err => toast('Erreur lors de l\'application'));
+  .catch(function (err) {
+    toast('Erreur lors de l\'application : ' + (err.message || 'Erreur'));
+  });
 }
 
 function rerun() {

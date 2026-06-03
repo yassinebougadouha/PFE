@@ -97,6 +97,17 @@ Route::middleware('auth')->group(function () {
         ->name('password.update');
 
     Route::post('logout', function (\Illuminate\Http\Request $request) {
+        // Kill GLPI session if user has glpi_user_id
+        try {
+            $user = Auth::user();
+            if ($user && $user->glpi_user_id) {
+                $glpi = app(\App\Services\GlpiService::class);
+                $glpi->killSession();
+            }
+        } catch (\Exception $e) {
+            \Log::warning('GLPI session cleanup on logout failed: ' . $e->getMessage());
+        }
+
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();

@@ -826,13 +826,9 @@
                   <i class="material-symbols-rounded me-1" style="font-size:18px;vertical-align:middle;color:#2dce89;">download</i>
                   Importer les utilisateurs GLPI vers la plateforme
                 </h6>
-                <p class="text-xs text-secondary mb-0">Tous les users GLPI avec un email valide seront importes (les comptes systeme sont ignores)</p>
+                <p class="text-xs text-secondary mb-0">Tous les users GLPI avec un email valide seront importes (les comptes systeme sont ignores). Les roles sont determines par les profils GLPI.</p>
               </div>
               <div class="d-flex align-items-center gap-2 flex-wrap">
-                <select id="importRoleSelect" class="form-select form-select-sm" style="width:140px;border-radius:8px;">
-                  <option value="client">Rôle: Client</option>
-                  <option value="admin">Rôle: Admin</option>
-                </select>
                 <button class="btn btn-sm mb-0 text-white" id="importUsersBtn"
                         style="background:linear-gradient(135deg,#2dce89,#2dcecc);"
                         onclick="importUsersFromGlpi()">
@@ -846,7 +842,7 @@
             <div class="alert py-2 px-3 mb-3" style="background:#e8f5e9;border-left:4px solid #2dce89;border-radius:6px;">
               <p class="text-xs mb-0" style="color:#2e7d32;">
                 <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">info</i>
-                Les users deja existants (meme email) ne seront pas dupliques — leur GLPI ID sera mis a jour.
+                <strong>Roles importes :</strong> Super-Admin et Admin selon les profils GLPI, Client pour les autres utilisateurs. Les users deja existants (meme email) ne seront pas dupliques — leur GLPI ID et roles seront mis a jour si necessaire.
                 Un mot de passe aleatoire est genere, il devra etre reinitialise par email.
               </p>
             </div>
@@ -2055,11 +2051,10 @@ async function glpiPasswordConfirm() {
 async function importUsersFromGlpi() {
     const btn = document.getElementById('importUsersBtn');
     const resDiv = document.getElementById('importUsersResult');
-    const role = document.getElementById('importRoleSelect').value;
     if(btn) { btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span> Import...'; }
     if(resDiv) resDiv.innerHTML='<div class="text-center py-3"><div class="spinner-border spinner-border-sm" style="color:#2dce89;"></div><p class="text-xs text-secondary mt-2">Import en cours...</p></div>';
     try {
-        const response = await fetch('/super-admin/glpi/import-users', { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN,'Accept':'application/json'}, body:JSON.stringify({role:role,glpi_source:'client'}) });
+        const response = await fetch('/super-admin/glpi/import-users', { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN,'Accept':'application/json'}, body:JSON.stringify({}) });
         const data = await response.json();
         if(data.success) {
             var statusColors={created:'#2e7d32',exists:'#1565c0',skip:'#757575',error:'#c62828'};

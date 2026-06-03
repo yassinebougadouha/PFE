@@ -1,7 +1,6 @@
-@extends('layouts.dashboard')
-@section('title', 'Moteur de Décisions — Super Admin')
+<?php $__env->startSection('title', 'Moteur de Décisions — Super Admin'); ?>
 
-@section('content')
+<?php $__env->startSection('content'); ?>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 .main-content{padding:0!important;} .main-content > .container-fluid{padding-top:0!important;padding-bottom:0!important;}
@@ -241,7 +240,7 @@
 
 <div id="de-wrap">
 
-  {{-- ══ TOP BAR ══ --}}
+  
   <div id="deTopbar">
     <div class="de-title">
       <div class="de-icon">
@@ -279,7 +278,7 @@
     </div>
   </div>
 
-  {{-- ══ KPI STRIP (mirrors TSX stats bar) ══ --}}
+  
   <div id="deKpiStrip">
     <div class="kpi-card">
       <div class="kpi-val" id="kpiTotal">—</div>
@@ -299,12 +298,12 @@
     </div>
   </div>
 
-  {{-- ══ BODY ══ --}}
+  
   <div id="deBody">
 
-    {{-- ─ TAB: TIMELINE ─ --}}
+    
     <div class="tab-panel active" id="panTimeline">
-      {{-- Left: ticket list --}}
+      
       <div id="deList">
         <div class="list-hdr">
           <div class="list-title">
@@ -327,7 +326,7 @@
         </div>
       </div>
 
-      {{-- Middle: timeline detail --}}
+      
       <div id="deDetail">
         <div class="empty-detail" id="deEmptyDetail">
           <div class="empty-detail-icon">
@@ -341,7 +340,7 @@
         </div>
       </div>
 
-      {{-- Right: stats sidebar --}}
+      
       <div id="deStats">
         <div class="stats-hdr">
           <div class="stats-title">
@@ -355,10 +354,10 @@
       </div>
     </div>
 
-    {{-- ─ TAB: ANALYZE (mirrors TSX "analyze" tab) ─ --}}
+    
     <div class="tab-panel" id="panAnalyze">
       <div class="an-two-col">
-        {{-- Analyze by Ticket ID --}}
+        
         <div class="an-card">
           <div class="an-card-title">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--p)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
@@ -379,7 +378,7 @@
           </button>
         </div>
 
-        {{-- Analyze free text --}}
+        
         <div class="an-card">
           <div class="an-card-title">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--p)" stroke-width="2" stroke-linecap="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
@@ -394,11 +393,11 @@
         </div>
       </div>
 
-      {{-- Result block (hidden until API responds) --}}
+      
       <div id="analyzeResult" style="display:none;"></div>
     </div>
 
-    {{-- ─ TAB: HISTORY (mirrors TSX "history" tab) ─ --}}
+    
     <div class="tab-panel" id="panHistory">
       <div class="hist-filter">
         <input type="text" class="de-input" id="histTicketFilter" placeholder="Filtrer par ID ticket…" style="max-width:280px;" oninput="onHistFilterInput(this.value)">
@@ -421,7 +420,7 @@
       </div>
     </div>
 
-    {{-- ─ TAB: STATS (mirrors TSX "stats" tab) ─ --}}
+    
     <div class="tab-panel" id="panStats">
       <div class="an-grid" id="statsKpis">
         <div class="an-kpi"><div class="an-kpi-val" id="anAvgConf">—</div><div class="an-kpi-label">Confiance moy.</div></div>
@@ -451,9 +450,9 @@
       </div>
     </div>
 
-    {{-- ─ TAB: PLAYBOOK (mirrors TSX "playbook" tab) ─ --}}
+    
     <div class="tab-panel" id="panPlaybook">
-      {{-- Outcome docs table --}}
+      
       <div class="an-card" style="margin-bottom:16px;">
         <div class="an-card-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--p)" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
@@ -471,7 +470,7 @@
         </div>
       </div>
 
-      {{-- Decision matrix table --}}
+      
       <div class="an-card">
         <div class="an-card-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--p)" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -490,7 +489,7 @@
       </div>
     </div>
 
-    {{-- ─ TAB: FLOW IA (existing) ─ --}}
+    
     <div class="tab-panel" id="panFlow">
       <div class="flow-grid">
         <div class="flow-card">
@@ -565,8 +564,8 @@
       </div>
     </div>
 
-  </div>{{-- /#deBody --}}
-</div>{{-- /#de-wrap --}}
+  </div>
+</div>
 
 <script>
 // ══════════════════════════════════════════════════════════════════
@@ -1226,4 +1225,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 </script>
-@endsection
+<?php $__env->stopSection(); ?>
+
+<?php echo $__env->make('layouts.dashboard', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH /var/www/html/resources/views/super-admin/super-admin-decision-engine.blade.php ENDPATH**/ ?>

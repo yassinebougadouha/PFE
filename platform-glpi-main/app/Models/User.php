@@ -20,6 +20,7 @@ class User extends Authenticatable
         'name', 'first_name', 'last_name', 'full_name',
         'birthday', 'gender',
         'email', 'password', 'role', 'is_active', 'last_login_at',
+        'role_python',
         'phone', 'phone_mobile', 'phone_number', 'whatsapp',
         'teams_email', 'teams_webhook_url',
         'avatar', 'profile_picture_url',
@@ -29,13 +30,13 @@ class User extends Authenticatable
         'client_type',
         'phone_verified',
         'must_change_password',
+        'hashed_password',
         // Champs db2
         'status',
         'is_vip',
         'is_deleted',
         'can_reply_conversations',
         'can_reply_whatsapp',
-        'hashed_password',
     ];
 
     public function getClientTypeInfo(): array

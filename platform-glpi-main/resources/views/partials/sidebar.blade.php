@@ -320,14 +320,6 @@
           </a>
         </li>
 
-        <li class="nav-item">
-          <a class="nav-link {{ request()->routeIs('admin.decision-engine') ? 'active text-white' : 'text-dark' }}"
-             href="{{ route('admin.decision-engine') }}"
-             style="{{ request()->routeIs('admin.decision-engine') ? 'background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));' : '' }}">
-            <i class="material-symbols-rounded" style="font-size:23px;font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24;flex-shrink:0;">smart_toy</i>
-            <span class="nav-link-text ms-2" style="font-size:0.925rem;">Decision Engine</span>
-          </a>
-        </li>
 
       @else
         <li class="nav-item">

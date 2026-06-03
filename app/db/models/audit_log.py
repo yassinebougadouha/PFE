@@ -20,7 +20,7 @@ class AuditLog(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True,
     )
     action: Mapped[AuditAction] = mapped_column(
-        Enum(AuditAction, name="audit_action", create_constraint=True),
+        Enum(AuditAction, name="audit_action", native_enum=False, create_constraint=True),
         nullable=False,
     )
     resource_type: Mapped[str] = mapped_column(String(100), nullable=False)

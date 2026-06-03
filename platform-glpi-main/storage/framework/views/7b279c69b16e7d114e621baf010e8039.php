@@ -334,7 +334,7 @@ async function escalateCall(){
       ticketId = await createLinkedTicket();
     }
     if(!ticketId) return;
-    await requestJson(`/tickets/${ticketId}/status`, {method:'POST', body:JSON.stringify({status:'ESCALATED'})});
+    await requestJson(`/tickets/${ticketId}/status`, {method:'POST', body:JSON.stringify({status:'escalated'})});
     showFeedback('ok', `Ticket ${ticketId} escalade vers l'administration.`);
   }catch(error){ showFeedback('bad', error.message); }
   finally{ setButtonLoading(btn, false); }

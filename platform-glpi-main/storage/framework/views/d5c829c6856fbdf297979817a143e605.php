@@ -208,99 +208,6 @@
     </div>
     <?php endif; ?>
 
-    
-    <div class="card mb-4" id="aiCard" style="border-left:4px solid var(--color-primary);">
-      <div class="card-header pb-0 pt-3 px-4">
-        <div class="d-flex align-items-center justify-content-between">
-          <div class="d-flex align-items-center gap-2">
-            <i class="material-symbols-rounded" style="color:var(--color-primary);font-size:20px;">smart_toy</i>
-            <h6 class="mb-0 font-weight-bold">Assistance IA</h6>
-            <span class="badge badge-sm" style="background:#eef2ff;color:#4c51bf;font-size:10px;">Groq LLM</span>
-          </div>
-          <button type="button" class="btn btn-sm btn-outline-secondary mb-0 py-1"
-                  style="font-size:11px;" onclick="loadAiAnalysis()">
-            <i class="material-symbols-rounded" style="font-size:13px;vertical-align:middle;">refresh</i>
-          </button>
-        </div>
-      </div>
-      <div class="card-body px-4 pb-4">
-
-        
-        <div id="aiLoading" class="text-center py-3">
-          <div class="spinner-border spinner-border-sm text-primary me-2"></div>
-          <span class="text-xs text-secondary">Analyse IA en cours...</span>
-        </div>
-
-        
-        <div id="aiContent" class="d-none">
-
-          
-          <div class="mb-3 p-3 border-radius-md" style="background:#f0f4ff;border:1px solid #e0e7ff;">
-            <p class="text-xs font-weight-bold text-uppercase mb-2" style="color:var(--color-primary);">
-              <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">summarize</i>
-              Résumé IA
-            </p>
-            <p id="aiSummary" class="text-sm mb-0"></p>
-          </div>
-
-          
-          <div id="aiTagsBox" class="mb-3 d-none">
-            <div id="aiTags" class="d-flex flex-wrap gap-1"></div>
-          </div>
-
-          
-          <div class="mb-3">
-            <div class="d-flex justify-content-between mb-1">
-              <span class="text-xs text-secondary">SLA utilisé</span>
-              <span id="aiSlaLabel" class="text-xs font-weight-bold"></span>
-            </div>
-            <div class="progress" style="height:6px;border-radius:3px;">
-              <div id="aiSlaBar" class="progress-bar" style="width:0%;border-radius:3px;"></div>
-            </div>
-          </div>
-
-          
-          <div class="mb-2">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <p class="text-xs font-weight-bold text-uppercase mb-0" style="color:var(--color-primary);">
-                <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">auto_fix_high</i>
-                Réponse suggérée
-              </p>
-              <div class="d-flex gap-2">
-                <button type="button" id="applyBtn" class="btn btn-sm mb-0 text-white py-1"
-                        style="background:var(--color-primary);font-size:11px;" onclick="applyAiResponse()">
-                  <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">content_copy</i>Appliquer
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-secondary mb-0 py-1"
-                        style="font-size:11px;" onclick="appendAiResponse()">
-                  <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">add</i>Insérer
-                </button>
-              </div>
-            </div>
-            <div id="aiResponseText"
-                 style="background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:12px;
-                        font-size:13px;white-space:pre-wrap;max-height:180px;overflow-y:auto;
-                        cursor:pointer;line-height:1.6;"
-                 onclick="applyAiResponse()" title="Cliquer pour appliquer dans le formulaire"></div>
-          </div>
-          <p class="text-xs text-secondary mb-0">
-            <i class="material-symbols-rounded me-1" style="font-size:11px;vertical-align:middle;">info</i>
-            Réponse adaptée à votre style de réponses précédentes pour cette catégorie.
-          </p>
-        </div>
-
-        
-        <div id="aiError" class="d-none text-center py-2">
-          <p class="text-xs text-secondary mb-0">
-            <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">cloud_off</i>
-            Service IA indisponible — répondez manuellement.
-          </p>
-        </div>
-      </div>
-    </div>
-
-
-    
     <div class="card">
       <div class="card-header pb-0 pt-3 px-4">
         <div class="d-flex align-items-center">
@@ -462,8 +369,90 @@ unset($__errorArgs, $__bag); ?>
         </div>
       </div>
     </div>
-  </div>
-<div class="card mt-3">
+
+    <div class="card mt-4 mb-4" id="aiCard" style="border-left:4px solid var(--color-primary);">
+      <div class="card-header pb-0 pt-3 px-4">
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="d-flex align-items-center gap-2">
+            <i class="material-symbols-rounded" style="color:var(--color-primary);font-size:20px;">smart_toy</i>
+            <h6 class="mb-0 font-weight-bold">Assistance IA</h6>
+            <span class="badge badge-sm" style="background:#eef2ff;color:#4c51bf;font-size:10px;">Groq LLM</span>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary mb-0 py-1"
+                  style="font-size:11px;" onclick="loadAiAnalysis()">
+            <i class="material-symbols-rounded" style="font-size:13px;vertical-align:middle;">refresh</i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body px-4 pb-4">
+
+        <div id="aiLoading" class="text-center py-3">
+          <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+          <span class="text-xs text-secondary">Analyse IA en cours...</span>
+        </div>
+
+        <div id="aiContent" class="d-none">
+          <div class="mb-3 p-3 border-radius-md" style="background:#f0f4ff;border:1px solid #e0e7ff;">
+            <p class="text-xs font-weight-bold text-uppercase mb-2" style="color:var(--color-primary);">
+              <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">summarize</i>
+              Résumé IA
+            </p>
+            <p id="aiSummary" class="text-sm mb-0"></p>
+          </div>
+
+          <div id="aiTagsBox" class="mb-3 d-none">
+            <div id="aiTags" class="d-flex flex-wrap gap-1"></div>
+          </div>
+
+          <div class="mb-3">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="text-xs text-secondary">SLA utilisé</span>
+              <span id="aiSlaLabel" class="text-xs font-weight-bold"></span>
+            </div>
+            <div class="progress" style="height:6px;border-radius:3px;">
+              <div id="aiSlaBar" class="progress-bar" style="width:0%;border-radius:3px;"></div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <p class="text-xs font-weight-bold text-uppercase mb-0" style="color:var(--color-primary);">
+                <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">auto_fix_high</i>
+                Réponse suggérée
+              </p>
+              <div class="d-flex gap-2">
+                <button type="button" id="applyBtn" class="btn btn-sm mb-0 text-white py-1"
+                        style="background:var(--color-primary);font-size:11px;" onclick="applyAiResponse()">
+                  <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">content_copy</i>Appliquer
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary mb-0 py-1"
+                        style="font-size:11px;" onclick="appendAiResponse()">
+                  <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">add</i>Insérer
+                </button>
+              </div>
+            </div>
+            <div id="aiResponseText"
+                 style="background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:12px;
+                        font-size:13px;white-space:pre-wrap;max-height:180px;overflow-y:auto;
+                        cursor:pointer;line-height:1.6;"
+                 onclick="applyAiResponse()" title="Cliquer pour appliquer dans le formulaire"></div>
+          </div>
+          <p class="text-xs text-secondary mb-0">
+            <i class="material-symbols-rounded me-1" style="font-size:11px;vertical-align:middle;">info</i>
+            Réponse adaptée à votre style de réponses précédentes pour cette catégorie.
+          </p>
+        </div>
+
+        <div id="aiError" class="d-none text-center py-2">
+          <p class="text-xs text-secondary mb-0">
+            <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">cloud_off</i>
+            Service IA indisponible — répondez manuellement.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
   <div class="card-header pb-0 pt-3 px-4">
     <div class="d-flex align-items-center">
       <i class="material-symbols-rounded me-2" style="color:var(--color-primary);">assignment_ind</i>

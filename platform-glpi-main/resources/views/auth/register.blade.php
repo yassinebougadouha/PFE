@@ -4,220 +4,488 @@
 
 @section('content')
 <style>
-*,*::before,*::after{box-sizing:border-box}
-.reg-page{min-height:100vh;display:flex;align-items:stretch;background:rgba(0, 23, 44, 0.52);font-family:'Segoe UI',system-ui,-apple-system,sans-serif}
-.reg-left{flex:1;display:none;flex-direction:column;justify-content:center;padding:60px 64px;background:linear-gradient(145deg, 0%,var(--color-secondary) 100%);position:relative;overflow:hidden}
-@media(min-width:992px){.reg-left{display:flex}}
-.reg-left::before{content:'';position:absolute;width:500px;height:500px;border-radius:50%;background:rgba(167, 223, 180, 0.52);top:-120px;right:-120px}
-.reg-left::after{content:'';position:absolute;width:300px;height:300px;border-radius:50%;background:rgba(212, 108, 108, 0.71);bottom:-80px;left:-80px}
-.reg-brand{display:flex;align-items:center;gap:14px;margin-bottom:56px}
-.reg-brand-icon{width:52px;height:52px;background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.3);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;backdrop-filter:blur(6px)}
-.reg-brand-name{font-size:22px;font-weight:800;color:#fff;letter-spacing:-.3px}
-.reg-hero-title{font-size:38px;font-weight:800;color:#fff;line-height:1.15;letter-spacing:-.8px;margin-bottom:20px}
-.reg-hero-sub{font-size:16px;color:rgba(255,255,255,.8);line-height:1.6;margin-bottom:48px;max-width:380px}
-.reg-features{display:flex;flex-direction:column;gap:18px}
-.reg-feat{display:flex;align-items:center;gap:14px;color:rgba(255,255,255,.9);font-size:14px;font-weight:500}
-.reg-feat-icon{width:38px;height:38px;background:rgba(255,255,255,.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
-.reg-right{width:100%;max-width:520px;display:flex;flex-direction:column;justify-content:center;padding:36px 28px;background:#fff;overflow-y:auto}
-@media(min-width:992px){.reg-right{padding:48px 52px}}
-.reg-steps{display:flex;gap:6px;margin-bottom:22px}
-.reg-step-dot{height:4px;border-radius:4px;background:#e4e6ea;flex:1;transition:background .3s}
-.reg-step-dot.active{background:var(--color-primary)}
-.reg-title{font-size:26px;font-weight:800;color:#1c1e21;letter-spacing:-.4px;margin-bottom:6px}
-.reg-subtitle{font-size:15px;color:#65676b;line-height:1.5;margin-bottom:24px}
-.reg-divider{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#90949c;margin:4px 0 12px;padding-bottom:6px;border-bottom:1.5px solid #e4e6ea}
-.reg-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.reg-field{margin-bottom:12px}
-.reg-label{display:block;font-size:12px;font-weight:600;color:#606770;letter-spacing:.02em;margin-bottom:5px}
-.reg-label .req{color:#e53935;margin-left:2px}
-.reg-input{width:100%;height:44px;border:1.5px solid #dddfe2;border-radius:8px;padding:0 14px;font-size:14px;color:#1c1e21;background:#f8f9fa;transition:border-color .18s,box-shadow .18s,background .18s;outline:none;-webkit-appearance:none}
-.reg-input:focus{border-color:var(--color-primary);background:#fff;box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 14%,transparent)}
-.reg-input.is-invalid{border-color:#e53935;background:#fff5f5}
-.reg-input::placeholder{color:#bec3c9}
-select.reg-input{cursor:pointer;padding-right:32px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2390949c' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:16px;background-color:#f8f9fa}
-.reg-pwd-wrap{position:relative}
-.reg-pwd-wrap .reg-input{padding-right:44px}
-.reg-eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:0;color:#90949c;line-height:1;display:flex;transition:color .15s}
-.reg-eye:hover{color:var(--color-primary)}
-.reg-error{font-size:12px;color:#e53935;margin-top:4px;display:flex;align-items:center;gap:4px}
-.reg-hint{font-size:11px;color:#90949c;margin-top:4px;line-height:1.4}
-.gender-group{display:flex;gap:8px}
-.gender-pill{flex:1;height:44px;border:1.5px solid #dddfe2;border-radius:8px;background:#f8f9fa;font-size:13px;font-weight:600;color:#65676b;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .18s;position:relative;-webkit-appearance:none;user-select:none}
-.gender-pill input[type=radio]{position:absolute;opacity:0;width:0;height:0}
-.gender-pill:hover{border-color:var(--color-primary);color:var(--color-primary);background:#fff}
-.gender-pill.selected{border-color:var(--color-primary);background:color-mix(in srgb,var(--color-primary) 8%,white);color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 12%,transparent)}
-.reg-terms{display:flex;align-items:flex-start;gap:10px;margin:10px 0 18px}
-.reg-terms input[type=checkbox]{width:18px;height:18px;flex-shrink:0;margin-top:2px;accent-color:var(--color-primary);cursor:pointer}
-.reg-terms label{font-size:13px;color:#65676b;line-height:1.5;cursor:pointer}
-.reg-terms a{color:var(--color-primary);font-weight:600;text-decoration:none}
-.reg-submit{width:100%;height:48px;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));border:none;border-radius:8px;font-size:15px;font-weight:700;color:#fff;cursor:pointer;transition:opacity .18s,transform .1s;letter-spacing:.01em}
-.reg-submit:hover{opacity:.93;transform:translateY(-1px)}
-.reg-submit:active{transform:translateY(0)}
-.reg-login{text-align:center;margin-top:16px;font-size:14px;color:#65676b}
-.reg-login a{color:var(--color-primary);font-weight:700;text-decoration:none}
-#pwdStrengthBar{height:3px;border-radius:4px;margin-top:6px;transition:width .3s,background .3s;width:0}
-#pwdMatch{font-size:12px;margin-top:5px;display:none}
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100% !important;
+    overflow: hidden !important;
+    background: #0f0c29 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body .main-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    min-height: unset !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+
+  .rp-bg {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, #0f0c29 0%, #1a1a4e 40%, #24243e 70%, #0f2027 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    padding: 16px;
+  }
+
+  /* Animated background orbs */
+  .rp-bg::before {
+    content: '';
+    position: absolute;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, transparent 70%);
+    top: -200px; left: -200px;
+    animation: orb1 8s ease-in-out infinite alternate;
+  }
+  .rp-bg::after {
+    content: '';
+    position: absolute;
+    width: 500px; height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(16,185,129,0.2) 0%, transparent 70%);
+    bottom: -150px; right: -150px;
+    animation: orb2 10s ease-in-out infinite alternate;
+  }
+  @keyframes orb1 { from { transform: translate(0,0) scale(1); } to { transform: translate(80px,60px) scale(1.2); } }
+  @keyframes orb2 { from { transform: translate(0,0) scale(1); } to { transform: translate(-60px,-40px) scale(1.15); } }
+
+  /* Card container */
+  .rp-card {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    width: min(1100px, 100%);
+    height: min(680px, 96vh);
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06);
+  }
+
+  /* LEFT PANEL */
+  .rp-left {
+    flex: 0 0 340px;
+    background: linear-gradient(160deg, #6366f1 0%, #4f46e5 45%, #3730a3 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 40px 36px;
+    position: relative;
+    overflow: hidden;
+  }
+  .rp-left::before {
+    content: '';
+    position: absolute;
+    width: 280px; height: 280px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    top: -80px; right: -80px;
+  }
+  .rp-left::after {
+    content: '';
+    position: absolute;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    bottom: -60px; left: -60px;
+  }
+  .rp-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+    z-index: 1;
+  }
+  .rp-logo-icon {
+    width: 44px; height: 44px;
+    background: rgba(255,255,255,0.2);
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    backdrop-filter: blur(8px);
+  }
+  .rp-logo-text { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
+  .rp-left-body { position: relative; z-index: 1; }
+  .rp-left-title {
+    font-size: 30px; font-weight: 800;
+    color: #fff; line-height: 1.2;
+    letter-spacing: -0.5px;
+    margin-bottom: 14px;
+  }
+  .rp-left-sub {
+    font-size: 14px; color: rgba(255,255,255,0.75);
+    line-height: 1.65; margin-bottom: 32px;
+  }
+  .rp-feat {
+    display: flex; align-items: center;
+    gap: 12px; margin-bottom: 14px;
+    color: rgba(255,255,255,0.9); font-size: 13px; font-weight: 500;
+  }
+  .rp-feat-ic {
+    width: 34px; height: 34px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .rp-left-footer {
+    position: relative; z-index: 1;
+    font-size: 12px; color: rgba(255,255,255,0.45);
+  }
+
+  /* RIGHT PANEL - FORM */
+  .rp-right {
+    flex: 1;
+    background: #0f172a;
+    overflow-y: auto;
+    padding: 36px 44px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(99,102,241,0.3) transparent;
+  }
+  .rp-right::-webkit-scrollbar { width: 4px; }
+  .rp-right::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 4px; }
+
+  .rp-steps {
+    display: flex; gap: 5px;
+    margin-bottom: 24px;
+  }
+  .rp-dot {
+    height: 3px; border-radius: 3px;
+    background: rgba(255,255,255,0.1); flex: 1;
+    transition: background 0.35s;
+  }
+  .rp-dot.on { background: #6366f1; }
+
+  .rp-form-title {
+    font-size: 24px; font-weight: 800;
+    color: #f1f5f9; letter-spacing: -0.4px;
+    margin-bottom: 4px;
+  }
+  .rp-form-sub {
+    font-size: 13px; color: #64748b;
+    margin-bottom: 22px;
+  }
+
+  .rp-alert {
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 12.5px; color: #fca5a5;
+    margin-bottom: 16px;
+  }
+
+  /* Section dividers */
+  .rp-section {
+    font-size: 10.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: #475569;
+    margin: 14px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  /* Grid */
+  .rp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Fields */
+  .rp-field { margin-bottom: 10px; }
+  .rp-lbl {
+    display: block; font-size: 11.5px; font-weight: 600;
+    color: #94a3b8; letter-spacing: 0.02em; margin-bottom: 5px;
+  }
+  .rp-lbl .req { color: #f87171; margin-left: 2px; }
+  .rp-inp {
+    width: 100%; height: 42px;
+    background: rgba(255,255,255,0.05);
+    border: 1.5px solid rgba(255,255,255,0.09);
+    border-radius: 9px;
+    padding: 0 13px;
+    font-size: 13.5px; color: #e2e8f0;
+    outline: none;
+    transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+    -webkit-appearance: none;
+  }
+  .rp-inp::placeholder { color: #334155; }
+  .rp-inp:focus {
+    border-color: #6366f1;
+    background: rgba(99,102,241,0.07);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.18);
+  }
+  .rp-inp.bad { border-color: #ef4444; background: rgba(239,68,68,0.07); }
+  select.rp-inp {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    background-size: 14px;
+    padding-right: 34px;
+    background-color: rgba(255,255,255,0.05);
+    color: #e2e8f0;
+  }
+  select.rp-inp option { background: #1e293b; color: #e2e8f0; }
+
+  .rp-err { font-size: 11px; color: #f87171; margin-top: 4px; }
+  .rp-hint { font-size: 10.5px; color: #475569; margin-top: 3px; }
+
+  /* Gender */
+  .rp-gender { display: flex; gap: 7px; }
+  .rp-gp {
+    flex: 1; height: 42px;
+    background: rgba(255,255,255,0.05);
+    border: 1.5px solid rgba(255,255,255,0.09);
+    border-radius: 9px;
+    font-size: 12.5px; font-weight: 600; color: #64748b;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    transition: all 0.18s;
+    position: relative; user-select: none;
+  }
+  .rp-gp input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .rp-gp:hover { border-color: #6366f1; color: #a5b4fc; }
+  .rp-gp.on {
+    border-color: #6366f1;
+    background: rgba(99,102,241,0.15);
+    color: #a5b4fc;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.2);
+  }
+
+  /* Password */
+  .rp-pwd-wrap { position: relative; }
+  .rp-pwd-wrap .rp-inp { padding-right: 44px; }
+  .rp-eye {
+    position: absolute; right: 12px; top: 50%;
+    transform: translateY(-50%);
+    background: none; border: none; cursor: pointer;
+    color: #475569; padding: 0; display: flex;
+    transition: color 0.15s;
+  }
+  .rp-eye:hover { color: #6366f1; }
+
+  /* Strength bar */
+  #rp-sbar { height: 3px; border-radius: 3px; margin-top: 6px; transition: width 0.3s, background 0.3s; width: 0; }
+  #rp-stxt { font-size: 10.5px; color: #475569; margin-top: 3px; display: none; }
+
+  /* Terms */
+  .rp-terms {
+    display: flex; align-items: flex-start;
+    gap: 9px; margin: 12px 0 16px;
+  }
+  .rp-terms input[type=checkbox] {
+    width: 16px; height: 16px;
+    flex-shrink: 0; margin-top: 1px;
+    accent-color: #6366f1; cursor: pointer;
+  }
+  .rp-terms label { font-size: 12px; color: #64748b; line-height: 1.5; cursor: pointer; }
+  .rp-terms a { color: #818cf8; font-weight: 600; text-decoration: none; }
+
+  /* Submit */
+  .rp-submit {
+    width: 100%; height: 46px;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    border: none; border-radius: 10px;
+    font-size: 14.5px; font-weight: 700;
+    color: #fff; cursor: pointer;
+    transition: opacity 0.18s, transform 0.12s, box-shadow 0.18s;
+    letter-spacing: 0.01em;
+    box-shadow: 0 4px 20px rgba(99,102,241,0.35);
+  }
+  .rp-submit:hover { opacity: 0.93; transform: translateY(-1px); box-shadow: 0 8px 28px rgba(99,102,241,0.45); }
+  .rp-submit:active { transform: translateY(0); }
+
+  .rp-login-link {
+    text-align: center; margin-top: 14px;
+    font-size: 13px; color: #475569;
+  }
+  .rp-login-link a { color: #818cf8; font-weight: 700; text-decoration: none; }
+  .rp-login-link a:hover { color: #a5b4fc; }
+
+  /* Hide left panel on small screens */
+  @media(max-width: 800px) {
+    .rp-left { display: none; }
+    .rp-right { padding: 28px 24px; }
+  }
 </style>
 
-<div class="reg-page">
+<div class="rp-bg">
+  <div class="rp-card">
 
-  {{-- LEFT --}}
-  <div class="reg-left" >
-    
-    <h1 class="reg-hero-title">Rejoignez<br>notre plateforme L2T.</h1>
-    <p class="reg-hero-sub">Créez votre compte en quelques secondes et accédez à un support dédié, rapide et sécurisé.</p>
-    <div class="reg-features">
-      <div class="reg-feat"><div class="reg-feat-icon">⚡</div><span>Suivi de tickets en temps réel</span></div>
-     
+    {{-- LEFT --}}
+    <div class="rp-left">
+      <div class="rp-logo">
+        <div class="rp-logo-icon">🎯</div>
+        <span class="rp-logo-text">L2T Support</span>
+      </div>
+
+      <div class="rp-left-body">
+        <h1 class="rp-left-title">Rejoignez<br>notre plateforme.</h1>
+        <p class="rp-left-sub">Créez votre compte en quelques secondes et accédez à un support dédié, rapide et sécurisé.</p>
+        <div class="rp-feat"><div class="rp-feat-ic">⚡</div><span>Suivi de tickets en temps réel</span></div>
+        <div class="rp-feat"><div class="rp-feat-ic">🔐</div><span>Données protégées & chiffrées</span></div>
+        <div class="rp-feat"><div class="rp-feat-ic">🚀</div><span>Accès instantané après inscription</span></div>
+      </div>
+
+      <div class="rp-left-footer">© 2025 L2T Support — Tous droits réservés</div>
     </div>
-  </div>
 
-  {{-- RIGHT --}}
-  <div class="reg-right">
-    <div class="reg-steps">
-      <div class="reg-step-dot active" id="dot1"></div>
-      <div class="reg-step-dot" id="dot2"></div>
-      <div class="reg-step-dot" id="dot3"></div>
+    {{-- RIGHT --}}
+    <div class="rp-right">
+      <div class="rp-steps">
+        <div class="rp-dot on" id="dot1"></div>
+        <div class="rp-dot" id="dot2"></div>
+        <div class="rp-dot" id="dot3"></div>
+      </div>
+
+      <h2 class="rp-form-title">Créer un compte</h2>
+      <p class="rp-form-sub">C'est gratuit et ne prend que quelques instants.</p>
+
+      @if($errors->any())
+        <div class="rp-alert">⚠ Veuillez corriger les erreurs ci-dessous.</div>
+      @endif
+
+      <form method="POST" action="{{ route('register') }}" novalidate>
+        @csrf
+
+        {{-- IDENTITÉ --}}
+        <div class="rp-section">👤 Identité</div>
+
+        <div class="rp-row">
+          <div class="rp-field">
+            <label class="rp-lbl">Prénom <span class="req">*</span></label>
+            <input type="text" name="first_name"
+                   class="rp-inp @error('first_name') bad @enderror"
+                   value="{{ old('first_name') }}" placeholder="ex: Ahmed"
+                   autocomplete="given-name" autofocus>
+            @error('first_name')<p class="rp-err">⚠ {{ $message }}</p>@enderror
+          </div>
+          <div class="rp-field">
+            <label class="rp-lbl">Nom <span class="req">*</span></label>
+            <input type="text" name="last_name"
+                   class="rp-inp @error('last_name') bad @enderror"
+                   value="{{ old('last_name') }}" placeholder="ex: Ben Ali"
+                   autocomplete="family-name">
+            @error('last_name')<p class="rp-err">⚠ {{ $message }}</p>@enderror
+          </div>
+        </div>
+
+        <div class="rp-row">
+          <div class="rp-field">
+            <label class="rp-lbl">Date de naissance <span class="req">*</span></label>
+            <input type="date" name="birthday"
+                   class="rp-inp @error('birthday') bad @enderror"
+                   value="{{ old('birthday') }}"
+                   max="{{ date('Y-m-d', strtotime('-13 years')) }}">
+            <p class="rp-hint">📅 Minimum 13 ans.</p>
+            @error('birthday')<p class="rp-err">⚠ {{ $message }}</p>@enderror
+          </div>
+          <div class="rp-field">
+            <label class="rp-lbl">Genre <span class="req">*</span></label>
+            <div class="rp-gender">
+              <label class="rp-gp @if(old('gender')=='male') on @endif" id="gp-m">
+                <input type="radio" name="gender" value="male" {{ old('gender')=='male' ? 'checked' : '' }}>
+                ♂ Homme
+              </label>
+              <label class="rp-gp @if(old('gender')=='female') on @endif" id="gp-f">
+                <input type="radio" name="gender" value="female" {{ old('gender')=='female' ? 'checked' : '' }}>
+                ♀ Femme
+              </label>
+              <label class="rp-gp @if(old('gender')=='other') on @endif" id="gp-o">
+                <input type="radio" name="gender" value="other" {{ old('gender')=='other' ? 'checked' : '' }}>
+                ⚧ Autre
+              </label>
+            </div>
+            @error('gender')<p class="rp-err">⚠ {{ $message }}</p>@enderror
+          </div>
+        </div>
+
+        {{-- CONTACT --}}
+        <div class="rp-section">📧 Contact</div>
+
+        <div class="rp-row">
+          <div class="rp-field">
+            <label class="rp-lbl">Adresse e-mail <span class="req">*</span></label>
+            <input type="email" name="email"
+                   class="rp-inp @error('email') bad @enderror"
+                   value="{{ old('email') }}" placeholder="votre@email.com"
+                   autocomplete="email">
+            @error('email')<p class="rp-err">⚠ {{ $message }}</p>@enderror
+          </div>
+          <div class="rp-field">
+            <label class="rp-lbl">Téléphone <span style="color:#475569;font-weight:400;">(optionnel)</span></label>
+            <div style="position:relative;">
+              <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none;">📱</span>
+              <input type="text" name="phone"
+                     class="rp-inp @error('phone') bad @enderror"
+                     value="{{ old('phone') }}" placeholder="ex: 98 123 456"
+                     style="padding-left:36px;" autocomplete="tel">
+            </div>
+            @error('phone')<p class="rp-err">⚠ {{ $message }}</p>@enderror
+          </div>
+        </div>
+
+        {{-- SÉCURITÉ --}}
+        <div class="rp-section">🔐 Sécurité</div>
+
+        <div class="rp-row">
+          <div class="rp-field">
+            <label class="rp-lbl">Mot de passe <span class="req">*</span></label>
+            <div class="rp-pwd-wrap">
+              <input type="password" name="password" id="pwd1"
+                     class="rp-inp @error('password') bad @enderror"
+                     placeholder="Min. 8 caractères" autocomplete="new-password">
+              <button type="button" class="rp-eye" onclick="toggleEye('pwd1','eye1')">
+                <svg id="eye1" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              </button>
+            </div>
+            <div id="rp-sbar"></div>
+            <p id="rp-stxt"></p>
+            @error('password')<p class="rp-err">⚠ {{ $message }}</p>@enderror
+          </div>
+          <div class="rp-field">
+            <label class="rp-lbl">Confirmer le mot de passe <span class="req">*</span></label>
+            <div class="rp-pwd-wrap">
+              <input type="password" name="password_confirmation" id="pwd2"
+                     class="rp-inp" placeholder="Répétez le mot de passe"
+                     autocomplete="new-password">
+              <button type="button" class="rp-eye" onclick="toggleEye('pwd2','eye2')">
+                <svg id="eye2" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              </button>
+            </div>
+            <p id="pwdMatch" style="font-size:11px;margin-top:4px;display:none;"></p>
+          </div>
+        </div>
+
+        <div class="rp-terms">
+          <input type="checkbox" id="terms" required>
+          <label for="terms">
+            J'accepte les <a href="javascript:;">Conditions d'utilisation</a>
+            et la <a href="javascript:;">Politique de confidentialité</a> de L2T Support.
+          </label>
+        </div>
+
+        <button type="submit" class="rp-submit">Créer mon compte →</button>
+
+        <p class="rp-login-link">Déjà un compte ? <a href="{{ route('login') }}">Se connecter</a></p>
+      </form>
     </div>
 
-    <h2 class="reg-title">Créer un compte</h2>
-    <p class="reg-subtitle">C'est gratuit et ne prend que quelques instants.</p>
-
-    @if($errors->any())
-      <div class="alert alert-danger py-2 px-3 mb-3" style="border-radius:8px;font-size:13px;">
-        <strong>Veuillez corriger les erreurs ci-dessous.</strong>
-      </div>
-    @endif
-
-    <form method="POST" action="{{ route('register') }}" novalidate>
-      @csrf
-
-      {{-- Identité --}}
-      <div class="reg-divider">👤 Identité</div>
-
-      <div class="reg-row">
-        <div class="reg-field">
-          <label class="reg-label">Prénom <span class="req">*</span></label>
-          <input type="text" name="first_name"
-                 class="reg-input @error('first_name') is-invalid @enderror"
-                 value="{{ old('first_name') }}" placeholder="ex: Ahmed"
-                 autocomplete="given-name" autofocus>
-          @error('first_name')<p class="reg-error">⚠ {{ $message }}</p>@enderror
-        </div>
-        <div class="reg-field">
-          <label class="reg-label">Nom <span class="req">*</span></label>
-          <input type="text" name="last_name"
-                 class="reg-input @error('last_name') is-invalid @enderror"
-                 value="{{ old('last_name') }}" placeholder="ex: Ben Ali"
-                 autocomplete="family-name">
-          @error('last_name')<p class="reg-error">⚠ {{ $message }}</p>@enderror
-        </div>
-      </div>
-
-      <div class="reg-field">
-        <label class="reg-label">Date de naissance <span class="req">*</span></label>
-        <input type="date" name="birthday"
-               class="reg-input @error('birthday') is-invalid @enderror"
-               value="{{ old('birthday') }}"
-               max="{{ date('Y-m-d', strtotime('-13 years')) }}">
-        <p class="reg-hint">📅 Vous devez avoir au moins 13 ans.</p>
-        @error('birthday')<p class="reg-error">⚠ {{ $message }}</p>@enderror
-      </div>
-
-      <div class="reg-field">
-        <label class="reg-label">Genre <span class="req">*</span></label>
-        <div class="gender-group">
-          <label class="gender-pill @if(old('gender')=='male') selected @endif" id="gpill-male">
-            <input type="radio" name="gender" value="male" {{ old('gender')=='male' ? 'checked' : '' }}>
-            ♂ Homme
-          </label>
-          <label class="gender-pill @if(old('gender')=='female') selected @endif" id="gpill-female">
-            <input type="radio" name="gender" value="female" {{ old('gender')=='female' ? 'checked' : '' }}>
-            ♀ Femme
-          </label>
-          <label class="gender-pill @if(old('gender')=='other') selected @endif" id="gpill-other">
-            <input type="radio" name="gender" value="other" {{ old('gender')=='other' ? 'checked' : '' }}>
-            ⚧ Autre
-          </label>
-        </div>
-        @error('gender')<p class="reg-error">⚠ {{ $message }}</p>@enderror
-      </div>
-
-      {{-- Contact --}}
-      <div class="reg-divider" style="margin-top:4px;">📧 Contact</div>
-
-      <div class="reg-field">
-        <label class="reg-label">Adresse e-mail <span class="req">*</span></label>
-        <input type="email" name="email"
-               class="reg-input @error('email') is-invalid @enderror"
-               value="{{ old('email') }}" placeholder="votre@email.com"
-               autocomplete="email">
-        @error('email')<p class="reg-error">⚠ {{ $message }}</p>@enderror
-      </div>
-
-      <div class="reg-field">
-        <label class="reg-label">Téléphone <span style="color:#90949c;font-weight:400;">(optionnel)</span></label>
-        <div style="position:relative;">
-          <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none;">📱</span>
-          <input type="text" name="phone"
-                 class="reg-input @error('phone') is-invalid @enderror"
-                 value="{{ old('phone') }}" placeholder="ex: 98 123 456"
-                 style="padding-left:40px;" autocomplete="tel">
-        </div>
-        @error('phone')<p class="reg-error">⚠ {{ $message }}</p>@enderror
-      </div>
-
-      {{-- Sécurité --}}
-      <div class="reg-divider" style="margin-top:4px;">🔐 Sécurité</div>
-
-      <div class="reg-field">
-        <label class="reg-label">Mot de passe <span class="req">*</span></label>
-        <div class="reg-pwd-wrap">
-          <input type="password" name="password" id="pwd1"
-                 class="reg-input @error('password') is-invalid @enderror"
-                 placeholder="Min. 8 caractères" autocomplete="new-password">
-          <button type="button" class="reg-eye" onclick="toggleEye('pwd1','eye1')">
-            <svg id="eye1" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-              <line x1="1" y1="1" x2="23" y2="23"/>
-            </svg>
-          </button>
-        </div>
-        <div id="pwdStrengthBar"></div>
-        <p id="pwdStrengthText" style="font-size:11px;color:#90949c;margin-top:3px;display:none;"></p>
-        @error('password')<p class="reg-error">⚠ {{ $message }}</p>@enderror
-      </div>
-
-      <div class="reg-field">
-        <label class="reg-label">Confirmer le mot de passe <span class="req">*</span></label>
-        <div class="reg-pwd-wrap">
-          <input type="password" name="password_confirmation" id="pwd2"
-                 class="reg-input" placeholder="Répétez le mot de passe"
-                 autocomplete="new-password">
-          <button type="button" class="reg-eye" onclick="toggleEye('pwd2','eye2')">
-            <svg id="eye2" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-              <line x1="1" y1="1" x2="23" y2="23"/>
-            </svg>
-          </button>
-        </div>
-        <p id="pwdMatch"></p>
-      </div>
-
-      <div class="reg-terms">
-        <input type="checkbox" id="terms" required>
-        <label for="terms">
-          J'accepte les <a href="javascript:;">Conditions d'utilisation</a>
-          et la <a href="javascript:;">Politique de confidentialité</a> de L2T Support.
-        </label>
-      </div>
-
-      <button type="submit" class="reg-submit">Créer mon compte →</button>
-
-      <p class="reg-login">Déjà un compte ? <a href="{{ route('login') }}">Se connecter</a></p>
-    </form>
   </div>
 </div>
 
@@ -226,71 +494,67 @@ var svgOpen  = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle 
 var svgClose = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
 
 function toggleEye(inputId, svgId) {
-  var input = document.getElementById(inputId);
-  var svg   = document.getElementById(svgId);
-  if (input.type === 'password') {
-    input.type = 'text'; svg.innerHTML = svgOpen; svg.style.color = 'var(--color-primary)';
+  var inp = document.getElementById(inputId);
+  var svg = document.getElementById(svgId);
+  if (inp.type === 'password') {
+    inp.type = 'text'; svg.innerHTML = svgOpen; svg.style.color = '#6366f1';
   } else {
-    input.type = 'password'; svg.innerHTML = svgClose; svg.style.color = '';
+    inp.type = 'password'; svg.innerHTML = svgClose; svg.style.color = '';
   }
 }
 
 // Gender pills
-document.querySelectorAll('.gender-pill').forEach(function(pill) {
+document.querySelectorAll('.rp-gp').forEach(function(pill) {
   pill.addEventListener('click', function() {
-    document.querySelectorAll('.gender-pill').forEach(function(p) { p.classList.remove('selected'); });
-    this.classList.add('selected');
+    document.querySelectorAll('.rp-gp').forEach(function(p) { p.classList.remove('on'); });
+    this.classList.add('on');
   });
 });
 
 // Password strength
-var strengthBar  = document.getElementById('pwdStrengthBar');
-var strengthText = document.getElementById('pwdStrengthText');
-
+var sbar = document.getElementById('rp-sbar');
+var stxt = document.getElementById('rp-stxt');
 function checkStrength(pwd) {
-  var score = 0;
-  if (pwd.length >= 8)         score++;
-  if (pwd.length >= 12)        score++;
-  if (/[A-Z]/.test(pwd))      score++;
-  if (/[0-9]/.test(pwd))      score++;
-  if (/[^A-Za-z0-9]/.test(pwd)) score++;
-  return score;
+  var s = 0;
+  if (pwd.length >= 8) s++;
+  if (pwd.length >= 12) s++;
+  if (/[A-Z]/.test(pwd)) s++;
+  if (/[0-9]/.test(pwd)) s++;
+  if (/[^A-Za-z0-9]/.test(pwd)) s++;
+  return s;
 }
-
 document.getElementById('pwd1').addEventListener('input', function() {
   var val = this.value;
-  if (!val) { strengthBar.style.width = '0'; strengthText.style.display = 'none'; return; }
+  if (!val) { sbar.style.width = '0'; stxt.style.display = 'none'; return; }
   var s = checkStrength(val);
-  var colors = ['#e53935','#ff7043','#ffd600','#66bb6a','#2e7d32'];
+  var colors = ['#ef4444','#f97316','#eab308','#22c55e','#16a34a'];
   var labels = ['Très faible','Faible','Moyen','Fort','Très fort'];
-  strengthBar.style.width = (s/5*100)+'%';
-  strengthBar.style.background = colors[Math.min(s-1,4)];
-  strengthText.textContent = '🔒 ' + labels[Math.min(s-1,4)];
-  strengthText.style.color = colors[Math.min(s-1,4)];
-  strengthText.style.display = 'block';
-  // Progress dots
-  document.getElementById('dot1').classList.toggle('active', s >= 1);
-  document.getElementById('dot2').classList.toggle('active', s >= 3);
-  document.getElementById('dot3').classList.toggle('active', s >= 5);
+  sbar.style.width = (s/5*100)+'%';
+  sbar.style.background = colors[Math.min(s-1,4)];
+  stxt.textContent = '🔒 ' + labels[Math.min(s-1,4)];
+  stxt.style.color = colors[Math.min(s-1,4)];
+  stxt.style.display = 'block';
+  document.getElementById('dot1').classList.toggle('on', s >= 1);
+  document.getElementById('dot2').classList.toggle('on', s >= 3);
+  document.getElementById('dot3').classList.toggle('on', s >= 5);
   checkMatch();
 });
 
 // Confirm match
-var pwdMatchEl = document.getElementById('pwdMatch');
+var pmEl = document.getElementById('pwdMatch');
 function checkMatch() {
   var p1 = document.getElementById('pwd1').value;
   var p2 = document.getElementById('pwd2').value;
-  if (!p2) { pwdMatchEl.style.display = 'none'; return; }
-  pwdMatchEl.style.display = 'block';
-  pwdMatchEl.style.fontSize = '12px'; pwdMatchEl.style.marginTop = '5px';
+  if (!p2) { pmEl.style.display = 'none'; return; }
+  pmEl.style.display = 'block';
   if (p1 === p2) {
-    pwdMatchEl.textContent = '✅ Les mots de passe correspondent';
-    pwdMatchEl.style.color = '#2e7d32';
-    document.getElementById('pwd2').style.borderColor = '#66bb6a';
+    pmEl.textContent = '✅ Les mots de passe correspondent';
+    pmEl.style.color = '#22c55e';
+    document.getElementById('pwd2').style.borderColor = '#22c55e';
   } else {
-    pwdMatchEl.textContent = '❌ Ne correspondent pas';
-    pwdMatchEl.style.color = '#e53935';
-    document.getElementById('pwd2').style.borderColor = '#e53935';
+    pmEl.textContent = '❌ Ne correspondent pas';
+    pmEl.style.color = '#ef4444';
+    document.getElementById('pwd2').style.borderColor = '#ef4444';
   }
 }
 document.getElementById('pwd1').addEventListener('input', checkMatch);

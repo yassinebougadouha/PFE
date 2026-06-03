@@ -204,99 +204,6 @@
     </div>
     @endif
 
-    {{-- Carte IA principale --}}
-    <div class="card mb-4" id="aiCard" style="border-left:4px solid var(--color-primary);">
-      <div class="card-header pb-0 pt-3 px-4">
-        <div class="d-flex align-items-center justify-content-between">
-          <div class="d-flex align-items-center gap-2">
-            <i class="material-symbols-rounded" style="color:var(--color-primary);font-size:20px;">smart_toy</i>
-            <h6 class="mb-0 font-weight-bold">Assistance IA</h6>
-            <span class="badge badge-sm" style="background:#eef2ff;color:#4c51bf;font-size:10px;">Groq LLM</span>
-          </div>
-          <button type="button" class="btn btn-sm btn-outline-secondary mb-0 py-1"
-                  style="font-size:11px;" onclick="loadAiAnalysis()">
-            <i class="material-symbols-rounded" style="font-size:13px;vertical-align:middle;">refresh</i>
-          </button>
-        </div>
-      </div>
-      <div class="card-body px-4 pb-4">
-
-        {{-- Loading --}}
-        <div id="aiLoading" class="text-center py-3">
-          <div class="spinner-border spinner-border-sm text-primary me-2"></div>
-          <span class="text-xs text-secondary">Analyse IA en cours...</span>
-        </div>
-
-        {{-- Contenu IA --}}
-        <div id="aiContent" class="d-none">
-
-          {{-- Résumé --}}
-          <div class="mb-3 p-3 border-radius-md" style="background:#f0f4ff;border:1px solid #e0e7ff;">
-            <p class="text-xs font-weight-bold text-uppercase mb-2" style="color:var(--color-primary);">
-              <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">summarize</i>
-              Résumé IA
-            </p>
-            <p id="aiSummary" class="text-sm mb-0"></p>
-          </div>
-
-          {{-- Tags --}}
-          <div id="aiTagsBox" class="mb-3 d-none">
-            <div id="aiTags" class="d-flex flex-wrap gap-1"></div>
-          </div>
-
-          {{-- SLA Bar --}}
-          <div class="mb-3">
-            <div class="d-flex justify-content-between mb-1">
-              <span class="text-xs text-secondary">SLA utilisé</span>
-              <span id="aiSlaLabel" class="text-xs font-weight-bold"></span>
-            </div>
-            <div class="progress" style="height:6px;border-radius:3px;">
-              <div id="aiSlaBar" class="progress-bar" style="width:0%;border-radius:3px;"></div>
-            </div>
-          </div>
-
-          {{-- Réponse suggérée --}}
-          <div class="mb-2">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <p class="text-xs font-weight-bold text-uppercase mb-0" style="color:var(--color-primary);">
-                <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">auto_fix_high</i>
-                Réponse suggérée
-              </p>
-              <div class="d-flex gap-2">
-                <button type="button" id="applyBtn" class="btn btn-sm mb-0 text-white py-1"
-                        style="background:var(--color-primary);font-size:11px;" onclick="applyAiResponse()">
-                  <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">content_copy</i>Appliquer
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-secondary mb-0 py-1"
-                        style="font-size:11px;" onclick="appendAiResponse()">
-                  <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">add</i>Insérer
-                </button>
-              </div>
-            </div>
-            <div id="aiResponseText"
-                 style="background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:12px;
-                        font-size:13px;white-space:pre-wrap;max-height:180px;overflow-y:auto;
-                        cursor:pointer;line-height:1.6;"
-                 onclick="applyAiResponse()" title="Cliquer pour appliquer dans le formulaire"></div>
-          </div>
-          <p class="text-xs text-secondary mb-0">
-            <i class="material-symbols-rounded me-1" style="font-size:11px;vertical-align:middle;">info</i>
-            Réponse adaptée à votre style de réponses précédentes pour cette catégorie.
-          </p>
-        </div>
-
-        {{-- Erreur --}}
-        <div id="aiError" class="d-none text-center py-2">
-          <p class="text-xs text-secondary mb-0">
-            <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">cloud_off</i>
-            Service IA indisponible — répondez manuellement.
-          </p>
-        </div>
-      </div>
-    </div>
-
-
-    {{-- FORMULAIRE RÉPONSE --}}
     <div class="card">
       <div class="card-header pb-0 pt-3 px-4">
         <div class="d-flex align-items-center">
@@ -448,8 +355,86 @@
         </div>
       </div>
     </div>
-  </div>
-<div class="card mt-3">
+
+    <div class="card mt-4 mb-4" id="aiCard" style="border-left:4px solid var(--color-primary);">
+      <div class="card-header pb-0 pt-3 px-4">
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="d-flex align-items-center gap-2">
+            <i class="material-symbols-rounded" style="color:var(--color-primary);font-size:20px;">smart_toy</i>
+            <h6 class="mb-0 font-weight-bold">Assistance IA</h6>
+            <span class="badge badge-sm" style="background:#eef2ff;color:#4c51bf;font-size:10px;">Groq LLM</span>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary mb-0 py-1"
+                  style="font-size:11px;" onclick="loadAiAnalysis()">
+            <i class="material-symbols-rounded" style="font-size:13px;vertical-align:middle;">refresh</i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body px-4 pb-4">
+
+        <div id="aiLoading" class="text-center py-3">
+          <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+          <span class="text-xs text-secondary">Analyse IA en cours...</span>
+        </div>
+
+        <div id="aiContent" class="d-none">
+          <div class="mb-3 p-3 border-radius-md" style="background:#f0f4ff;border:1px solid #e0e7ff;">
+            <p class="text-xs font-weight-bold text-uppercase mb-2" style="color:var(--color-primary);">
+              <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">summarize</i>
+              Résumé IA
+            </p>
+            <p id="aiSummary" class="text-sm mb-0"></p>
+          </div>
+
+          <div id="aiTagsBox" class="mb-3 d-none">
+            <div id="aiTags" class="d-flex flex-wrap gap-1"></div>
+          </div>
+
+          <div class="mb-3">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="text-xs text-secondary">SLA utilisé</span>
+              <span id="aiSlaLabel" class="text-xs font-weight-bold"></span>
+            </div>
+            <div class="progress" style="height:6px;border-radius:3px;">
+              <div id="aiSlaBar" class="progress-bar" style="width:0%;border-radius:3px;"></div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <p class="text-xs font-weight-bold text-uppercase mb-0" style="color:var(--color-primary);">
+                <i class="material-symbols-rounded me-1" style="font-size:13px;vertical-align:middle;">auto_fix_high</i>
+                Réponse suggérée
+              </p>
+              <div class="d-flex gap-2">
+                <button type="button" id="applyBtn" class="btn btn-sm mb-0 text-white py-1"
+                        style="background:var(--color-primary);font-size:11px;" onclick="applyAiResponse()">
+                  <i class="material-symbols-rounded me-1" style="font-size:12px;vertical-align:middle;">content_copy</i>Appliquer
+                </button>
+              </div>
+            </div>
+            <div id="aiResponseText"
+                 style="background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:12px;
+                        font-size:13px;white-space:pre-wrap;max-height:180px;overflow-y:auto;
+                        cursor:pointer;line-height:1.6;"
+                 onclick="applyAiResponse()" title="Cliquer pour appliquer dans le formulaire"></div>
+          </div>
+          <p class="text-xs text-secondary mb-0">
+            <i class="material-symbols-rounded me-1" style="font-size:11px;vertical-align:middle;">info</i>
+            Réponse adaptée à votre style de réponses précédentes pour cette catégorie.
+          </p>
+        </div>
+
+        <div id="aiError" class="d-none text-center py-2">
+          <p class="text-xs text-secondary mb-0">
+            <i class="material-symbols-rounded me-1" style="font-size:14px;vertical-align:middle;">cloud_off</i>
+            Service IA indisponible — répondez manuellement.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
   <div class="card-header pb-0 pt-3 px-4">
     <div class="d-flex align-items-center">
       <i class="material-symbols-rounded me-2" style="color:var(--color-primary);">assignment_ind</i>
@@ -552,26 +537,36 @@ function assignTicket(ticketId) {
     fetch('/admin/ai/analyze', {
       method: 'POST',
       headers: {
+        'Accept':            'application/json',
         'Content-Type':      'application/json',
         'X-CSRF-TOKEN':      AI_CSRF,
         'X-Requested-With':  'XMLHttpRequest'
       },
       body: JSON.stringify({ticket_id: AI_TID})
     })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      if (!r.ok) {
+        return r.json().catch(function() { throw new Error('Erreur réseau IA'); }).then(function(body) {
+          throw new Error(body.message || body.error || 'Erreur service IA');
+        });
+      }
+      return r.json();
+    })
     .then(function(data) {
       if (loading) loading.classList.add('d-none');
 
       var summary = document.getElementById('aiSummary');
       var resp    = document.getElementById('aiResponseText');
+      var tagsEl  = document.getElementById('aiTags');
+      var tagsBox = document.getElementById('aiTagsBox');
       if (summary) summary.textContent = data.summary || '';
       if (resp)    resp.textContent    = data.response || '';
+      if (tagsEl)  tagsEl.innerHTML = '';
+      if (tagsBox) tagsBox.classList.add('d-none');
 
       // Tags
       if (data.tags && data.tags.length > 0) {
         var colors = {URGENT:'#e53e3e',API:'#3b82f6',FACTURATION:'#f59e0b',TECHNIQUE:'#8b5cf6',PLATEFORME:'#10b981',PAIEMENT:'#f97316'};
-        var tagsEl = document.getElementById('aiTags');
-        var tagsBox = document.getElementById('aiTagsBox');
         if (tagsEl) {
           tagsEl.innerHTML = data.tags.map(function(t) {
             var c = colors[t] || getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim();
@@ -582,20 +577,26 @@ function assignTicket(ticketId) {
       }
 
       // SLA bar
+      var bar = document.getElementById('aiSlaBar');
+      var lbl = document.getElementById('aiSlaLabel');
       if (data.urgency) {
         var used     = data.urgency.sla_used || 0;
         var barColor = used >= 80 ? '#e53e3e' : (used >= 60 ? '#f59e0b' : '#10b981');
-        var bar      = document.getElementById('aiSlaBar');
-        var lbl      = document.getElementById('aiSlaLabel');
         if (bar) { bar.style.width = used+'%'; bar.style.background = barColor; }
         if (lbl) { lbl.textContent = used+'% utilisé'; lbl.style.color = barColor; }
+      } else {
+        if (bar) { bar.style.width = '0%'; bar.style.background = '#cbd5e1'; }
+        if (lbl) { lbl.textContent = 'SLA indisponible'; lbl.style.color = 'var(--t4)'; }
       }
 
       if (content) content.classList.remove('d-none');
     })
-    .catch(function() {
+    .catch(function(err) {
       if (loading) loading.classList.add('d-none');
-      if (error)   error.classList.remove('d-none');
+      if (error) {
+        error.querySelector('p')?.textContent = 'Service IA indisponible — ' + (err.message || 'répondez manuellement.');
+        error.classList.remove('d-none');
+      }
     });
   }
 

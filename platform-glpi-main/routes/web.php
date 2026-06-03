@@ -12,6 +12,8 @@ use App\Http\Middleware\CheckRole;
 use App\Http\Controllers\GlpiApiController;
 use App\Http\Controllers\DecisionEngineController;
 use App\Http\Controllers\SupportApiProxyController;
+use App\Http\Controllers\SupportTroubleshootingWizardController;
+use App\Http\Controllers\ConversationSnippetController;
 
 // ==================== NOTIFICATIONS ====================
 Route::middleware('auth')->group(function () {
@@ -80,12 +82,17 @@ Route::middleware(['auth', 'force.password.change', CheckRole::class.':super_adm
     })->name('visual-ai');
 
 Route::middleware(['auth', 'force.password.change', CheckRole::class.':super_admin'])
+    ->get('/visual-ai/troubleshooting-wizard', function () {
+        return view('support.troubleshooting-wizard');
+    })->name('visual-ai.troubleshooting-wizard');
+
+Route::middleware(['auth', 'force.password.change', CheckRole::class.':super_admin'])
     ->get('/decision-engine', function () {
-        return view('support.decision-engine');
+        return view('super-admin.super-admin-decision-engine');
     })->name('decision-engine.runtime');
 
 // ==================== SUPER ADMIN ====================
-Route::middleware(['auth', CheckRole::class.':super_admin'])
+Route::middleware(['auth', CheckRole::class.':super_admin', 'check.active.user'])
     ->prefix('super-admin')->name('super-admin.')->group(function () {
 
     Route::get('/', [SuperAdminController::class, 'dashboard'])->name('dashboard');
@@ -162,6 +169,12 @@ Route::middleware(['auth', CheckRole::class.':super_admin'])
     Route::get('/decision-engine', [DecisionEngineController::class, 'index'])->name('decision-engine');
     Route::get('/decision-engine/tickets', [DecisionEngineController::class, 'tickets'])->name('decision-engine.tickets');
     Route::get('/decision-engine/tickets/{id}', [DecisionEngineController::class, 'ticketDetail'])->name('decision-engine.ticket');
+    Route::get('/decision-engine/stats', [DecisionEngineController::class, 'stats'])->name('decision-engine.stats');
+    Route::get('/decision-engine/decisions', [DecisionEngineController::class, 'decisions'])->name('decision-engine.decisions');
+    Route::get('/decision-engine/decisions/{ticketId}', [DecisionEngineController::class, 'decisions'])->name('decision-engine.decision');
+    Route::post('/decision-engine/analyze', [DecisionEngineController::class, 'analyze'])->name('decision-engine.analyze');
+    Route::post('/decision-engine/analyze-text', [DecisionEngineController::class, 'analyzeText'])->name('decision-engine.analyzeText');
+    Route::get('/decision-engine/outcomes-docs', [DecisionEngineController::class, 'outcomesDocs'])->name('decision-engine.outcomes-docs');
 
     // Voice Calls
     Route::get('/voice-calls', function () {
@@ -195,7 +208,7 @@ Route::middleware(['auth', CheckRole::class.':super_admin'])
 });
 
 // ==================== ADMIN ====================
-Route::middleware(['auth', 'force.password.change', CheckRole::class.':admin', 'check.profile.complete'])
+Route::middleware(['auth', 'force.password.change', CheckRole::class.':admin', 'check.active.user', 'check.profile.complete'])
     ->prefix('admin')->name('admin.')->group(function () {
 
     Route::get('/', [AdminController::class, 'dashboard'])->name('dashboard');
@@ -205,7 +218,7 @@ Route::middleware(['auth', 'force.password.change', CheckRole::class.':admin', '
     Route::get('/clients', [AdminController::class, 'clients'])->name('clients');
     Route::get('/clients/{id}', [AdminController::class, 'showClient'])->name('clients.show');
     Route::post('/tickets/{id}/assign', [AdminController::class, 'assignTicket'])->name('tickets.assign');
-    Route::get('/urgent-tickets', [AdminController::class, 'urgentTickets'])->name('urgent-tickets');
+    Route::get('/urgent-tickets', [AdminController::class, 'urgentTicketsList'])->name('urgent-tickets');
     Route::get('/user-settings', [AdminController::class, 'userSettings'])->name('user-settings');
     Route::post('/clients/{id}/type', [AdminController::class, 'updateClientType'])->name('clients.type');
     Route::get('/clients/{id}/tickets', [AdminController::class, 'clientTickets'])->name('clients.tickets');
@@ -242,8 +255,6 @@ Route::middleware(['auth', 'force.password.change', CheckRole::class.':admin', '
     Route::get('/api/escalations/{id}', [SuperAdminController::class, 'getEscalationDetail'])->name('escalations.detail');
     Route::post('/api/escalations/{id}/resolve', [SuperAdminController::class, 'resolveEscalation'])->name('escalations.resolve');
 
-    // Decision Engine
-    Route::get('/decision-engine', [DecisionEngineController::class, 'index'])->name('decision-engine');
 
     // RAG is super_admin only
 });
@@ -326,6 +337,13 @@ Route::prefix('api/v1/glpi')->group(function () {
 // Blade pages use the same /api/v1/... endpoint paths as the React frontend.
 // Laravel keeps session auth/CSRF locally and forwards API calls to FastAPI.
 Route::middleware('auth')->prefix('api/v1')->group(function () {
+    Route::post('/visual-ai/troubleshooting/wizard', [SupportTroubleshootingWizardController::class, 'generate']);
+
+    Route::get('/conversations/automation/snippets', [ConversationSnippetController::class, 'index']);
+    Route::post('/conversations/automation/snippets', [ConversationSnippetController::class, 'store']);
+    Route::patch('/conversations/automation/snippets/{id}', [ConversationSnippetController::class, 'update']);
+    Route::delete('/conversations/automation/snippets/{id}', [ConversationSnippetController::class, 'destroy']);
+
     Route::match(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], '/{path?}', SupportApiProxyController::class)
         ->where('path', '.*');
 });

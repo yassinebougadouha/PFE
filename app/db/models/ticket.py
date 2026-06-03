@@ -18,18 +18,18 @@ class Ticket(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     subject: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[TicketStatus] = mapped_column(
-        Enum(TicketStatus, name="ticket_status", create_constraint=True),
+        Enum(TicketStatus, name="ticket_status", native_enum=False, create_constraint=True),
         default=TicketStatus.OPEN,
         nullable=False,
         index=True,
     )
     priority: Mapped[TicketPriority] = mapped_column(
-        Enum(TicketPriority, name="ticket_priority", create_constraint=True),
+        Enum(TicketPriority, name="ticket_priority", native_enum=False, create_constraint=True),
         default=TicketPriority.MEDIUM,
         nullable=False,
     )
     channel_source: Mapped[ChannelType] = mapped_column(
-        Enum(ChannelType, name="channel_type", create_constraint=True, create_type=False),
+        Enum(ChannelType, name="channel_type", native_enum=False, create_constraint=True, create_type=False),
         default=ChannelType.TICKET,
         nullable=False,
     )

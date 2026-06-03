@@ -1863,8 +1863,16 @@ function loadPastConversations() {
     headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
                 'Accept': 'application/json' }
   })
-  .then(function(r) { return r.json(); })
+  .then(function(r) { 
+    if (!r.ok && r.status === 503) {
+      throw new Error('Service de chat indisponible. Veuillez réessayer plus tard.');
+    }
+    return r.json(); 
+  })
   .then(function(data) {
+    if (data.error) {
+      throw new Error(data.error || 'Erreur lors du chargement des conversations');
+    }
     var list = document.getElementById('sideList');
     if (!list || !data.conversations) return;
     list.innerHTML = '';
@@ -1889,7 +1897,13 @@ function loadPastConversations() {
       list.appendChild(item);
     });
   })
-  .catch(function(e) { console.warn('loadPastConversations error', e); });
+  .catch(function(e) { 
+    console.warn('loadPastConversations error', e);
+    var list = document.getElementById('sideList');
+    if (list) {
+      list.innerHTML = '<div style="padding:12px;text-align:center;"><p style="font-size:12px;color:#888;">Service indisponible</p></div>';
+    }
+  });
 }
 
 // Menu action functions
@@ -1971,8 +1985,16 @@ function loadConversation(convId) {
     headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
                 'Accept': 'application/json' }
   })
-  .then(function(r) { return r.json(); })
+  .then(function(r) { 
+    if (!r.ok && r.status === 503) {
+      throw new Error('Service de chat indisponible. Veuillez réessayer plus tard.');
+    }
+    return r.json(); 
+  })
   .then(function(data) {
+    if (data.error) {
+      throw new Error(data.error);
+    }
     var msgs = document.getElementById('chatMsgs');
     msgs.innerHTML = '';
     var list = Array.isArray(data) ? data : (data.messages || []);
@@ -1985,7 +2007,13 @@ function loadConversation(convId) {
     var item = document.querySelector('.ci[data-id="' + convId + '"]');
     if (item) item.classList.add('active');
   })
-  .catch(function(e) { console.warn('loadConversation error', e); });
+  .catch(function(e) { 
+    console.warn('loadConversation error', e);
+    var msgs = document.getElementById('chatMsgs');
+    if (msgs) {
+      msgs.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;text-align:center;color:#888;"><div><p style="margin:0;font-size:14px;">❌ Service indisponible</p><p style="margin:8px 0 0;font-size:12px;">Veuillez réessayer plus tard</p></div></div>';
+    }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', function() {

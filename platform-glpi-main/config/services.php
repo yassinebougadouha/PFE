@@ -4,6 +4,7 @@ return [
 
 'whatsapp' => [
     'qr_bridge_url' => env('VITE_QR_BRIDGE_URL', 'http://localhost:8602/qr'),
+    'internal_bridge_url' => env('WHATSAPP_BRIDGE_URL', 'http://host.docker.internal:8602'),
 ],
 
 'support_api' => [
